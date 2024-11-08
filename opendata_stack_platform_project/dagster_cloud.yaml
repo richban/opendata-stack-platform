@@ -1,0 +1,4 @@
+locations:
+  - location_name: opendata_stack_platform
+    code_source:
+      module_name: opendata_stack_platform.definitions
