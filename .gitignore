@@ -102,3 +102,4 @@ __pypackages__/
 staticfiles/
 media/
 *.duckdb
+.ruff_cache
