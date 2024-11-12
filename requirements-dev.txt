@@ -5,4 +5,5 @@ awscli==1.34.21
 awscli-local==0.22.0
 streamlit
 ipykernel
+jupysql
 python-dotenv
