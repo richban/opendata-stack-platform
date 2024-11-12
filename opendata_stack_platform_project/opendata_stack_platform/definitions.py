@@ -9,6 +9,7 @@ from dagster_aws.s3 import S3Resource
 from opendata_stack_platform.resources.polars_csv_io_manager import (
     PolarsCSVIOManager,
 )
+from opendata_stack_platform.resources import duckdb_resource
 from opendata_stack_platform.graphs import (
     graph_calculation_climate_impact,
     dynamic_graph_calculation_climate_impact,
@@ -99,6 +100,7 @@ defs = Definitions(
         "polars_csv_io_manager": polars_resource,
         "mem_io_manager": mem_io_manager,
         "s3": s3_resource,
+        "duckdb_resource": duckdb_resource
     },
     jobs=[
         graph_calculation_climate_impact_job,
