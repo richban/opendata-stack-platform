@@ -15,7 +15,7 @@ from opendata_stack_platform.dlt.sources.yellow_taxi_trip import yellow_taxi_tri
 
 if __name__ == "__main__":
     dlt_pipeline = dlt.pipeline(
-        pipeline_name="yellow_taxi_pipeline",
+        pipeline_name="yellow_taxi_trip_pipeline",
         destination=dlt.destinations.duckdb("../data/nyc_database.duckdb"),
         dataset_name="yellow_taxi_trip_raw",
         dev_mode=True,
