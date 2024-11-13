@@ -29,9 +29,7 @@ def derived_asset_from_source(portfolio_real_assets: pl.LazyFrame) -> pl.DataFra
     return filtered_df.collect()
 
 
-@asset(
-    partitions_def=monthly_partition
-)
+@asset(partitions_def=monthly_partition)
 def taxi_trips_file(context: AssetExecutionContext, s3: S3Resource) -> None:
     """
     The raw parquet files for the taxi trips dataset. Sourced from the NYC Open Data portal.
@@ -44,7 +42,9 @@ def taxi_trips_file(context: AssetExecutionContext, s3: S3Resource) -> None:
     s3_bucket = constants.BUCKET
 
     # Logging the start of the download process
-    context.log.info(f"Starting download for partition: {partition_to_fetch} from {url}")
+    context.log.info(
+        f"Starting download for partition: {partition_to_fetch} from {url}"
+    )
 
     try:
         # Download the file
@@ -53,30 +53,36 @@ def taxi_trips_file(context: AssetExecutionContext, s3: S3Resource) -> None:
 
         # Calculate file size in MiB
         file_size_mib = len(response.content) / (1024 * 1024)
-        context.log.info(f"Downloaded data for {partition_to_fetch}, size: {file_size_mib:.2f} MiB")
+        context.log.info(
+            f"Downloaded data for {partition_to_fetch}, size: {file_size_mib:.2f} MiB"
+        )
 
         # Upload the file to S3
-        s3.get_client().put_object(
-            Bucket=s3_bucket,
-            Key=s3_key,
-            Body=response.content
-        )
+        s3.get_client().put_object(Bucket=s3_bucket, Key=s3_key, Body=response.content)
 
         context.log.info(f"Successfully uploaded {s3_key} to bucket {s3_bucket}")
 
     except requests.exceptions.RequestException as e:
-        context.log.error(f"Failed to download file for partition {partition_to_fetch} from {url}: {e}")
-        raise Failure(f"Download error for partition {partition_to_fetch}: {str(e)}") from e
+        context.log.error(
+            f"Failed to download file for partition {partition_to_fetch} from {url}: {e}"
+        )
+        raise Failure(
+            f"Download error for partition {partition_to_fetch}: {str(e)}"
+        ) from e
 
     except (BotoCoreError, ClientError) as e:
-        context.log.error(f"Failed to upload file to S3 for partition {partition_to_fetch}, key {s3_key}: {e}")
-        raise Failure(f"S3 upload error for partition {partition_to_fetch}: {str(e)}") from e
+        context.log.error(
+            f"Failed to upload file to S3 for partition {partition_to_fetch}, key {s3_key}: {e}"
+        )
+        raise Failure(
+            f"S3 upload error for partition {partition_to_fetch}: {str(e)}"
+        ) from e
 
 
 @asset
 def taxi_zones_file(s3: S3Resource) -> None:
     """
-      The raw CSV file for the taxi zones dataset. Sourced from the NYC Open Data portal.
+    The raw CSV file for the taxi zones dataset. Sourced from the NYC Open Data portal.
     """
     raw_taxi_zones = requests.get(
         "https://data.cityofnewyork.us/api/views/755u-8jsi/rows.csv?accessType=DOWNLOAD"
@@ -85,7 +91,5 @@ def taxi_zones_file(s3: S3Resource) -> None:
     s3_key = constants.TAXI_ZONES_FILE_PATH
 
     s3.get_client().put_object(
-        Bucket=constants.BUCKET,
-        Key=s3_key,
-        Body=raw_taxi_zones.content
+        Bucket=constants.BUCKET, Key=s3_key, Body=raw_taxi_zones.content
     )

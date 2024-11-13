@@ -108,7 +108,6 @@ core_defs = Definitions(
         "s3": s3_resource,
         "duckdb_resource": duckdb_resource,
         "dlt": DagsterDltResource(),
-
     },
     jobs=[
         graph_calculation_climate_impact_job,
@@ -116,4 +115,3 @@ core_defs = Definitions(
         dynamic_sensor_job,
     ],
 )
-

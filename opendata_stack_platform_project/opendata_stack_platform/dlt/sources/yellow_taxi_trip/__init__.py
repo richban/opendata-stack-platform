@@ -12,9 +12,7 @@ TAXI_TRIPS_TEMPLATE_FILE_PATH = "raw/yellow_taxi_trips/taxi_trips_{}.parquet"
 
 
 @dlt.source(name="yellow_taxi_trip")
-def yellow_taxi_trip(
-    partition: Optional[str] = None
-) -> DltSource:
+def yellow_taxi_trip(partition: Optional[str] = None) -> DltSource:
     """Source for yellow taxi trips data based on a specific file path format."""
 
     raw_files = filesystem(
