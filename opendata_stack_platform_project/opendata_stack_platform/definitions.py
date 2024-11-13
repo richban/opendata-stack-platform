@@ -1,6 +1,7 @@
 from dagster import (
     Definitions,
     load_assets_from_package_module,
+    load_assets_from_modules,
     EnvVar,
     mem_io_manager,
     in_process_executor,
@@ -17,7 +18,11 @@ from opendata_stack_platform.graphs import (
 )
 from opendata_stack_platform.sensors import make_s3_sensor
 from opendata_stack_platform import assets
+from dagster_embedded_elt.dlt import DagsterDltResource
 
+from opendata_stack_platform.dlt import assets as dlt_assets
+
+dlt_assets = load_assets_from_modules([dlt_assets])
 core_assets = load_assets_from_package_module(assets, group_name="core")
 
 # Resource config for interacting with MinIO or S3
@@ -32,6 +37,7 @@ storage_options = {
 
 
 all_assets = [
+    *dlt_assets,
     *core_assets,
     assets.core.source_portfolio_asset,
 ]
@@ -93,14 +99,16 @@ dynamic_sensor_job = dynamic_sensor_graph_calculation_climate_impact.to_job(
 )
 
 
-defs = Definitions(
+core_defs = Definitions(
     assets=all_assets,
     sensors=[make_s3_sensor(dynamic_sensor_job)],
     resources={
         "polars_csv_io_manager": polars_resource,
         "mem_io_manager": mem_io_manager,
         "s3": s3_resource,
-        "duckdb_resource": duckdb_resource
+        "duckdb_resource": duckdb_resource,
+        "dlt": DagsterDltResource(),
+
     },
     jobs=[
         graph_calculation_climate_impact_job,
@@ -108,3 +116,4 @@ defs = Definitions(
         dynamic_sensor_job,
     ],
 )
+
