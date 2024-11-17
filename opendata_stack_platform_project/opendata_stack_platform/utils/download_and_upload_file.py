@@ -24,11 +24,15 @@ def download_and_upload_file(
 
     # Generate the URL and S3 key
     url = f"https://d37ci6vzurychx.cloudfront.net/trip-data/{dataset_type}_tripdata_{partition_to_fetch}.parquet"
-    s3_key = constants.TAXI_TRIPS_RAW_KEY_TEMPLATE.format(dataset_type=dataset_type, partition=partition_to_fetch)
+    s3_key = constants.TAXI_TRIPS_RAW_KEY_TEMPLATE.format(
+        dataset_type=dataset_type, partition=partition_to_fetch
+    )
     s3_bucket = constants.BUCKET
 
     # Logging the start of the download process
-    context.log.info(f"Starting download for {dataset_type} trips, partition: {partition_to_fetch} from {url}")
+    context.log.info(
+        f"Starting download for {dataset_type} trips, partition: {partition_to_fetch} from {url}"
+    )
 
     try:
         # Download the file
@@ -37,16 +41,28 @@ def download_and_upload_file(
 
         # Calculate file size in MiB
         file_size_mib = len(response.content) / (1024 * 1024)
-        context.log.info(f"Downloaded {dataset_type} data for {partition_to_fetch}, size: {file_size_mib:.2f} MiB")
+        context.log.info(
+            f"Downloaded {dataset_type} data for {partition_to_fetch}, size: {file_size_mib:.2f} MiB"
+        )
 
         # Upload the file to S3
         s3.get_client().put_object(Bucket=s3_bucket, Key=s3_key, Body=response.content)
-        context.log.info(f"Successfully uploaded {s3_key} to bucket {s3_bucket} for {dataset_type} trips")
+        context.log.info(
+            f"Successfully uploaded {s3_key} to bucket {s3_bucket} for {dataset_type} trips"
+        )
 
     except requests.exceptions.RequestException as e:
-        context.log.error(f"Failed to download {dataset_type} file for partition {partition_to_fetch} from {url}: {e}")
-        raise Failure(f"Download error for {dataset_type} partition {partition_to_fetch}: {str(e)}") from e
+        context.log.error(
+            f"Failed to download {dataset_type} file for partition {partition_to_fetch} from {url}: {e}"
+        )
+        raise Failure(
+            f"Download error for {dataset_type} partition {partition_to_fetch}: {str(e)}"
+        ) from e
 
     except (BotoCoreError, ClientError) as e:
-        context.log.error(f"Failed to upload {dataset_type} file to S3 for partition {partition_to_fetch}, key {s3_key}: {e}")
-        raise Failure(f"S3 upload error for {dataset_type} partition {partition_to_fetch}: {str(e)}") from e
+        context.log.error(
+            f"Failed to upload {dataset_type} file to S3 for partition {partition_to_fetch}, key {s3_key}: {e}"
+        )
+        raise Failure(
+            f"S3 upload error for {dataset_type} partition {partition_to_fetch}: {str(e)}"
+        ) from e
