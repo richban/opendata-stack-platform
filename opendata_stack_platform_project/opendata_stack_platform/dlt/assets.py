@@ -6,7 +6,7 @@ from dagster_embedded_elt.dlt import (
     DagsterDltTranslator,
 )
 import dlt
-from opendata_stack_platform.dlt.sources.yellow_taxi_trip import (
+from opendata_stack_platform.dlt.sources.taxi_trip import (
     taxi_trip_source,
 )
 from opendata_stack_platform.partitions import monthly_partition
