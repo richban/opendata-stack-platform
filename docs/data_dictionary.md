@@ -1,6 +1,24 @@
 # Datasets & Data Dictionary
 
-### NYC Taxi Data
+## Estimated Dataset Size
+
+1. Monthly Data:
+    * Yellow Taxi:
+        * A single month’s dataset typically ranges from 1-2 GB in compressed Parquet format.
+        * Contains 10-15 million rows on average per month.
+    * Green Taxi:
+        * A single month’s dataset is smaller, ranging from 100-500 MB in Parquet format.
+        * Contains 1-3 million rows per month.
+    * FHV (For-Hire Vehicles):
+        * For high-volume services like Uber/Lyft, the data size can be 3-5 GB per month, depending on the number of trips.
+        * Shared rides and additional columns can increase the data size.
+2. Yearly Data:
+    * Aggregated yearly data for Yellow Taxi can be 15-25 GB in compressed format.
+    * Green Taxi yearly data is smaller, approximately 2-5 GB.
+    * FHV yearly data can be 40+ GB, depending on trip volumes.
+
+
+## NYC Taxi Data Dictionary
 
 The project integrates the following datasets, sourced from NYC’s Open Data portal:
 
