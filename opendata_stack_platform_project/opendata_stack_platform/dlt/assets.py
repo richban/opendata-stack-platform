@@ -39,7 +39,7 @@ def create_taxi_trip_bronz_asset(dataset_type: str, deps_asset_key: str):
             pipeline_name=f"{dataset_type}_taxi_trip_bronz_pipeline",
             destination=dlt.destinations.duckdb("../data/nyc_database.duckdb"),
             dataset_name=f"{dataset_type}_taxi_trip_bronz",
-            dev_mode=True,
+            dev_mode=False,
             progress="log",
         ),
         name=f"{dataset_type}_taxi_trip_bronz",
@@ -52,11 +52,13 @@ def create_taxi_trip_bronz_asset(dataset_type: str, deps_asset_key: str):
     def dagster_taxi_trip_bronz_asset(
         context: AssetExecutionContext, dlt: DagsterDltResource
     ):
-        partition_key = context.partition_key[:-3]
+        context.log.info(
+            f"dataset_type: {dataset_type} partition_key: {context.partition_key}"
+        )
         yield from dlt.run(
             context=context,
             dlt_source=taxi_trip_source(
-                dataset_type=dataset_type, partition_key=partition_key
+                dataset_type=dataset_type, partition_key=context.partition_key
             ),
         )
 
