@@ -2,14 +2,37 @@ from typing import Iterator
 from dlt.sources.filesystem import FileItemDict
 from pyarrow import parquet as pq
 import dlt
-import pyarrow
+import pyarrow as pa
+from typing import Optional
+from datetime import datetime, date
 
+def add_partition_column(batch: pa.RecordBatch, partition_key: str) -> pa.RecordBatch:
+    """
+    adds a new column with the partition key to the given recordbatch.
+
+    args:
+        batch (pa.RecordBatch): the original recordbatch.
+        partition_key (str): the partition key to add as a new column.
+    returns:
+        pa.RecordBatch: the recordbatch with the new column added.
+    """
+    # Convert YYYY-MM-DD string to datetime.date first
+    partition_date = datetime.strptime(partition_key, "%Y-%m-%d").date()
+    # Convert to days since epoch (1970-01-01)
+    epoch = date(1970, 1, 1)
+    days_since_epoch = (partition_date - epoch).days
+
+    # Create an array of the same value repeated for the length of the batch
+    date_array = pa.array([days_since_epoch] * len(batch), type=pa.date32())
+    new_batch = batch.append_column("date_partition", date_array)
+    return new_batch
 
 @dlt.transformer()
 def read_parquet_custom(
     items: Iterator[FileItemDict],
+    partition_key: Optional[str] = None,
     batch_size: int = 64_000,
-) -> Iterator[pyarrow.RecordBatch]:
+) -> Iterator[pa.RecordBatch]:
     """
     Reads Parquet file content and enriches it with file metadata using PyArrow RecordBatch.
 
@@ -21,22 +44,11 @@ def read_parquet_custom(
         pyarrow.RecordBatch: Enriched RecordBatch with metadata.
     """
     for file_obj in items:
-        file_name = file_obj["file_name"]
         with file_obj.open() as f:
             parquet_file = pq.ParquetFile(f)
-
             # Iterate over RecordBatch objects
             for batch in parquet_file.iter_batches(batch_size=batch_size):
-                # Create a new column for metadata
-                new_column = pyarrow.array([file_name] * len(batch))
-
                 # Create a new RecordBatch with the existing columns and the new column
-                batch_with_metadata = pyarrow.RecordBatch.from_arrays(
-                    batch.columns + [new_column],
-                    schema=batch.schema.append(
-                        pyarrow.field("file_name", new_column.type)
-                    ),
-                )
-
+                batch_with_metadata = add_partition_column(batch, partition_key)
                 # Yield the enriched RecordBatch
                 yield batch_with_metadata

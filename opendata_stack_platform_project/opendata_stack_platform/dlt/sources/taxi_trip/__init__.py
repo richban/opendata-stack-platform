@@ -23,9 +23,6 @@ def taxi_trip_source(
         dataset_type (str): The type of taxi dataset ("yellow", "green", "fhvhv").
         partition_key (Optional[str]): Optional partition key (YYYY-MM-DD) to filter files
     """
-    # YYYY-MM-DD to YYYY-MM
-    partition_key = partition_key[:-3] if partition_key else None
-
     if dataset_type not in {"yellow", "green", "fhvhv"}:
         raise ValueError("dataset_type must be one of 'yellow', 'green', or 'fhvhv'.")
 
@@ -40,11 +37,12 @@ def taxi_trip_source(
 
     # Apply partition filter if provided
     if partition_key:
-        raw_files.add_filter(lambda item: partition_key in item["file_name"])
+        # YYYY-MM-DD to YYYY-MM
+        raw_files.add_filter(lambda item: partition_key[:-3] in item["file_name"])
 
     # Create a pipeline with filesystem and read_parquet
-    filesystem_pipe = raw_files | read_parquet_custom().with_name(
-        f"{dataset_type}_taxi_trip_bronz"
+    filesystem_pipe = raw_files | read_parquet_custom(partition_key=partition_key).with_name(
+        f"{dataset_type}_taxi_trip_bronze"
     )
 
     return filesystem_pipe
