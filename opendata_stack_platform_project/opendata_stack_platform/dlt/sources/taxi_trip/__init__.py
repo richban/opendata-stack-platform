@@ -50,9 +50,9 @@ def taxi_trip_source(
 
 if __name__ == "__main__":
     dlt_pipeline = dlt.pipeline(
-        pipeline_name="green_taxi_trip_bronz_pipeline",
+        pipeline_name="green_taxi_trip_bronze_pipeline",
         destination=dlt.destinations.duckdb("../data/nyc_database.duckdb"),
-        dataset_name="green_taxi_trip_bronz",
+        dataset_name="green_taxi_trip_bronze",
         dev_mode=True,
         progress="log",
     )

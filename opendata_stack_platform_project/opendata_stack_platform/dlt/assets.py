@@ -19,13 +19,13 @@ class TaxiTripDagsterDltTranslator(DagsterDltTranslator):
 
     def get_asset_key(self, resource: DagsterDltResource) -> AssetKey:
         """Overrides asset key to be the dlt resource name."""
-        return AssetKey(f"{self.dataset_type}_taxi_trip_bronz")
+        return AssetKey(f"{self.dataset_type}_taxi_trip_bronze")
 
     def get_deps_asset_keys(self, resource: DagsterDltResource) -> Iterable[AssetKey]:
         yield AssetKey(self.deps_asset_key)
 
 
-def create_taxi_trip_bronz_asset(dataset_type: str, deps_asset_key: str):
+def create_taxi_trip_bronze_asset(dataset_type: str, deps_asset_key: str):
     """
     Creates a DLT asset definition for the specified dataset type.
 
@@ -36,20 +36,20 @@ def create_taxi_trip_bronz_asset(dataset_type: str, deps_asset_key: str):
     @dlt_assets(
         dlt_source=taxi_trip_source(dataset_type=dataset_type),
         dlt_pipeline=dlt.pipeline(
-            pipeline_name=f"{dataset_type}_taxi_trip_bronz_pipeline",
+            pipeline_name=f"{dataset_type}_taxi_trip_bronze_pipeline",
             destination=dlt.destinations.duckdb("../data/nyc_database.duckdb"),
-            dataset_name=f"{dataset_type}_taxi_trip_bronz",
+            dataset_name=f"{dataset_type}_taxi_trip_bronze",
             dev_mode=False,
             progress="log",
         ),
-        name=f"{dataset_type}_taxi_trip_bronz",
+        name=f"{dataset_type}_taxi_trip_bronze",
         group_name="dlt_assets",
         dagster_dlt_translator=TaxiTripDagsterDltTranslator(
             dataset_type, deps_asset_key
         ),
         partitions_def=monthly_partition,
     )
-    def dagster_taxi_trip_bronz_asset(
+    def dagster_taxi_trip_bronze_asset(
         context: AssetExecutionContext, dlt: DagsterDltResource
     ):
         context.log.info(
@@ -62,16 +62,16 @@ def create_taxi_trip_bronz_asset(dataset_type: str, deps_asset_key: str):
             ),
         )
 
-    return dagster_taxi_trip_bronz_asset
+    return dagster_taxi_trip_bronze_asset
 
 
 # Define assets for each dataset type
-dagster_yellow_taxi_trip_bronze_assets = create_taxi_trip_bronz_asset(
+dagster_yellow_taxi_trip_bronze_assets = create_taxi_trip_bronze_asset(
     dataset_type="yellow", deps_asset_key="yellow_taxi_trip_raw"
 )
-dagster_green_taxi_trip_bronze_assets = create_taxi_trip_bronz_asset(
+dagster_green_taxi_trip_bronze_assets = create_taxi_trip_bronze_asset(
     dataset_type="green", deps_asset_key="green_taxi_trip_raw"
 )
-dagster_fhv_taxi_trip_bronze_assets = create_taxi_trip_bronz_asset(
+dagster_fhv_taxi_trip_bronze_assets = create_taxi_trip_bronze_asset(
     dataset_type="fhvhv", deps_asset_key="fhvhv_trip_raw"
 )
