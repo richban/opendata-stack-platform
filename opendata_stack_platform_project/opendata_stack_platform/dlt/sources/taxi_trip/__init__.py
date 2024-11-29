@@ -5,7 +5,6 @@ from opendata_stack_platform.dlt.sources.taxi_trip.utils import read_parquet_cus
 import dlt
 from dlt.sources.filesystem import (
     filesystem,
-    read_parquet,
 )
 from dlt.extract.source import DltSource
 
@@ -41,9 +40,9 @@ def taxi_trip_source(
         raw_files.add_filter(lambda item: partition_key[:-3] in item["file_name"])
 
     # Create a pipeline with filesystem and read_parquet
-    filesystem_pipe = raw_files | read_parquet_custom(partition_key=partition_key).with_name(
-        f"{dataset_type}_taxi_trip_bronze"
-    )
+    filesystem_pipe = raw_files | read_parquet_custom(
+        partition_key=partition_key
+    ).with_name(f"{dataset_type}_taxi_trip_bronze")
 
     return filesystem_pipe
 

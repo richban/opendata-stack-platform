@@ -6,6 +6,7 @@ import pyarrow as pa
 from typing import Optional
 from datetime import datetime, date
 
+
 def add_partition_column(batch: pa.RecordBatch, partition_key: str) -> pa.RecordBatch:
     """
     adds a new column with the partition key to the given recordbatch.
@@ -26,6 +27,7 @@ def add_partition_column(batch: pa.RecordBatch, partition_key: str) -> pa.Record
     date_array = pa.array([days_since_epoch] * len(batch), type=pa.date32())
     new_batch = batch.append_column("date_partition", date_array)
     return new_batch
+
 
 @dlt.transformer()
 def read_parquet_custom(
