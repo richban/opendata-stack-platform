@@ -1,6 +1,9 @@
 opendata_stack_platform_dbt:
-  target: dev
+  target: "{{ env_var('DBT_TARGET', 'personal') }}"
   outputs:
-    dev:
+    local:
+      type: duckdb
+      path: ../data/nyc_database.duckdb
+    personal:
       type: duckdb
       path: ../data/nyc_database.duckdb
