@@ -1,0 +1,6 @@
+opendata_stack_platform_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../data/nyc_database.duckdb
