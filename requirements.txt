@@ -13,3 +13,4 @@ boto3==1.34.20
 duckdb==1.1.3
 dbt-core==1.8.4
 dbt-duckdb==1.8.4
+dagster-dbt==0.25.3
