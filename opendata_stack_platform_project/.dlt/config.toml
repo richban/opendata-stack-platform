@@ -1,0 +1,13 @@
+[runtime]
+log_level="WARNING"  # the system log level of dlt
+dlthub_telemetry = false
+
+[sources.taxi_trip]
+bucket_url = "s3://datalake"
+
+[sources.filesystem]
+bucket_url = "s3://datalake"
+
+[normalize.parquet_normalizer]
+add_dlt_load_id = true
+add_dlt_id = true
