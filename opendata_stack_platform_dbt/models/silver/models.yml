@@ -1,0 +1,9 @@
+version: 2
+
+models:
+  - name: green_taxi_trip_silver
+    description: "Processed green taxi trip data at silver layer"
+    schema: taxi_trip_silver
+    meta:
+      dagster:
+        asset_key: ["green_taxi_trip_silver"]
