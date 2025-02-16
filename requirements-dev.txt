@@ -1,4 +1,4 @@
-pre-commit==3.7.1
+pre-commit==4.1.0
 ruff==0.5.3
 streamlit
 ipykernel
