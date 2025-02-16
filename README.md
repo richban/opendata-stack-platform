@@ -2,27 +2,51 @@
 
 ## Overview
 
+### Objective
+
+Build a modern data analytics and machine learning platform that provides a scalable foundation for ingesting, transforming, and analyzing data. Using NYC taxi trip data as a practical example, this platform demonstrates how to build robust data pipelines with modern tooling.
+
+### Scope
+
+The solution covers the full data lifecycle—from extraction of raw datasets available on NYC’s Open Data portal, through transformation and storage, to advanced analytics and visualization. The system is designed as a Work In Progress (WIP) that will evolve through iterative enhancements.
+
 ### Business Process
 
 #### Process Being Measured
 Taxi and For-Hire Vehicle trips in NYC, segmented by Yellow Taxi, Green Taxi, and FHV data.
 
 #### Goals
-- Facilitate granular analysis across different taxi types.
-- Track trip performance, service coverage, and revenue.
-- Compare trip patterns between Yellow Taxi, Green Taxi, and FHV.
 
-#### Business Value
-- **TLC Operations**: Evaluate service performance by fleet type.
-- **City Planning**: Insights into urban mobility and congestion patterns.
-- **Taxi Companies**: Optimize fleet allocation and identify underserved areas.
-- **FHV Companies**: Improve shared-ride services and evaluate market coverage.
+- Build a scalable data platform that enables rapid analytics development
+- Implement robust data pipelines with built-in quality checks and monitoring
+- Demonstrate end-to-end ML workflows from data ingestion to model deployment
+- Create reproducible analytics that drive data-informed decision making
+- Showcase modern data stack integration patterns and best practices
+
+#### Platform Value
+
+- **Technical Excellence**:
+  - Production-ready data pipeline architecture
+  - Scalable infrastructure patterns
+  - Modern data stack integration examples
+  - CI/CD and testing best practices
+- **Business Intelligence**:
+  - Advanced analytics workflows
+  - ML-ready data foundations
+  - Customizable reporting
 
 #### Target Audience
-- NYC Taxi and Limousine Commission
-- Yellow Taxi and Green Taxi operators
-- FHV companies (e.g., Uber, Lyft)
-- Urban policymakers and transportation analysts
+
+- **Engineering Leaders**:
+  - CTOs and Technical Directors
+  - Data Engineering Leads
+  - ML Engineering Teams
+  - Platform Architects
+- **Business Stakeholders**:
+  - Data Analytics Teams
+  - Product Managers
+  - Business Intelligence Teams
+  - Domain Experts
 
 ---
 
