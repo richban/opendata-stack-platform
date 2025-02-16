@@ -1,5 +1,5 @@
 pre-commit==4.1.0
-ruff==0.5.3
+ruff==0.9.6
 streamlit
 ipykernel
 jupysql
