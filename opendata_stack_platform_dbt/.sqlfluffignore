@@ -1,0 +1,8 @@
+target/
+dbt_packages/
+macros/
+logs/
+.pytest_cache/
+.git/
+*.yml
+*.yaml
