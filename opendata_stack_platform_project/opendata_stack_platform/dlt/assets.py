@@ -6,9 +6,8 @@ from dagster_embedded_elt.dlt import (
     DagsterDltTranslator,
 )
 import dlt
-from opendata_stack_platform.dlt.sources.taxi_trip import (
-    taxi_trip_source,
-)
+from opendata_stack_platform.dlt.sources.taxi_trip import taxi_trip_source
+from opendata_stack_platform.dlt.taxi_trip_pipeline import create_taxi_trip_pipeline
 from opendata_stack_platform.partitions import monthly_partition
 
 
@@ -35,31 +34,25 @@ def create_taxi_trip_bronze_asset(dataset_type: str, deps_asset_key: str):
 
     @dlt_assets(
         dlt_source=taxi_trip_source(dataset_type=dataset_type),
-        dlt_pipeline=dlt.pipeline(
-            pipeline_name=f"{dataset_type}_taxi_trip_bronze_pipeline",
-            destination=dlt.destinations.duckdb("../data/nyc_database.duckdb"),
-            dataset_name=f"{dataset_type}_taxi_trip_bronze",
-            dev_mode=False,
-            progress="log",
-        ),
+        dlt_pipeline=create_taxi_trip_pipeline(dataset_type),
         name=f"{dataset_type}_taxi_trip_bronze",
         group_name="dlt_assets",
-        dagster_dlt_translator=TaxiTripDagsterDltTranslator(
-            dataset_type, deps_asset_key
-        ),
+        dagster_dlt_translator=TaxiTripDagsterDltTranslator(dataset_type, deps_asset_key),
         partitions_def=monthly_partition,
     )
     def dagster_taxi_trip_bronze_asset(
-        context: AssetExecutionContext, dlt: DagsterDltResource
+        context: AssetExecutionContext, dlt_resource: DagsterDltResource
     ):
         context.log.info(
             f"dataset_type: {dataset_type} partition_key: {context.partition_key}"
         )
-        yield from dlt.run(
+
+        # Run pipeline with merge config from source
+        yield from dlt_resource.run(
             context=context,
             dlt_source=taxi_trip_source(
                 dataset_type=dataset_type, partition_key=context.partition_key
-            ),
+            )
         )
 
     return dagster_taxi_trip_bronze_asset

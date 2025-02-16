@@ -25,7 +25,7 @@ def add_partition_column(batch: pa.RecordBatch, partition_key: str) -> pa.Record
 
     # Create an array of the same value repeated for the length of the batch
     date_array = pa.array([days_since_epoch] * len(batch), type=pa.date32())
-    new_batch = batch.append_column("date_partition", date_array)
+    new_batch = batch.append_column("partition_key", date_array)
     return new_batch
 
 

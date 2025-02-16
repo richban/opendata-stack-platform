@@ -112,7 +112,7 @@ core_defs = Definitions(
         "mem_io_manager": mem_io_manager,
         "s3": s3_resource,
         "duckdb_resource": duckdb_resource,
-        "dlt": DagsterDltResource(),
+        "dlt_resource": DagsterDltResource(),
         "dbt": dbt_resource,
     },
     jobs=[
