@@ -78,7 +78,7 @@ def dbt_partitioned_models(
     context.log.info(f"partition_key: {context.partition_key}")
     # Pass the partition date directly to dbt
     dbt_vars = {
-        "date_partition": context.partition_key,
+        "partition_key": context.partition_key,
     }
     args = ["build", "--vars", json.dumps(dbt_vars)]
 
