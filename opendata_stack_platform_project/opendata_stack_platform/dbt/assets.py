@@ -12,11 +12,50 @@ from opendata_stack_platform.dbt.resources import opendata_stack_platform_dbt_pr
 
 
 class DbtConfig(dg.Config):
+    """Configuration class for DBT execution.
+
+    Attributes:
+        full_refresh (bool): Flag to perform a full refresh of DBT models.
+    """
     full_refresh: bool = False
 
 
 class CustomDagsterDbtTranslator(DagsterDbtTranslator):
+    """Custom translator for DBT resources to Dagster assets.
+    
+    This class extends DagsterDbtTranslator to provide custom logic for:
+    - Grouping DBT resources
+    - Generating asset keys
+    - Adding metadata to assets
+
+    The translator helps organize DBT resources (models, sources, snapshots) in Dagster's
+    asset-based data orchestration system with custom grouping, flexible asset key generation,
+    and enhanced metadata for better observability.
+    """
+
     def get_group_name(self, dbt_resource_props: Mapping[str, Any]) -> Optional[str]:
+        """Determine the group name for a DBT resource.
+        
+        Args:
+            dbt_resource_props: A mapping containing DBT resource properties.
+            
+        Returns:
+            str | None: The group name for the resource. Returns 'snapshots' for snapshot resources,
+                       concatenated asset path for other resources, or 'default' if no path exists.
+        
+        Examples:
+            >>> # For a snapshot resource
+            >>> get_group_name({"resource_type": "snapshot"})
+            'snapshots'
+            
+            >>> # For a model with fqn ["my_project", "marketing", "users", "final_table"]
+            >>> get_group_name({"resource_type": "model", "fqn": ["my_project", "marketing", "users", "final_table"]})
+            'marketing_users'
+            
+            >>> # For a model with no path
+            >>> get_group_name({"resource_type": "model", "fqn": ["my_project"]})
+            'default'
+        """
         if dbt_resource_props["resource_type"] == "snapshot":
             return "snapshots"
         # Same logic that sets the custom schema in macros/get_custom_schema.sql
@@ -26,6 +65,39 @@ class CustomDagsterDbtTranslator(DagsterDbtTranslator):
         return "default"
 
     def get_asset_key(self, dbt_resource_props: Mapping[str, Any]) -> dg.AssetKey:
+        """Generate an asset key for a DBT resource.
+        
+        Args:
+            dbt_resource_props: A mapping containing DBT resource properties.
+            
+        Returns:
+            AssetKey: A Dagster asset key. For source resources with meta.dagster.asset_key defined,
+                     uses that value. Otherwise, constructs a key from database, schema, and name.
+        
+        Examples:
+            >>> # For a regular model
+            >>> get_asset_key({
+            ...     "resource_type": "model",
+            ...     "database": "prod",
+            ...     "schema": "marketing",
+            ...     "name": "users"
+            ... })
+            AssetKey(["prod", "marketing", "users"])
+            
+            >>> # For a source with custom asset key in meta
+            >>> get_asset_key({
+            ...     "resource_type": "source",
+            ...     "database": "prod",
+            ...     "schema": "raw",
+            ...     "name": "users",
+            ...     "meta": {
+            ...         "dagster": {
+            ...             "asset_key": ["external", "users_source"]
+            ...         }
+            ...     }
+            ... })
+            AssetKey(["external", "users_source"])
+        """
         resource_database = dbt_resource_props["database"]
         resource_schema = dbt_resource_props["schema"]
         resource_name = dbt_resource_props["name"]
@@ -43,6 +115,40 @@ class CustomDagsterDbtTranslator(DagsterDbtTranslator):
         return dg.AssetKey([resource_database, resource_schema, resource_name])
 
     def get_metadata(self, dbt_resource_props: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Generate metadata for a DBT resource.
+        
+        Args:
+            dbt_resource_props: A mapping containing DBT resource properties.
+            
+        Returns:
+            dict: A mapping containing metadata. For model resources, includes a URL constructed
+                 from the schema and name. Combines this with parent class metadata.
+        
+        Examples:
+            >>> # For a DBT model
+            >>> get_metadata({
+            ...     "resource_type": "model",
+            ...     "schema": "marketing",
+            ...     "name": "users"
+            ... })
+            {
+                # Parent class metadata
+                ...,
+                # Custom URL metadata
+                "url": MetadataValue.url("MARKETING/table/USERS")
+            }
+            
+            >>> # For a non-model resource (e.g., source)
+            >>> get_metadata({
+            ...     "resource_type": "source",
+            ...     "schema": "raw",
+            ...     "name": "users"
+            ... })
+            {
+                # Only parent class metadata
+                ...
+            }
+        """
         url_metadata = {}
         if dbt_resource_props["resource_type"] == "model":
             url_metadata = {
@@ -75,6 +181,44 @@ class CustomDagsterDbtTranslator(DagsterDbtTranslator):
 def dbt_partitioned_models(
     context: dg.AssetExecutionContext, dbt: DbtCliResource, config: DbtConfig
 ):
+    """Execute DBT models with monthly partitioning in Dagster.
+
+    This function integrates DBT models with Dagster's asset system, providing:
+    - Monthly partitioning of data processing
+    - Code reference tracking for better observability
+    - Single-run backfill policy for efficient historical processing
+    - Partition-aware variable passing to DBT
+    
+    The function executes 'dbt build' with partition-specific variables,
+    allowing DBT models to process data for specific time periods.
+    
+    Args:
+        context: Dagster execution context containing partition information
+                and logging capabilities
+        dbt: DBT CLI resource for executing DBT commands
+        config: Configuration object with full_refresh option
+    
+    Yields:
+        Generator yielding DBT CLI execution results with:
+        - Row count information
+        - Column metadata
+        - Streaming output for real-time logging
+    
+    Example Usage:
+        >>> # Regular incremental build for a partition
+        >>> dbt_partitioned_models(context, dbt, DbtConfig(full_refresh=False))
+        # Executes: dbt build --vars '{"partition_key": "2024-01"}'
+        
+        >>> # Full refresh build
+        >>> dbt_partitioned_models(context, dbt, DbtConfig(full_refresh=True))
+        # Executes: dbt build --full-refresh
+    
+    Notes:
+        - Uses CustomDagsterDbtTranslator for asset organization
+        - Enables code references for better debugging and lineage tracking
+        - Implements single-run backfill for efficient historical processing
+        - Partition key is passed to DBT as a variable for time-based filtering
+    """
     context.log.info(f"partition_key: {context.partition_key}")
     # Pass the partition date directly to dbt
     dbt_vars = {
