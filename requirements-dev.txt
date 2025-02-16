@@ -1,7 +1,7 @@
 pre-commit==4.1.0
-ruff==0.5.3
-streamlit
-ipykernel
-jupysql
-python-dotenv
-sqlfluff-templater-dbt
+ruff==0.9.6
+streamlit==1.42.0
+ipykernel==6.29.5
+jupysql==0.10.17
+python-dotenv==1.0.1
+sqlfluff-templater-dbt==3.3.1
