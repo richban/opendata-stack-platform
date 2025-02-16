@@ -6,9 +6,18 @@ setup(
     install_requires=[
         "dagster",
         "dagster-cloud",
+        "dagster-dbt",
+        "dagster-embedded-elt",
+        "dagster-polars",
+        "dagster-aws",
+        "dagster-duckdb",
         "boto3",
         "pandas",
         "matplotlib",
+        "polars",
+        "dbt-core",
+        "dbt-duckdb",
+        "duckdb",
     ],
     extras_require={"dev": ["dagster-webserver", "pytest"]},
 )

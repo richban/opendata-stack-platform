@@ -1,0 +1,12 @@
+version: 2
+
+sources:
+  - name: taxi_trips_bronze
+    description: "Raw taxi trip data from NYC Open Data portal"
+    schema: green_taxi_trip_bronze
+    tables:
+      - name: green_taxi_trip_bronze
+        description: "Green taxi trip data at bronze layer"
+        meta:
+          dagster:
+            asset_key: ["green_taxi_trip_bronze"]

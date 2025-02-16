@@ -21,8 +21,12 @@ from opendata_stack_platform import assets
 from dagster_embedded_elt.dlt import DagsterDltResource
 
 from opendata_stack_platform.dlt import assets as dlt_assets
+from opendata_stack_platform.dbt import assets as dbt_assets
+from opendata_stack_platform.dbt.resources import dbt_resource
+
 
 dlt_assets = load_assets_from_modules([dlt_assets])
+dbt_assets = load_assets_from_modules([dbt_assets])
 core_assets = load_assets_from_package_module(assets, group_name="core")
 
 # Resource config for interacting with MinIO or S3
@@ -38,6 +42,7 @@ storage_options = {
 
 all_assets = [
     *dlt_assets,
+    *dbt_assets,
     *core_assets,
     assets.core.source_portfolio_asset,
 ]
@@ -107,7 +112,8 @@ core_defs = Definitions(
         "mem_io_manager": mem_io_manager,
         "s3": s3_resource,
         "duckdb_resource": duckdb_resource,
-        "dlt": DagsterDltResource(),
+        "dlt_resource": DagsterDltResource(),
+        "dbt": dbt_resource,
     },
     jobs=[
         graph_calculation_climate_impact_job,

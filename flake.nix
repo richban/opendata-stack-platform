@@ -20,8 +20,6 @@
           packages = with pkgs; [
             python311
             postgresql
-            minio
-            minio-client
             gdal
           ];
         };
