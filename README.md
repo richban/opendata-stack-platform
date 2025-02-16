@@ -1,4 +1,4 @@
-#  Opendata Stack: 🚕🗽  📊  NYC TLC Trip Record Data 
+#  Opendata Stack: 🚕🗽  📊  NYC TLC Trip Record Data
 
 ## Overview
 
@@ -46,4 +46,3 @@ The primary goal of this project is to develop a **modern data stack pipeline** 
 - **Extract & Load**: [**dlt**](https://github.com/dlt-hub/dlt) To extract raw data from NYC’s Open Data portal (Yellow, Green, and HVFHV taxi trips) and load it into the data warehouse.
 - **Transform**: [**dbt**](https://github.com/dbt-labs/dbt-core) For building modular, reusable, and version-controlled transformations in SQL, enabling robust data modeling of NYC Taxi data.
 - **Business Intelligence (BI)**: [**Evidence**](https://github.com/evidence-dev/evidence) A modern, lightweight BI tool for creating visually appealing and shareable reports about taxi trips and trends.
-

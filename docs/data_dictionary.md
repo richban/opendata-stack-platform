@@ -64,7 +64,7 @@ Source: https://www.nyc.gov/assets/tlc/downloads/pdf/data_dictionary_trip_record
 
 ## Green Taxi Trip Records
 
-Green Trip Data refers to the trip records of New York City's green taxis, officially known as Street Hail Liveries (SHLs). Introduced in August 2013, these taxis were established to enhance transportation services in areas less frequented by the traditional yellow cabs. Green taxis are authorized to pick up passengers through street hails and prearranged rides in the boroughs outside of Manhattan's central business district and above West 110th Street and East 96th Street in Manhattan. 
+Green Trip Data refers to the trip records of New York City's green taxis, officially known as Street Hail Liveries (SHLs). Introduced in August 2013, these taxis were established to enhance transportation services in areas less frequented by the traditional yellow cabs. Green taxis are authorized to pick up passengers through street hails and prearranged rides in the boroughs outside of Manhattan's central business district and above West 110th Street and East 96th Street in Manhattan.
 
 Source: https://www.nyc.gov/assets/tlc/downloads/pdf/data_dictionary_trip_records_green.pdf
 
@@ -123,5 +123,3 @@ Source: https://www.nyc.gov/assets/tlc/downloads/pdf/data_dictionary_trip_record
 | **access_a_ride_flag**   | Indicates if the trip was administered on behalf of the Metropolitan Transportation Authority (MTA). (Y/N)                                                                |
 | **wav_request_flag**     | Indicates if the passenger requested a wheelchair-accessible vehicle (WAV). (Y/N)                                                                                        |
 | **wav_match_flag**       | Indicates if the trip occurred in a wheelchair-accessible vehicle (WAV). (Y/N)                                                                                           |
-
-

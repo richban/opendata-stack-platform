@@ -1,11 +1,12 @@
 from collections.abc import Iterable
+
 from dagster import AssetExecutionContext, AssetKey
 from dagster_embedded_elt.dlt import (
     DagsterDltResource,
-    dlt_assets,
     DagsterDltTranslator,
+    dlt_assets,
 )
-import dlt
+
 from opendata_stack_platform.dlt.sources.taxi_trip import taxi_trip_source
 from opendata_stack_platform.dlt.taxi_trip_pipeline import create_taxi_trip_pipeline
 from opendata_stack_platform.partitions import monthly_partition
@@ -52,7 +53,7 @@ def create_taxi_trip_bronze_asset(dataset_type: str, deps_asset_key: str):
             context=context,
             dlt_source=taxi_trip_source(
                 dataset_type=dataset_type, partition_key=context.partition_key
-            )
+            ),
         )
 
     return dagster_taxi_trip_bronze_asset

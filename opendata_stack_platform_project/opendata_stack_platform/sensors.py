@@ -1,13 +1,13 @@
 from dagster import (
     RunConfig,
     RunRequest,
+    SensorDefinition,
+    SensorEvaluationContext,
     SkipReason,
     sensor,
-    SensorEvaluationContext,
-    SensorDefinition,
 )
-from dagster_aws.s3.sensor import get_s3_keys
 from dagster_aws.s3 import S3Resource
+from dagster_aws.s3.sensor import get_s3_keys
 
 AWS_S3_BUCKET = "datalake"
 AWS_S3_OBJECT_PREFIX = "raw"
@@ -32,9 +32,7 @@ def make_s3_sensor(job) -> SensorDefinition:
                 run_key=key,
                 run_config=RunConfig(
                     ops={
-                        "input_split_portfolio_to_rows": {
-                            "inputs": {"df": {"key": key}}
-                        }
+                        "input_split_portfolio_to_rows": {"inputs": {"df": {"key": key}}}
                     }
                 ),
             )

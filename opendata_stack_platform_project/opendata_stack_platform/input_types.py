@@ -1,9 +1,10 @@
+from typing import Union
+
 from dagster import (
-    dagster_type_loader,
     DagsterTypeLoaderContext,
+    dagster_type_loader,
     usable_as_dagster_type,
 )
-from typing import Dict, Union
 
 
 @dagster_type_loader(
@@ -14,7 +15,7 @@ from typing import Dict, Union
     }
 )
 def asset_loader(
-    _context: DagsterTypeLoaderContext, config: Dict[str, Union[int, float, str]]
+    _context: DagsterTypeLoaderContext, config: dict[str, Union[int, float, str]]
 ) -> "Asset":
     """
     Loader function for the Asset class.

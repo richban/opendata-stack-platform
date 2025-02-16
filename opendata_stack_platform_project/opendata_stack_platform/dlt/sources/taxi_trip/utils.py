@@ -1,10 +1,12 @@
-from typing import Iterator
-from dlt.sources.filesystem import FileItemDict
-from pyarrow import parquet as pq
+from collections.abc import Iterator
+from datetime import date, datetime, timezone
+from typing import Optional
+
 import dlt
 import pyarrow as pa
-from typing import Optional
-from datetime import datetime, date
+
+from dlt.sources.filesystem import FileItemDict
+from pyarrow import parquet as pq
 
 
 def add_partition_column(batch: pa.RecordBatch, partition_key: str) -> pa.RecordBatch:
@@ -18,7 +20,9 @@ def add_partition_column(batch: pa.RecordBatch, partition_key: str) -> pa.Record
         pa.RecordBatch: the recordbatch with the new column added.
     """
     # Convert YYYY-MM-DD string to datetime.date first
-    partition_date = datetime.strptime(partition_key, "%Y-%m-%d").date()
+    partition_date = (
+        datetime.strptime(partition_key, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
+    )
     # Convert to days since epoch (1970-01-01)
     epoch = date(1970, 1, 1)
     days_since_epoch = (partition_date - epoch).days
@@ -36,11 +40,12 @@ def read_parquet_custom(
     batch_size: int = 64_000,
 ) -> Iterator[pa.RecordBatch]:
     """
-    Reads Parquet file content and enriches it with file metadata using PyArrow RecordBatch.
+    Reads Parquet file content and enriches it with file metadata using
+        PyArrow RecordBatch.
 
     Args:
         items (Iterator[FileItemDict]): Iterator over file items.
-        batch_size (int, optional): Maximum number of rows to process per batch, defaults to 64K.
+        batch_size (int, optional): Maximum number of rows to process per batch
 
     Yields:
         pyarrow.RecordBatch: Enriched RecordBatch with metadata.

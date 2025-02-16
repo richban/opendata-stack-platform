@@ -10,12 +10,13 @@ NOTE:
 """
 
 import dlt
+
 from opendata_stack_platform.dlt.sources.taxi_trip import taxi_trip_source
 
 
 def create_taxi_trip_pipeline(dataset_type: str):
     """Create a pipeline for taxi trip data.
-    
+
     Args:
         dataset_type: Type of taxi data (yellow, green, fhvhv)
     """
@@ -23,10 +24,12 @@ def create_taxi_trip_pipeline(dataset_type: str):
     if dataset_type in ["yellow", "green"]:
         natural_key = (
             "VendorID",
-            "tpep_pickup_datetime" if dataset_type == "yellow" else "lpep_pickup_datetime",
+            "tpep_pickup_datetime"
+            if dataset_type == "yellow"
+            else "lpep_pickup_datetime",
             "PULocationID",
             "DOLocationID",
-            "partition_key"
+            "partition_key",
         )
     else:  # fhvhv
         natural_key = (
@@ -34,7 +37,7 @@ def create_taxi_trip_pipeline(dataset_type: str):
             "pickup_datetime",
             "PULocationID",
             "DOLocationID",
-            "partition_key"
+            "partition_key",
         )
 
     pipeline = dlt.pipeline(
@@ -59,4 +62,4 @@ if __name__ == "__main__":
     load_info = pipeline.run(
         taxi_trip_source(dataset_type="green", partition_key="2024-02")
     )
-    print(load_info)
+    print(load_info)  # noqa: T201

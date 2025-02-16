@@ -1,29 +1,26 @@
 from dagster import (
     Definitions,
-    load_assets_from_package_module,
-    load_assets_from_modules,
     EnvVar,
-    mem_io_manager,
     in_process_executor,
+    load_assets_from_modules,
+    load_assets_from_package_module,
+    mem_io_manager,
 )
 from dagster_aws.s3 import S3Resource
-from opendata_stack_platform.resources.polars_csv_io_manager import (
-    PolarsCSVIOManager,
-)
-from opendata_stack_platform.resources import duckdb_resource
-from opendata_stack_platform.graphs import (
-    graph_calculation_climate_impact,
-    dynamic_graph_calculation_climate_impact,
-    dynamic_sensor_graph_calculation_climate_impact,
-)
-from opendata_stack_platform.sensors import make_s3_sensor
-from opendata_stack_platform import assets
 from dagster_embedded_elt.dlt import DagsterDltResource
 
-from opendata_stack_platform.dlt import assets as dlt_assets
+from opendata_stack_platform import assets
 from opendata_stack_platform.dbt import assets as dbt_assets
 from opendata_stack_platform.dbt.resources import dbt_resource
-
+from opendata_stack_platform.dlt import assets as dlt_assets
+from opendata_stack_platform.graphs import (
+    dynamic_graph_calculation_climate_impact,
+    dynamic_sensor_graph_calculation_climate_impact,
+    graph_calculation_climate_impact,
+)
+from opendata_stack_platform.resources import duckdb_resource
+from opendata_stack_platform.resources.polars_csv_io_manager import PolarsCSVIOManager
+from opendata_stack_platform.sensors import make_s3_sensor
 
 dlt_assets = load_assets_from_modules([dlt_assets])
 dbt_assets = load_assets_from_modules([dbt_assets])

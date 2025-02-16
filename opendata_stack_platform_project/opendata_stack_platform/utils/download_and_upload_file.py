@@ -1,7 +1,9 @@
-from dagster import AssetExecutionContext, Failure
-from botocore.exceptions import BotoCoreError, ClientError
-from dagster_aws.s3 import S3Resource
 import requests
+
+from botocore.exceptions import BotoCoreError, ClientError
+from dagster import AssetExecutionContext, Failure
+from dagster_aws.s3 import S3Resource
+
 from opendata_stack_platform.assets import constants
 
 
@@ -31,7 +33,8 @@ def download_and_upload_file(
 
     # Logging the start of the download process
     context.log.info(
-        f"Starting download for {dataset_type} trips, partition: {partition_to_fetch} from {url}"
+        f"Starting download for {dataset_type} trips, "
+        f"partition: {partition_to_fetch} from {url}"
     )
 
     try:
@@ -42,27 +45,31 @@ def download_and_upload_file(
         # Calculate file size in MiB
         file_size_mib = len(response.content) / (1024 * 1024)
         context.log.info(
-            f"Downloaded {dataset_type} data for {partition_to_fetch}, size: {file_size_mib:.2f} MiB"
+            f"Downloaded {dataset_type} data for {partition_to_fetch}, "
+            f"size: {file_size_mib:.2f} MiB"
         )
 
         # Upload the file to S3
         s3.get_client().put_object(Bucket=s3_bucket, Key=s3_key, Body=response.content)
         context.log.info(
-            f"Successfully uploaded {s3_key} to bucket {s3_bucket} for {dataset_type} trips"
+            f"Successfully uploaded {s3_key} to bucket "
+            f"{s3_bucket} for {dataset_type} trips"
         )
 
     except requests.exceptions.RequestException as e:
         context.log.error(
-            f"Failed to download {dataset_type} file for partition {partition_to_fetch} from {url}: {e}"
+            f"Failed to download {dataset_type} file for partition"
+            f"{partition_to_fetch} from {url}: {e}"
         )
         raise Failure(
-            f"Download error for {dataset_type} partition {partition_to_fetch}: {str(e)}"
+            f"Download error for {dataset_type} partition {partition_to_fetch}: {e!s}"
         ) from e
 
     except (BotoCoreError, ClientError) as e:
         context.log.error(
-            f"Failed to upload {dataset_type} file to S3 for partition {partition_to_fetch}, key {s3_key}: {e}"
+            f"Failed to upload {dataset_type} file to S3 for partition"
+            f"{partition_to_fetch}, key {s3_key}: {e}"
         )
         raise Failure(
-            f"S3 upload error for {dataset_type} partition {partition_to_fetch}: {str(e)}"
+            f"S3 upload error for {dataset_type} partition {partition_to_fetch}: {e!s}"
         ) from e

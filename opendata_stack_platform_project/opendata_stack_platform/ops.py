@@ -1,20 +1,17 @@
-from dagster import (
-    op,
-    OpExecutionContext,
-    Out,
-    DynamicOutput,
-    DynamicOut,
-    In,
-    AssetKey,
-)
-import polars as pl
 import random
-from typing import Dict, Any, List, Generator
+
+from collections.abc import Generator
+from typing import Any
+
+import polars as pl
+
+from dagster import AssetKey, DynamicOut, DynamicOutput, In, OpExecutionContext, Out, op
+
 from opendata_stack_platform.input_types import Asset
 
 
 @op
-def create_asset_from_row(row: Dict[str, Any]) -> Asset:
+def create_asset_from_row(row: dict[str, Any]) -> Asset:
     """Convert each row into an Asset object."""
     return Asset(
         latitude=row["Latitude"],
@@ -32,9 +29,9 @@ def split_portfolio_to_rows(df: pl.DataFrame) -> Generator[DynamicOut, None, Non
 
 
 @op(out=Out(io_manager_key="polars_csv_io_manager"))
-def merge_and_analyze(dfs: List[pl.DataFrame]) -> pl.DataFrame:
+def merge_and_analyze(dfs: list[pl.DataFrame]) -> pl.DataFrame:
     """Merge the results of each row into a single DataFrame."""
-    return pl.concat([df for df in dfs])
+    return pl.concat(list(dfs))
 
 
 @op(out=Out(io_manager_key="mem_io_manager"))
@@ -49,7 +46,7 @@ def calculate_climate_impact(input_asset: Asset) -> pl.DataFrame:
     years = list(range(start_year, end_year + 1))
     asset_value = input_asset.market_value
 
-    # Generate simulated damage values, max capped at 10% of the asset value, increasing with years
+    # Generate simulated damage values, max capped at 10% of the asset value
     damage_values = [
         min(asset_value * (0.05 + 0.001 * (year - start_year)), asset_value * 0.2)
         for year in years
@@ -59,9 +56,9 @@ def calculate_climate_impact(input_asset: Asset) -> pl.DataFrame:
     climate_impact_df = pl.DataFrame(
         {
             "year": years,
-            "warming_level": random.choice(
-                warming_levels
-            ),  # Random warming level selection
+            "warming_level": [
+                random.choice(warming_levels) for _ in years
+            ],  # Random warming level selection
             "latitude": [input_asset.latitude] * len(years),
             "longitude": [input_asset.longitude] * len(years),
             "value": damage_values,
@@ -82,9 +79,7 @@ def add_scenario_column(climate_impact_df: pl.DataFrame) -> pl.DataFrame:
     scenarios = ["Net Zero 2050", "Delayed transition", "Current policies"]
 
     # Randomly assign scenarios to each row
-    scenario_column = [
-        random.choice(scenarios) for _ in range(climate_impact_df.height)
-    ]
+    scenario_column = [random.choice(scenarios) for _ in range(climate_impact_df.height)]
 
     # Add the scenario column to the DataFrame
     climate_impact_df = climate_impact_df.with_columns(

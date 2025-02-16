@@ -1,18 +1,18 @@
-from typing import Union, Dict, Any, Optional
+from typing import Any, Optional, Union
 
 import fsspec
 import polars as pl
 import pyarrow.dataset as ds
-from dagster import InputContext, OutputContext
-from upath import UPath
 
+from dagster import InputContext, OutputContext
 from dagster_polars.io_managers.base import BasePolarsUPathIOManager
+from upath import UPath
 
 
 class PolarsCSVIOManager(BasePolarsUPathIOManager):
     base_dir: Optional[str] = None
     extension: str = ".csv"
-    storage_options: Dict[str, Any] = None
+    storage_options: dict[str, Any] = None
 
     assert BasePolarsUPathIOManager.__doc__ is not None
     __doc__ = (
@@ -81,9 +81,7 @@ class PolarsCSVIOManager(BasePolarsUPathIOManager):
                 format=context.metadata.get("format", "csv"),
                 partitioning=context.metadata.get("partitioning"),
                 partition_base_dir=context.metadata.get("partition_base_dir"),
-                exclude_invalid_files=context.metadata.get(
-                    "exclude_invalid_files", True
-                ),
+                exclude_invalid_files=context.metadata.get("exclude_invalid_files", True),
                 ignore_prefixes=context.metadata.get("ignore_prefixes", [".", "_"]),
             ),
             allow_pyarrow_filter=context.metadata.get("allow_pyarrow_filter", True),
@@ -91,15 +89,18 @@ class PolarsCSVIOManager(BasePolarsUPathIOManager):
 
     def _get_path(self, context: Union[InputContext, OutputContext]) -> "UPath":
         """
-        Determine the path based on the type of context:
-        - Uses `config["key"]` only if the context is an `InputContext`, has no `asset_key`, and has a config with "key".
+        Get the path for a given context.
+
+        Special handling for input contexts:
+        - Uses `config["key"]` only if the context is an `InputContext`, has no
+          `asset_key`, and has a config with "key".
         - Otherwise, defaults to the parent class's path logic.
         """
-        if (
-            isinstance(context, InputContext)
-            and not context.has_asset_key
-            and context.config.get("key")
-        ):
+        is_input = isinstance(context, InputContext)
+        has_no_asset = not context.has_asset_key
+        has_key = context.config.get("key") if is_input else False
+
+        if is_input and has_no_asset and has_key:
             # loading input based on provided input config `key`
             return UPath(self.base_dir, context.config["key"])
 

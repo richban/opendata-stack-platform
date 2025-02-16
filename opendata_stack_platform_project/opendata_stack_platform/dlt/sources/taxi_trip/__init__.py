@@ -1,28 +1,30 @@
+import logging
+
 from typing import Optional
+
+import dlt
+
+from dlt.extract.source import DltSource
+from dlt.sources.filesystem import filesystem
 
 from opendata_stack_platform.assets import constants
 from opendata_stack_platform.dlt.sources.taxi_trip.utils import read_parquet_custom
-import dlt
-from dlt.sources.filesystem import (
-    filesystem,
-)
-from dlt.extract.source import DltSource
 
 BUCKET_URL = "s3://datalake"
 
 
 @dlt.source(name="taxi_trip_source")
-def taxi_trip_source(
-    dataset_type: str, partition_key: Optional[str] = None
-) -> DltSource:
-    """
-    Source for taxi trips data (yellow, green, or FHV) based on a specific file path format.
+def taxi_trip_source(dataset_type: str, partition_key: Optional[str] = None) -> DltSource:
+    """Source for taxi trips data (yellow, green, or FHV) based on file path.
 
     Args:
-        dataset_type (str): The type of taxi dataset ("yellow", "green", "fhvhv").
-        partition_key (Optional[str]): Optional partition key (YYYY-MM-DD) to filter files
+        dataset_type: Type of dataset ('yellow', 'green', or 'fhvhv')
+        partition_key: Optional partition key for filtering data
+
+    Returns:
+        DltSource: A data source for the specified taxi trip type
     """
-    if dataset_type not in {"yellow", "green", "fhvhv"}:
+    if dataset_type not in ["yellow", "green", "fhvhv"]:
         raise ValueError("dataset_type must be one of 'yellow', 'green', or 'fhvhv'.")
 
     # Construct file glob pattern for the dataset type
@@ -48,6 +50,9 @@ def taxi_trip_source(
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+
     dlt_pipeline = dlt.pipeline(
         pipeline_name="green_taxi_trip_bronze_pipeline",
         destination=dlt.destinations.duckdb("../data/nyc_database.duckdb"),
@@ -59,4 +64,4 @@ if __name__ == "__main__":
     load_info = dlt_pipeline.run(
         taxi_trip_source(dataset_type="green", partition_key="2024-01-01")
     )
-    print(load_info)
+    logger.info("Pipeline load info: %s", load_info)

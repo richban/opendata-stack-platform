@@ -1,14 +1,15 @@
-from dagster import AssetSpec, AssetKey, EnvVar, asset, AssetExecutionContext, Failure
-from botocore.exceptions import BotoCoreError, ClientError
-from dagster_aws.s3 import S3Resource
-import requests
 import polars as pl
+import requests
+
+from botocore.exceptions import BotoCoreError, ClientError
+from dagster import AssetExecutionContext, AssetKey, AssetSpec, EnvVar, Failure, asset
+from dagster_aws.s3 import S3Resource
+
 from opendata_stack_platform.assets import constants
 from opendata_stack_platform.partitions import monthly_partition
 from opendata_stack_platform.utils.download_and_upload_file import (
     download_and_upload_file,
 )
-
 
 # Define the source asset and point to the file in your data lake
 source_portfolio_asset = AssetSpec(
@@ -19,34 +20,51 @@ source_portfolio_asset = AssetSpec(
     },
     description=("Contains portfolio of physical assets."),
     group_name="external_assets",
-    # partition_key = MultiPartitionKey({"client_id": "client12345", "year": "2024"})
 ).with_io_manager_key("polars_csv_io_manager")
+
+
+# Define constants
+MIN_VALUE_USD = 100
 
 
 @asset
 def derived_asset_from_source(portfolio_real_assets: pl.LazyFrame) -> pl.DataFrame:
+    """Process the source asset by filtering based on minimum value threshold.
+
+    Takes the portfolio real assets DataFrame and filters out entries below the minimum
+    value threshold defined by MIN_VALUE_USD constant.
+
+    Args:
+        portfolio_real_assets: A LazyFrame containing portfolio asset data with a
+            'Value (USD)' column.
+
+    Returns:
+        pl.DataFrame: A filtered DataFrame containing only assets above the minimum
+            value threshold.
     """
-    Derived asset that takes the source asset (loaded by the I/O manager) and processes it.
-    """
-    filtered_df = portfolio_real_assets.filter(pl.col("Value (USD)") > 100)
+    filtered_df = portfolio_real_assets.filter(pl.col("Value (USD)") > MIN_VALUE_USD)
     return filtered_df.collect()
 
 
 @asset(partitions_def=monthly_partition)
 def taxi_trips_file(context: AssetExecutionContext, s3: S3Resource) -> None:
     """
-    The raw parquet files for the taxi trips dataset. Sourced from the NYC Open Data portal.
+    The raw parquet files for the taxi trips dataset. Sourced from the
+         NYC Open Data portal.
     """
     partition_date_str = context.partition_key
     partition_to_fetch = partition_date_str[:-3]
 
-    url = f"https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{partition_to_fetch}.parquet"
+    url = (
+        "https://d37ci6vzurychx.cloudfront.net/trip-data/"
+        f"yellow_tripdata_{partition_to_fetch}.parquet"
+    )
     s3_key = constants.TAXI_TRIPS_TEMPLATE_FILE_PATH.format(partition_to_fetch)
     s3_bucket = constants.BUCKET
 
     # Logging the start of the download process
     context.log.info(
-        f"Starting download for partition: {partition_to_fetch} from {url}"
+        "Starting download for partition: " f"{partition_to_fetch} from {url}"
     )
 
     try:
@@ -57,7 +75,7 @@ def taxi_trips_file(context: AssetExecutionContext, s3: S3Resource) -> None:
         # Calculate file size in MiB
         file_size_mib = len(response.content) / (1024 * 1024)
         context.log.info(
-            f"Downloaded data for {partition_to_fetch}, size: {file_size_mib:.2f} MiB"
+            "Downloaded data for " f"{partition_to_fetch}, size: {file_size_mib:.2f} MiB"
         )
 
         # Upload the file to S3
@@ -67,19 +85,17 @@ def taxi_trips_file(context: AssetExecutionContext, s3: S3Resource) -> None:
 
     except requests.exceptions.RequestException as e:
         context.log.error(
-            f"Failed to download file for partition {partition_to_fetch} from {url}: {e}"
+            "Failed to download file for partition "
+            f"{partition_to_fetch} from {url}: {e}"
         )
-        raise Failure(
-            f"Download error for partition {partition_to_fetch}: {str(e)}"
-        ) from e
+        raise Failure(f"Download error for partition {partition_to_fetch}: {e!s}") from e
 
     except (BotoCoreError, ClientError) as e:
         context.log.error(
-            f"Failed to upload file to S3 for partition {partition_to_fetch}, key {s3_key}: {e}"
+            "Failed to upload file to S3 for partition "
+            f"{partition_to_fetch}, key {s3_key}: {e}"
         )
-        raise Failure(
-            f"S3 upload error for partition {partition_to_fetch}: {str(e)}"
-        ) from e
+        raise Failure(f"S3 upload error for partition {partition_to_fetch}: {e!s}") from e
 
 
 @asset
@@ -101,7 +117,8 @@ def taxi_zones_file(s3: S3Resource) -> None:
 @asset(partitions_def=monthly_partition)
 def yellow_taxi_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     """
-    The raw parquet files for the yellow taxi trips dataset. Sourced from the NYC Open Data portal.
+    The raw parquet files for the yellow taxi trips dataset. Sourced from the
+        NYC Open Data portal.
     """
     download_and_upload_file(
         context,
@@ -113,7 +130,8 @@ def yellow_taxi_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None
 @asset(partitions_def=monthly_partition)
 def green_taxi_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     """
-    The raw parquet files for the green taxi trips dataset. Sourced from the NYC Open Data portal.
+    The raw parquet files for the green taxi trips dataset. Sourced from the
+        NYC Open Data portal.
     """
     download_and_upload_file(
         context,
@@ -125,7 +143,8 @@ def green_taxi_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
 @asset(partitions_def=monthly_partition)
 def fhvhv_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     """
-    The raw parquet files for the High Volume FHV trips dataset. Sourced from the NYC Open Data portal.
+    The raw parquet files for the High Volume FHV trips dataset. Sourced from
+        the NYC Open Data portal.
     """
     download_and_upload_file(
         context,

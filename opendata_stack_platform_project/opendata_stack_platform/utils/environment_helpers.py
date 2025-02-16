@@ -1,5 +1,6 @@
 import os
 
+
 def get_environment() -> str:
     if os.getenv("DAGSTER_ORGANIZATION", "") == "dev":
         return "DEV"
@@ -17,7 +18,7 @@ def get_dbt_target() -> str:
         str: The dbt target name to use. Will be one of:
             - 'dev' for development environment
             - 'branch_deployment' for branch deployments
-            - 'prod' for production environment 
+            - 'prod' for production environment
             - Value of DBT_TARGET env var (defaults to 'personal') for local development
     """
     env = get_environment()
