@@ -33,7 +33,7 @@ def add_partition_column(batch: pa.RecordBatch, partition_key: str) -> pa.Record
     return new_batch
 
 
-@dlt.transformer()
+@dlt.transformer(standalone=True)
 def read_parquet_custom(
     items: Iterator[FileItemDict],
     partition_key: Optional[str] = None,

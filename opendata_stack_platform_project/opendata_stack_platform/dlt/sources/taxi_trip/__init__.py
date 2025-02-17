@@ -27,6 +27,27 @@ def taxi_trip_source(dataset_type: str, partition_key: Optional[str] = None) -> 
     if dataset_type not in ["yellow", "green", "fhvhv"]:
         raise ValueError("dataset_type must be one of 'yellow', 'green', or 'fhvhv'.")
 
+    # Define natural key based on dataset type, using snake_case for DuckDB
+    if dataset_type in ["yellow", "green"]:
+        pickup_datetime = (
+            "tpep_pickup_datetime" if dataset_type == "yellow" else "lpep_pickup_datetime"
+        )
+        natural_key = (
+            "vendor_id",
+            pickup_datetime,
+            "pu_location_id",
+            "do_location_id",
+            "partition_key",
+        )
+    else:  # fhvhv
+        natural_key = (
+            "hvfhs_license_num",
+            "pickup_datetime",
+            "pu_location_id",
+            "do_location_id",
+            "partition_key",
+        )
+
     # Construct file glob pattern for the dataset type
     file_glob = constants.TAXI_TRIPS_RAW_KEY_TEMPLATE.format(
         dataset_type=dataset_type, partition="*"
@@ -34,19 +55,23 @@ def taxi_trip_source(dataset_type: str, partition_key: Optional[str] = None) -> 
 
     # Initialize the filesystem connector
     raw_files = filesystem(bucket_url=BUCKET_URL, file_glob=file_glob)
-    raw_files.apply_hints(write_disposition="replace")
 
     # Apply partition filter if provided
     if partition_key:
         # YYYY-MM-DD to YYYY-MM
         raw_files.add_filter(lambda item: partition_key[:-3] in item["file_name"])
 
-    # Create a pipeline with filesystem and read_parquet
-    filesystem_pipe = raw_files | read_parquet_custom(
-        partition_key=partition_key
-    ).with_name(f"{dataset_type}_taxi_trip_bronze")
+    # Create source with transformations
+    source = (raw_files | read_parquet_custom(partition_key=partition_key)).with_name(
+        f"{dataset_type}_taxi_trip_bronze"
+    )
 
-    return filesystem_pipe
+    # Apply write configuration hints
+    source.apply_hints(
+        write_disposition="merge", primary_key=natural_key, merge_key=natural_key
+    )
+
+    return source
 
 
 if __name__ == "__main__":
