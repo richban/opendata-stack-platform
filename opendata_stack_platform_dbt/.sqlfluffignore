@@ -6,3 +6,4 @@ logs/
 .git/
 *.yml
 *.yaml
+**/docs/

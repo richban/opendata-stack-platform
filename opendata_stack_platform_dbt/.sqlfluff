@@ -4,7 +4,7 @@ dialect = duckdb
 templater = jinja
 
 # General configuration
-max_line_length = 88
+max_line_length = 120
 indent_unit = space
 tab_space_size = 4
 
