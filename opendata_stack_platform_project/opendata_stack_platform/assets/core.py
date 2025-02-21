@@ -52,14 +52,14 @@ def taxi_trips_file(context: AssetExecutionContext, s3: S3Resource) -> None:
     The raw parquet files for the taxi trips dataset. Sourced from the
          NYC Open Data portal.
     """
-    partition_date_str = context.partition_key
-    partition_to_fetch = partition_date_str[:-3]
+    partition_key = context.partition_key  # YYYY-MM-DD
+    partition_to_fetch = partition_key[:-3]  # YYYY-MM
 
     url = (
         "https://d37ci6vzurychx.cloudfront.net/trip-data/"
         f"yellow_tripdata_{partition_to_fetch}.parquet"
     )
-    s3_key = constants.TAXI_TRIPS_TEMPLATE_FILE_PATH.format(partition_to_fetch)
+    s3_key = constants.TAXI_TRIPS_TEMPLATE_FILE_PATH.format(partition_key)
     s3_bucket = constants.BUCKET
 
     # Logging the start of the download process

@@ -14,20 +14,28 @@ def download_and_upload_file(
 ) -> None:
     """
     Downloads the dataset from the NYC Open Data portal and uploads it to S3.
+    Requires a partition_key in the context in YYYY-MM-DD format, which is used
+    to determine which month's data to download (YYYY-MM).
 
     Args:
-        context: Dagster execution context.
+        context: Dagster execution context containing partition_key (YYYY-MM-DD format).
+                The partition_key is required and used to determine which month's data
+                to download by truncating the day component.
         s3: S3Resource to interact with S3.
         dataset_type: Type of dataset (yellow, green, hvfhv).
-        s3_key_template: S3 key template specific to the dataset type.
+
+    Example:
+        With context.partition_key = "2024-01-01":
+        - Downloads data for January 2024 (2024-01)
+        - Stores with full date in S3 path for consistent partitioning
     """
-    partition_date_str = context.partition_key
-    partition_to_fetch = partition_date_str[:-3]
+    partition_key = context.partition_key  # YYYY-MM-DD
+    partition_to_fetch = partition_key[:-3]  # YYYY-MM
 
     # Generate the URL and S3 key
     url = f"https://d37ci6vzurychx.cloudfront.net/trip-data/{dataset_type}_tripdata_{partition_to_fetch}.parquet"
     s3_key = constants.TAXI_TRIPS_RAW_KEY_TEMPLATE.format(
-        dataset_type=dataset_type, partition=partition_to_fetch
+        dataset_type=dataset_type, partition=partition_key
     )
     s3_bucket = constants.BUCKET
 
@@ -45,7 +53,7 @@ def download_and_upload_file(
         # Calculate file size in MiB
         file_size_mib = len(response.content) / (1024 * 1024)
         context.log.info(
-            f"Downloaded {dataset_type} data for {partition_to_fetch}, "
+            f"Downloaded {dataset_type} data for {partition_key}, "
             f"size: {file_size_mib:.2f} MiB"
         )
 
