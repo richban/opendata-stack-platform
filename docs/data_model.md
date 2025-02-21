@@ -17,7 +17,7 @@ Below is an **entity-by-entity** description of the **NYC Taxi & FHV data wareho
 ## Fact Table
 
 #### `**fact_taxi_trip**`
-- **Purpose**:  
+- **Purpose**:
   This table captures **all trip-related metrics and events** for `Yellow Taxi`, `Green Taxi`, and `High-Volume FHV` (e.g., Uber, Lyft). Each row represents a *single completed trip* from pick-up to drop-off, including financial details (fares, tips, surcharges) and operational flags (e.g., shared rides, wheelchair accessibility). Analysts can use it to measure revenue, trip counts, service usage patterns, and driver payouts.
 
 - **Key Attributes**:
@@ -48,7 +48,7 @@ Below is an **entity-by-entity** description of the **NYC Taxi & FHV data wareho
 ## Dimension Tables
 
 #### `dim_date`
-- **Purpose**:  
+- **Purpose**:
   Provides **calendar-related attributes** (day, month, quarter, year) for any date used in the warehouse. This dimension is central for time-series analysis, enabling grouping of trips by day, month, quarter, and year.
 
 - **Key Attributes**:
@@ -60,7 +60,7 @@ Below is an **entity-by-entity** description of the **NYC Taxi & FHV data wareho
 ---
 
 #### `dim_location`
-- **Purpose**:  
+- **Purpose**:
   Stores **TLC zone** information (e.g., Manhattan – Midtown, Queens – JFK, etc.) for both pickup and drop-off. By centralizing location data, analysts can see which borough or zone a ride starts/ends in, facilitating geographic and zone-based analytics.
 
 - **Key Attributes**:
@@ -73,7 +73,7 @@ Below is an **entity-by-entity** description of the **NYC Taxi & FHV data wareho
 ---
 
 #### `dim_vendor`
-- **Purpose**:  
+- **Purpose**:
   Identifies the **company or provider** of the ride, such as “Verifone,” “Creative Mobile Technologies,” “Uber,” “Lyft,” etc. Helps separate rides by technology provider or brand.
 
 - **Key Attributes**:
@@ -85,7 +85,7 @@ Below is an **entity-by-entity** description of the **NYC Taxi & FHV data wareho
 ---
 
 #### `dim_rate_code`
-- **Purpose**:  
+- **Purpose**:
   Describes **tariff types or negotiated rates** used during the trip (e.g., Standard Rate, JFK Rate, Newark Rate). Useful for analyzing how different rate structures affect fare revenue.
 
 - **Key Attributes**:
@@ -97,7 +97,7 @@ Below is an **entity-by-entity** description of the **NYC Taxi & FHV data wareho
 ---
 
 #### `dim_payment_type`
-- **Purpose**:  
+- **Purpose**:
   Distinguishes **payment methods** (credit card, cash, no-charge, dispute). Allows analysis of passenger behavior regarding payment preferences, tip correlations, and potential fraud or dispute rates.
 
 - **Key Attributes**:
@@ -109,7 +109,7 @@ Below is an **entity-by-entity** description of the **NYC Taxi & FHV data wareho
 ---
 
 #### `dim_trip_type`
-- **Purpose**:  
+- **Purpose**:
   Categorizes whether a **Green Taxi or HVFHV** trip was a **street-hail or dispatch**. While Yellow Taxis are always “hail,” Green Taxis and FHV rides may vary in how they’re initiated. Helps to analyze distribution of dispatch vs. hail requests.
 
 - **Key Attributes**:
@@ -167,7 +167,7 @@ Table dim_vendor {
   vendor_key           bigint     [pk]
   vendor_id            varchar(20) [not null, note: "e.g., 1, 2, HV0003, etc."]
   vendor_name          varchar(100)
-  
+
   // SCD2 columns
   row_effective_date   date
   row_expiration_date  date
@@ -178,7 +178,7 @@ Table dim_rate_code {
   rate_code_key        bigint     [pk]
   rate_code_id         int        [not null, note: "1=Standard,2=JFK,3=Newark,..."]
   rate_code_desc       varchar(100)
-  
+
   // SCD2 columns
   row_effective_date   date
   row_expiration_date  date
@@ -189,7 +189,7 @@ Table dim_payment_type {
   payment_type_key     bigint     [pk]
   payment_type_id      int        [not null, note: "1=Credit,2=Cash,3=No charge, etc."]
   payment_desc         varchar(50)
-  
+
   // SCD2 columns
   row_effective_date   date
   row_expiration_date  date
@@ -200,7 +200,7 @@ Table dim_trip_type {
   trip_type_key        bigint     [pk]
   trip_type_id         int        [not null, note: "1=Street-hail,2=Dispatch (Green)"]
   trip_type_desc       varchar(50)
-  
+
   // SCD2 columns
   row_effective_date   date
   row_expiration_date  date

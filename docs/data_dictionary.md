@@ -34,6 +34,11 @@ The project integrates the following datasets, sourced from NYC’s Open Data po
   - Covers trips from high-volume for-hire vehicle services like Uber, Lyft, and Via.
   - Includes shared ride information, driver payouts, and congestion surcharges.
 
+
+## Reference
+
+- https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page
+
 ## Yellow Taxi Trip Records
 
 Yellow Trip Data represents the trip records of New York City's iconic Yellow Taxis, regulated by the New York City Taxi and Limousine Commission (TLC). These taxis are the only vehicles allowed to respond to street hails across all five boroughs of NYC.

@@ -33,7 +33,6 @@ Taxi and For-Hire Vehicle trips in NYC, segmented by Yellow Taxi, Green Taxi, an
 - **Business Intelligence**:
   - Advanced analytics workflows
   - ML-ready data foundations
-  - Customizable reporting
 
 #### Target Audience
 
@@ -42,6 +41,7 @@ Taxi and For-Hire Vehicle trips in NYC, segmented by Yellow Taxi, Green Taxi, an
   - Data Engineering Leads
   - ML Engineering Teams
   - Platform Architects
+  - Anyone interested in data engineering
 - **Business Stakeholders**:
   - Data Analytics Teams
   - Product Managers
