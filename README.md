@@ -2,6 +2,8 @@
 
 ## Overview
 
+![Open Source Modern Data Stack](./docs/img/opendata-stack-platform-architecture.png)
+
 ### Objective
 
 Build a modern data analytics and machine learning platform that provides a scalable foundation for ingesting, transforming, and analyzing data. Using NYC taxi trip data as a practical example, this platform demonstrates how to build robust data pipelines with modern tooling.
@@ -45,8 +47,6 @@ Taxi and For-Hire Vehicle trips in NYC, segmented by Yellow Taxi, Green Taxi, an
 - **Business Stakeholders**:
   - Data Analytics Teams
   - Product Managers
-  - Business Intelligence Teams
-  - Domain Experts
 
 ---
 
