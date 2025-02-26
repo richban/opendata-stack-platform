@@ -3,7 +3,7 @@
 
 ## Business Process and Grain
 
-**Business Process:** The passenger-transportation workflow for for-hire vehicles, from ride request or hail through drop-off and final payment, capturing operational and financial metrics at each step.
+**Business Process:** Taxi and for-hire vehicle trips from pickup to dropoff, including fare details.
 
 **Grain:** One row per individual trip (the lowest level of detail representing each ride).
 
@@ -16,12 +16,13 @@ Below is an **entity-by-entity** description of the **NYC Taxi & FHV data wareho
 
 ## Fact Table
 
-#### `**fact_taxi_trip**`
+#### `fact_taxi_trip`
 - **Purpose**:
   This table captures **all trip-related metrics and events** for `Yellow Taxi`, `Green Taxi`, and `High-Volume FHV` (e.g., Uber, Lyft). Each row represents a *single completed trip* from pick-up to drop-off, including financial details (fares, tips, surcharges) and operational flags (e.g., shared rides, wheelchair accessibility). Analysts can use it to measure revenue, trip counts, service usage patterns, and driver payouts.
 
 - **Key Attributes**:
   - **date_key_pickup, date_key_dropoff**: Foreign keys to the date dimension indicating when the trip started and ended.
+  - **time_key_pickup, time_key_dropoff**: Foreign keys to the time dimension indicating the time of day for pickup and dropoff.
   - **pu_location_key, do_location_key**: Foreign keys to the location dimension, referencing pickup and drop-off zones.
   - **vendor_key**: Foreign key to the vendor dimension (e.g., Verifone, Creative Mobile Technologies, Lyft/Uber).
   - **rate_code_key**: Foreign key to the rate code dimension (e.g., Standard, JFK, Newark).
@@ -55,20 +56,39 @@ Below is an **entity-by-entity** description of the **NYC Taxi & FHV data wareho
   - **date_key**: Integer surrogate key in `YYYYMMDD` format (e.g., `20250117`).
   - **full_date**: Actual date value (e.g., `2025-01-17`).
   - **day_of_week, day_of_month, day_name, week_of_year, month_number, month_name, quarter_number, year_number**: Various calendar breakdowns.
-  - **row_effective_date, row_expiration_date, current_flag**: Columns for handling Slowly Changing Dimensions (SCD2), if needed.
+
+---
+
+#### `dim_time`
+- **Purpose**:
+  Provides **time-based attributes** for analyzing trip patterns throughout the day. This dimension enables detailed analysis of hourly trends, peak vs. off-peak periods, and time-based service patterns.
+
+- **Key Attributes**:
+  - **time_key**: Integer surrogate key in `HHMMSS` format (e.g., `235959` for 23:59:59).
+  - **hour_24**: 24-hour format hour (0-23).
+  - **hour_12**: 12-hour format hour (1-12).
+  - **minute**: Minute value (0-59).
+  - **second**: Second value (0-59).
+  - **period_of_day**: Named time period (e.g., "Morning Rush", "Evening Rush", "Late Night").
+  - **am_pm_flag**: "AM" or "PM" indicator.
+  - **is_rush_hour**: Boolean flag for rush hour periods.
+  - **is_peak_time**: Boolean flag for peak service times.
 
 ---
 
 #### `dim_location`
 - **Purpose**:
-  Stores **TLC zone** information (e.g., Manhattan – Midtown, Queens – JFK, etc.) for both pickup and drop-off. By centralizing location data, analysts can see which borough or zone a ride starts/ends in, facilitating geographic and zone-based analytics.
+  Stores **TLC zone** information including spatial geometries and attributes for each taxi zone. This dimension enables both geographic lookups for trips and spatial analysis capabilities, allowing analysts to understand trip patterns in relation to zone size, boundaries, and geographic features.
 
 - **Key Attributes**:
   - **location_key**: Surrogate key for location dimension.
-  - **location_id**: Original TLC zone identifier (e.g., 132, 230).
+  - **location_id**: Original TLC zone identifier (matches LocationID in source).
+  - **zone_name**: Zone description (e.g., "JFK Airport," "Upper East Side").
   - **borough**: Borough name (Manhattan, Queens, etc.).
-  - **zone_name**: Zone description (e.g., “JFK Airport,” “Upper East Side”).
-  - **row_effective_date, row_expiration_date, current_flag**: SCD2 columns for tracking zone redefinitions or boundary changes.
+  - **object_id**: Unique identifier for the geographic feature.
+  - **shape_length**: Length of the zone boundary (in coordinate system units).
+  - **shape_area**: Area of the zone (in coordinate system units).
+  - **geometry**: WKT (Well-Known Text) representation of the zone's MULTIPOLYGON geometry.
 
 ---
 
@@ -144,23 +164,29 @@ Table dim_date {
   month_name           varchar
   quarter_number       int
   year_number          int
+}
 
-  // SCD2 columns (optional usage)
-  row_effective_date   date
-  row_expiration_date  date
-  current_flag         char(1)    [default: "Y"]
+Table dim_time {
+  time_key             int        [pk, note: "e.g., 235959 for 23:59:59"]
+  hour_24             int        [not null, note: "0-23"]
+  hour_12             int        [not null, note: "1-12"]
+  minute              int        [not null, note: "0-59"]
+  second              int        [not null, note: "0-59"]
+  period_of_day       varchar(50)
+  am_pm_flag          char(2)
+  is_rush_hour        boolean
+  is_peak_time        boolean
 }
 
 Table dim_location {
   location_key         bigint     [pk]
-  location_id          int        [not null, note: "TLC Zone ID from PULocationID or DOLocationID"]
-  borough              varchar(50)
-  zone_name            varchar(100)
-
-  // SCD2 columns
-  row_effective_date   date
-  row_expiration_date  date
-  current_flag         char(1)    [default: "Y"]
+  location_id          int        [not null, note: "TLC Zone ID from LocationID"]
+  zone_name           varchar(100) [not null, note: "Name of the taxi zone"]
+  borough             varchar(50)
+  object_id           int        [not null, note: "Unique geographic feature ID"]
+  shape_length        decimal    [note: "Length of zone boundary"]
+  shape_area          decimal    [note: "Area of the zone"]
+  geometry            text       [note: "WKT MULTIPOLYGON geometry"]
 }
 
 Table dim_vendor {
@@ -220,6 +246,8 @@ Table fact_taxi_trip {
   //------------------------------
   date_key_pickup      int        [not null, note: "FK to dim_date.date_key"]
   date_key_dropoff     int        [not null, note: "FK to dim_date.date_key"]
+  time_key_pickup      int        [not null, note: "FK to dim_time.time_key"]
+  time_key_dropoff     int        [not null, note: "FK to dim_time.time_key"]
   pu_location_key      bigint     [not null, note: "FK to dim_location.location_key"]
   do_location_key      bigint     [not null, note: "FK to dim_location.location_key"]
   vendor_key           bigint     [not null, note: "FK to dim_vendor.vendor_key"]
@@ -284,6 +312,10 @@ Table fact_taxi_trip {
 // fact_taxi_trip → dim_date
 Ref: fact_taxi_trip.date_key_pickup  > dim_date.date_key
 Ref: fact_taxi_trip.date_key_dropoff > dim_date.date_key
+
+// fact_taxi_trip → dim_time
+Ref: fact_taxi_trip.time_key_pickup  > dim_time.time_key
+Ref: fact_taxi_trip.time_key_dropoff > dim_time.time_key
 
 // fact_taxi_trip → dim_location
 Ref: fact_taxi_trip.pu_location_key  > dim_location.location_key
