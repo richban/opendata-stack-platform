@@ -24,7 +24,7 @@ from opendata_stack_platform.sensors import make_s3_sensor
 
 dlt_assets = load_assets_from_modules([dlt_assets])
 dbt_assets = load_assets_from_modules([dbt_assets])
-core_assets = load_assets_from_package_module(assets, group_name="raw_files")
+core_assets = load_assets_from_package_module(assets)
 
 # Resource config for interacting with MinIO or S3
 storage_options = {
