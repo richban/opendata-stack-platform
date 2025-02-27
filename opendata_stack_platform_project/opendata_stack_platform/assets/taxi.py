@@ -10,6 +10,7 @@ from dagster import (
     asset,
 )
 from dagster_aws.s3 import S3Resource
+from dagster_duckdb import DuckDBResource
 
 from opendata_stack_platform.assets import constants
 from opendata_stack_platform.partitions import monthly_partition
@@ -75,3 +76,25 @@ def fhvhv_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
         s3,
         dataset_type="fhvhv",
     )
+
+
+@asset(
+    deps=["taxi_zones_file"],
+    group_name="ingested_taxi_trip_bronze",
+    compute_kind="DuckDB",
+)
+def taxi_zones(context: AssetExecutionContext, duckdb_resource: DuckDBResource):
+    """The raw taxi zones dataset, loaded into a DuckDB database."""
+    query = f"""
+        create or replace table taxi_zone as (
+            select
+                LocationID as zone_id,
+                zone,
+                borough,
+                the_geom as geometry
+            from '{constants.TAXI_ZONES_FILE_PATH}'
+        );
+    """
+
+    with duckdb_resource.get_connection() as conn:
+        conn.execute(query)

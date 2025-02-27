@@ -22,6 +22,18 @@ class TaxiTripDagsterDltTranslator(DagsterDltTranslator):
         return AssetKey(f"{self.dataset_type}_taxi_trip_bronze")
 
     def get_deps_asset_keys(self, resource: DagsterDltResource) -> Iterable[AssetKey]:
+        """Get the dependent asset keys for this DLT pipeline.
+
+        This method yields the asset keys that this pipeline depends on. In this case,
+        it yields the key specified in deps_asset_key, which represents the raw data
+        source that needs to be processed.
+
+        Args:
+            resource: The DagsterDltResource instance.
+
+        Returns:
+            Iterable[AssetKey]: An iterable containing the dependent asset keys.
+        """
         yield AssetKey(self.deps_asset_key)
 
 
@@ -37,7 +49,7 @@ def create_taxi_trip_bronze_asset(dataset_type: str, deps_asset_key: str):
         dlt_source=taxi_trip_source(dataset_type=dataset_type),
         dlt_pipeline=create_taxi_trip_pipeline(dataset_type),
         name=f"{dataset_type}_taxi_trip_bronze",
-        group_name="dlt_assets",
+        group_name="ingested_taxi_trip_bronze",
         dagster_dlt_translator=TaxiTripDagsterDltTranslator(dataset_type, deps_asset_key),
         partitions_def=monthly_partition,
     )
