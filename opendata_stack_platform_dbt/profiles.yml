@@ -3,7 +3,9 @@ opendata_stack_platform_dbt:
   outputs:
     local:
       type: duckdb
-      path: ../data/nyc_database.duckdb
+      path: "{{ env_var('DUCKDB_DATABASE', '../data/nyc_database.duckdb') }}"
+      threads: 4
     personal:
       type: duckdb
-      path: ../data/nyc_database.duckdb
+      path: "{{ env_var('DUCKDB_DATABASE', '../data/nyc_database.duckdb') }}"
+      threads: 4

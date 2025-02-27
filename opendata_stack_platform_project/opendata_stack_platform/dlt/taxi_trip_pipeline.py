@@ -12,6 +12,7 @@ NOTE:
 import dlt
 
 from opendata_stack_platform.dlt.sources.taxi_trip import taxi_trip_source
+from opendata_stack_platform.utils.paths import get_duckdb_path
 
 
 def create_taxi_trip_pipeline(dataset_type: str):
@@ -23,7 +24,7 @@ def create_taxi_trip_pipeline(dataset_type: str):
     pipeline = dlt.pipeline(
         pipeline_name=f"{dataset_type}_taxi_trip_bronze_pipeline",
         destination=dlt.destinations.duckdb(
-            "../data/nyc_database.duckdb",
+            str(get_duckdb_path()),
             table_name=f"{dataset_type}_taxi_trip_bronze",
         ),
         dataset_name=f"{dataset_type}_taxi_trip_bronze",
