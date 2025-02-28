@@ -13,6 +13,38 @@ from opendata_stack_platform.dlt.sources.taxi_trip.utils import read_parquet_cus
 BUCKET_URL = "s3://datalake"
 
 
+def get_key_columns_for_dataset(dataset_type: str) -> list[str]:
+    """
+    Get the list of columns to use for row hash calculation based on dataset type.
+
+    Args:
+        dataset_type (str): Type of dataset ('yellow', 'green', or 'fhvhv')
+
+    Returns:
+        List[str]: List of column names to use for row hash
+    """
+    if dataset_type not in ["yellow", "green", "fhvhv"]:
+        raise ValueError("dataset_type must be one of 'yellow', 'green', or 'fhvhv'.")
+
+    if dataset_type in ["yellow", "green"]:
+        pickup_datetime = (
+            "tpep_pickup_datetime" if dataset_type == "yellow" else "lpep_pickup_datetime"
+        )
+        return [
+            pickup_datetime,
+            "pu_location_id",
+            "do_location_id",
+            "partition_key",
+        ]
+    else:  # fhvhv
+        return [
+            "pickup_datetime",
+            "pu_location_id",
+            "do_location_id",
+            "partition_key",
+        ]
+
+
 @dlt.source(name="taxi_trip_source")
 def taxi_trip_source(dataset_type: str, partition_key: Optional[str] = None) -> DltSource:
     """Source for taxi trips data (yellow, green, or FHV) based on file path.
@@ -27,26 +59,11 @@ def taxi_trip_source(dataset_type: str, partition_key: Optional[str] = None) -> 
     if dataset_type not in ["yellow", "green", "fhvhv"]:
         raise ValueError("dataset_type must be one of 'yellow', 'green', or 'fhvhv'.")
 
-    # Define natural key based on dataset type, using snake_case for DuckDB
-    if dataset_type in ["yellow", "green"]:
-        pickup_datetime = (
-            "tpep_pickup_datetime" if dataset_type == "yellow" else "lpep_pickup_datetime"
-        )
-        natural_key = (
-            "vendor_id",
-            pickup_datetime,
-            "pu_location_id",
-            "do_location_id",
-            "partition_key",
-        )
-    else:  # fhvhv
-        natural_key = (
-            "hvfhs_license_num",
-            "pickup_datetime",
-            "pu_location_id",
-            "do_location_id",
-            "partition_key",
-        )
+    # Get key columns for row hash from utility function
+    key_columns = get_key_columns_for_dataset(dataset_type)
+
+    # Natural key is always the row hash
+    natural_key = ["row_hash"]
 
     # Construct file glob pattern for the dataset type
     file_glob = constants.TAXI_TRIPS_RAW_KEY_TEMPLATE.format(
@@ -62,9 +79,13 @@ def taxi_trip_source(dataset_type: str, partition_key: Optional[str] = None) -> 
         raw_files.add_filter(lambda item: partition_key[:-3] in item["file_name"])
 
     # Create source with transformations
-    source = (raw_files | read_parquet_custom(partition_key=partition_key)).with_name(
-        f"{dataset_type}_taxi_trip_bronze"
-    )
+    source = (
+        raw_files
+        | read_parquet_custom(
+            partition_key=partition_key,
+            key_columns=key_columns,
+        )
+    ).with_name(f"{dataset_type}_taxi_trip_bronze")
 
     # Apply write configuration hints
     source.apply_hints(
