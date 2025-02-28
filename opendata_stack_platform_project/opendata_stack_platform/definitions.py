@@ -7,7 +7,7 @@ from dagster import (
     mem_io_manager,
 )
 from dagster_aws.s3 import S3Resource
-from dagster_embedded_elt.dlt import DagsterDltResource
+from dagster_dlt import DagsterDltResource
 
 from opendata_stack_platform import assets
 from opendata_stack_platform.dbt import assets as dbt_assets

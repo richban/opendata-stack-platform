@@ -1,7 +1,7 @@
 polars==1.22.0
 dagster==1.10.1
 dagster-webserver==1.10.1
-dagster-embedded-elt==0.26.1
+dagster-dlt==0.26.1
 dagster-polars==0.26.1
 dagster-aws==0.26.1
 dagster-duckdb==0.26.1

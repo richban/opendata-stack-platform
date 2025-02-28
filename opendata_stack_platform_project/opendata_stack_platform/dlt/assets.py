@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 
 from dagster import AssetExecutionContext, AssetKey
-from dagster_embedded_elt.dlt import (
+from dagster_dlt import (
     DagsterDltResource,
     DagsterDltTranslator,
     dlt_assets,
