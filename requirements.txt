@@ -1,4 +1,4 @@
-polars==1.22.0
+polars==1.24.0
 dagster==1.10.1
 dagster-webserver==1.10.1
 dagster-dlt==0.26.1
