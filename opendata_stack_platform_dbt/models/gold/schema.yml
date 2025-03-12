@@ -1,0 +1,316 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: "Date dimension for the NYC Taxi & FHV data warehouse"
+    columns:
+      - name: date_key
+        description: "Surrogate key in YYYYMMDD format (e.g., 20230201 for 2023-02-01)"
+        tests:
+          - unique
+          - not_null
+      - name: full_date
+        description: "Actual date value (e.g., 2023-02-01)"
+        tests:
+          - not_null
+      - name: day_of_week
+        description: "Day of the week (0-6, where 0 is Sunday)"
+      - name: day_of_month
+        description: "Day of the month (1-31)"
+      - name: day_name
+        description: "Name of the day (e.g., Monday, Tuesday)"
+      - name: week_of_year
+        description: "Week of the year (1-53)"
+      - name: month_number
+        description: "Month number (1-12)"
+      - name: month_name
+        description: "Name of the month (e.g., January, February)"
+      - name: quarter_number
+        description: "Quarter of the year (1-4)"
+      - name: year_number
+        description: "Year (e.g., 2023)"
+
+  - name: dim_time
+    description: "Time dimension for the NYC Taxi & FHV data warehouse"
+    columns:
+      - name: time_key
+        description: "Surrogate key in HHMMSS format (e.g., 235959 for 23:59:59)"
+        tests:
+          - unique
+          - not_null
+      - name: hour_24
+        description: "Hour in 24-hour format (0-23)"
+        tests:
+          - not_null
+      - name: hour_12
+        description: "Hour in 12-hour format (1-12)"
+        tests:
+          - not_null
+      - name: minute
+        description: "Minute (0-59)"
+        tests:
+          - not_null
+      - name: second
+        description: "Second (0-59)"
+        tests:
+          - not_null
+      - name: period_of_day
+        description: "Named time period (e.g., Morning Rush, Evening Rush, Late Night)"
+      - name: am_pm_flag
+        description: "AM or PM indicator"
+      - name: is_rush_hour
+        description: "Boolean flag for rush hour periods"
+      - name: is_peak_time
+        description: "Boolean flag for peak service times"
+
+  - name: dim_location
+    description: "Location dimension for NYC taxi zones"
+    columns:
+      - name: location_key
+        description: "Surrogate key for location dimension"
+        tests:
+          - unique
+          - not_null
+      - name: location_id
+        description: "Original TLC zone identifier (matches LocationID in source)"
+        tests:
+          - not_null
+      - name: zone_name
+        description: "Zone description (e.g., JFK Airport, Upper East Side)"
+        tests:
+          - not_null
+      - name: borough
+        description: "Borough name (Manhattan, Queens, etc.)"
+      - name: object_id
+        description: "Unique identifier for the geographic feature"
+      - name: shape_length
+        description: "Length of the zone boundary (in coordinate system units)"
+      - name: shape_area
+        description: "Area of the zone (in coordinate system units)"
+      - name: geometry
+        description: "WKT (Well-Known Text) representation of the zone's MULTIPOLYGON geometry"
+
+  - name: dim_vendor
+    description: "Vendor dimension identifying the company or provider of the ride"
+    columns:
+      - name: vendor_key
+        description: "Surrogate key for vendor dimension"
+        tests:
+          - unique
+          - not_null
+      - name: vendor_id
+        description: "Numeric or alphanumeric code used in source data (e.g., 1, 2, HV0003)"
+        tests:
+          - not_null
+      - name: vendor_name
+        description: "Descriptive name (e.g., Verifone, Uber)"
+      - name: row_effective_date
+        description: "Date when this record became effective (SCD Type 2)"
+      - name: row_expiration_date
+        description: "Date when this record expired (SCD Type 2)"
+      - name: current_flag
+        description: "Flag indicating if this is the current record (Y/N)"
+
+  - name: dim_rate_code
+    description: "Rate code dimension describing tariff types or negotiated rates"
+    columns:
+      - name: rate_code_key
+        description: "Surrogate key for rate code dimension"
+        tests:
+          - unique
+          - not_null
+      - name: rate_code_id
+        description: "Numeric code from source (1 = Standard, 2 = JFK, etc.)"
+        tests:
+          - not_null
+      - name: rate_code_desc
+        description: "Human-readable description (e.g., Standard Rate, JFK, Group Ride)"
+      - name: row_effective_date
+        description: "Date when this record became effective (SCD Type 2)"
+      - name: row_expiration_date
+        description: "Date when this record expired (SCD Type 2)"
+      - name: current_flag
+        description: "Flag indicating if this is the current record (Y/N)"
+
+  - name: dim_payment_type
+    description: "Payment type dimension distinguishing payment methods"
+    columns:
+      - name: payment_type_key
+        description: "Surrogate key for payment type dimension"
+        tests:
+          - unique
+          - not_null
+      - name: payment_type_id
+        description: "Numeric code (1 = Credit card, 2 = Cash, etc.)"
+        tests:
+          - not_null
+      - name: payment_desc
+        description: "Descriptive label (e.g., Credit, Cash, No charge)"
+      - name: row_effective_date
+        description: "Date when this record became effective (SCD Type 2)"
+      - name: row_expiration_date
+        description: "Date when this record expired (SCD Type 2)"
+      - name: current_flag
+        description: "Flag indicating if this is the current record (Y/N)"
+
+  - name: dim_trip_type
+    description: "Trip type dimension categorizing whether a trip was a street-hail or dispatch"
+    columns:
+      - name: trip_type_key
+        description: "Surrogate key for trip type dimension"
+        tests:
+          - unique
+          - not_null
+      - name: trip_type_id
+        description: "Numeric code (1 = Street-hail, 2 = Dispatch)"
+        tests:
+          - not_null
+      - name: trip_type_desc
+        description: "Description (e.g., Street-hail, App Dispatch)"
+      - name: row_effective_date
+        description: "Date when this record became effective (SCD Type 2)"
+      - name: row_expiration_date
+        description: "Date when this record expired (SCD Type 2)"
+      - name: current_flag
+        description: "Flag indicating if this is the current record (Y/N)"
+
+  - name: fact_taxi_trip
+    description: "Fact table for NYC taxi trips including Yellow, Green, and HVFHV trips"
+    columns:
+      - name: taxi_trip_key
+        description: "Surrogate key for the fact table"
+        tests:
+          - unique
+          - not_null
+      - name: taxi_type
+        description: "Type of taxi (yellow, green, fhvhv)"
+        tests:
+          - not_null
+      - name: trip_id
+        description: "Natural key for the trip from source systems"
+        tests:
+          - not_null
+      - name: date_key_pickup
+        description: "Foreign key to dim_date.date_key for pickup date"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: date_key_dropoff
+        description: "Foreign key to dim_date.date_key for dropoff date"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: time_key_pickup
+        description: "Foreign key to dim_time.time_key for pickup time"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_time')
+              field: time_key
+      - name: time_key_dropoff
+        description: "Foreign key to dim_time.time_key for dropoff time"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_time')
+              field: time_key
+      - name: pu_location_key
+        description: "Foreign key to dim_location.location_key for pickup location"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_location')
+              field: location_key
+      - name: do_location_key
+        description: "Foreign key to dim_location.location_key for dropoff location"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_location')
+              field: location_key
+      - name: vendor_key
+        description: "Foreign key to dim_vendor.vendor_key"
+        tests:
+          - relationships:
+              to: ref('dim_vendor')
+              field: vendor_key
+      - name: rate_code_key
+        description: "Foreign key to dim_rate_code.rate_code_key"
+        tests:
+          - relationships:
+              to: ref('dim_rate_code')
+              field: rate_code_key
+      - name: payment_type_key
+        description: "Foreign key to dim_payment_type.payment_type_key"
+        tests:
+          - relationships:
+              to: ref('dim_payment_type')
+              field: payment_type_key
+      - name: trip_type_key
+        description: "Foreign key to dim_trip_type.trip_type_key (Green/HVFHV only)"
+        tests:
+          - relationships:
+              to: ref('dim_trip_type')
+              field: trip_type_key
+      - name: passenger_count
+        description: "Number of passengers (driver-entered or system-reported)"
+      - name: trip_distance
+        description: "Distance traveled in miles (Yellow/Green label)"
+      - name: trip_miles
+        description: "Distance traveled in miles (HVFHV label)"
+      - name: trip_time
+        description: "Total seconds for passenger trip (HVFHV)"
+      - name: store_and_fwd_flag
+        description: "Y/N if trip record was stored before forward (Yellow/Green)"
+      - name: fare_amount
+        description: "Meter-based fare (Yellow/Green) or base fare (HVFHV)"
+      - name: extra
+        description: "$0.50, $1 rush hour/overnight, etc. (Yellow/Green)"
+      - name: mta_tax
+        description: "Metropolitan Transportation Authority tax"
+      - name: tip_amount
+        description: "Total tip paid by passenger"
+      - name: tolls_amount
+        description: "Total tolls paid during the trip"
+      - name: improvement_surcharge
+        description: "Improvement surcharge assessed on hailed trips"
+      - name: total_amount
+        description: "Total charged to passenger, not including cash tip"
+      - name: congestion_surcharge
+        description: "Additional surcharge applied in congested zones"
+      - name: airport_fee
+        description: "Airport pickup/drop-off fee (where applicable)"
+      - name: hvfhs_license_num
+        description: "HVFHS base license # (Uber, Lyft, etc.)"
+      - name: dispatching_base_num
+        description: "Base that dispatched the trip"
+      - name: originating_base_num
+        description: "Base that received the original request"
+      - name: request_datetime
+        description: "When passenger requested the ride"
+      - name: on_scene_datetime
+        description: "When driver arrived (Accessible Vehicles only)"
+      - name: base_passenger_fare
+        description: "HVFHV fare before tolls/tips/taxes"
+      - name: bcf
+        description: "Black Car Fund contribution"
+      - name: sales_tax
+        description: "NYS sales tax portion"
+      - name: driver_pay
+        description: "Net driver pay, excluding tolls/tips"
+      - name: shared_request_flag
+        description: "Y/N: passenger consented to a shared/pooled ride"
+      - name: shared_match_flag
+        description: "Y/N: passenger actually shared the ride w/ another passenger"
+      - name: access_a_ride_flag
+        description: "Y/N: MTA Access-a-Ride trip"
+      - name: wav_request_flag
+        description: "Y/N: wheelchair-accessible vehicle requested"
+      - name: wav_match_flag
+        description: "Y/N: trip occurred in a WAV"
+      - name: record_loaded_timestamp
+        description: "Audit column noting when the record was loaded"
