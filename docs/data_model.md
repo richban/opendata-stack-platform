@@ -264,11 +264,11 @@ Table fact_taxi_trip {
   extra                      numeric(9,2)  [note: "$0.50, $1 rush hour/overnight, etc. (Yellow/Green)"]
   mta_tax                    numeric(9,2)
   improvement_surcharge      numeric(9,2)
-  tip_amount                 numeric(9,2)  [note: tips or credit card tips]
-  tolls_amount               numeric(9,2)  [note: total tolls paid in the trip]
+  tip_amount                 numeric(9,2)  [note: "tips or credit card tips"]
+  tolls_amount               numeric(9,2)  [note: "total tolls paid in the trip"]
   congestion_surcharge       numeric(9,2)
   airport_fee                numeric(9,2)
-  total_amount               numeric(9,2)  [note: total charged to passenger, not including cash tip]
+  total_amount               numeric(9,2)  [note: "total charged to passenger, not including cash tip"]
 
   //------------------------------
   // Additional Y/G field
@@ -283,16 +283,16 @@ Table fact_taxi_trip {
   originating_base_num       varchar(20)  [note: "Base that received the original request"]
   request_datetime           timestamp    [note: "When passenger requested the ride"]
   on_scene_datetime          timestamp    [note: "When driver arrived (Accessible Vehicles only)"]
-  trip_miles                 numeric(9,2) [note: HVFHV label for distance, unify if desired]
-  trip_time                  int          [note: total seconds for passenger trip (HVFHV)"]
-  base_passenger_fare        numeric(9,2) [note: HVFHV fare before tolls/tips/taxes]
-  bcf                        numeric(9,2) [note: Black Car Fund contribution]
-  sales_tax                  numeric(9,2) [note: NYS sales tax portion]
+  trip_miles                 numeric(9,2) [note: "HVFHV label for distance, unify if desired"]
+  trip_time                  int          [note: "total seconds for passenger trip (HVFHV)"]
+  base_passenger_fare        numeric(9,2) [note: "HVFHV fare before tolls/tips/taxes"]
+  bcf                        numeric(9,2) [note: "Black Car Fund contribution"]
+  sales_tax                  numeric(9,2) [note: "NYS sales tax portion"]
 
   //------------------------------
   // HVFHV Flags & Driver Pay
   //------------------------------
-  driver_pay                 numeric(9,2) [note: net driver pay, excluding tolls/tips]
+  driver_pay                 numeric(9,2) [note: "net driver pay, excluding tolls/tips"]
   shared_request_flag        char(1)     [note: "Y/N: passenger consented to a shared/pooled ride"]
   shared_match_flag          char(1)     [note: "Y/N: passenger actually shared the ride w/ another passenger"]
   access_a_ride_flag         char(1)     [note: "Y/N: MTA Access-a-Ride trip"]
