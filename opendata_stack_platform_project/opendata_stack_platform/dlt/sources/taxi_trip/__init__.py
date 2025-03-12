@@ -85,7 +85,7 @@ def taxi_trip_source(dataset_type: str, partition_key: Optional[str] = None) -> 
             partition_key=partition_key,
             key_columns=key_columns,
         )
-    ).with_name(f"{dataset_type}_taxi_trip_bronze")
+    ).with_name(f"{dataset_type}_taxi_trip_silver")
 
     # Apply write configuration hints
     source.apply_hints(
@@ -100,9 +100,9 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     dlt_pipeline = dlt.pipeline(
-        pipeline_name="green_taxi_trip_bronze_pipeline",
+        pipeline_name="unified_taxi_trip_silver_pipeline",
         destination=dlt.destinations.duckdb("../data/nyc_database.duckdb"),
-        dataset_name="green_taxi_trip_bronze",
+        dataset_name="green_taxi_trip_silver",
         dev_mode=True,
         progress="log",
     )

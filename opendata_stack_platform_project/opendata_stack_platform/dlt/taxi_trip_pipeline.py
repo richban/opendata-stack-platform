@@ -22,12 +22,12 @@ def create_taxi_trip_pipeline(dataset_type: str):
         dataset_type: Type of taxi data (yellow, green, fhvhv)
     """
     pipeline = dlt.pipeline(
-        pipeline_name=f"{dataset_type}_taxi_trip_bronze_pipeline",
+        pipeline_name=f"{dataset_type}_taxi_trip_silver_pipeline",
         destination=dlt.destinations.duckdb(
             str(get_duckdb_path()),
-            table_name=f"{dataset_type}_taxi_trip_bronze",
+            table_name=f"{dataset_type}_taxi_trip_silver",
         ),
-        dataset_name=f"{dataset_type}_taxi_trip_bronze",
+        dataset_name=f"{dataset_type}_taxi_trip_silver",
         progress="log",
     )
 
