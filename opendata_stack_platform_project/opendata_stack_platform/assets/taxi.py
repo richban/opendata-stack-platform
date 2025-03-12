@@ -20,7 +20,7 @@ from opendata_stack_platform.utils.download_and_upload_file import (
 
 
 @asset(group_name="raw_files")
-def taxi_zones_file(s3: S3Resource) -> None:
+def taxi_zone_lookup_raw(s3: S3Resource) -> None:
     """
     The raw CSV file for the taxi zones dataset. Sourced from the NYC Open Data portal.
     """
@@ -79,14 +79,14 @@ def fhvhv_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
 
 
 @asset(
-    deps=["taxi_zones_file"],
-    group_name="ingested_taxi_trip_bronze",
+    deps=["taxi_zone_lookup_raw"],
+    group_name="ingested_taxi_trip_silver",
     compute_kind="DuckDB",
 )
-def taxi_zones(context: AssetExecutionContext, duckdb_resource: DuckDBResource):
+def taxi_zone_lookup(context: AssetExecutionContext, duckdb_resource: DuckDBResource):
     """The raw taxi zones dataset, loaded into a DuckDB database."""
     query = f"""
-        create or replace table taxi_zone as (
+        create or replace table taxi_zone_lookup as (
             select
                 LocationID as zone_id,
                 zone,
