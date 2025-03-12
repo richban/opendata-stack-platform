@@ -10,7 +10,7 @@ connectorx==0.4.2
 pandas==2.2.3
 s3fs==2025.2.0
 boto3==1.34.20
-duckdb==1.2.0
+duckdb==1.2.1
 dbt-core==1.9.2
 dbt-duckdb==1.9.2
 dagster-dbt==0.26.1
