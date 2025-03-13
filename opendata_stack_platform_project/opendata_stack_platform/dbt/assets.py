@@ -129,6 +129,23 @@ class CustomDagsterDbtTranslator(DagsterDbtTranslator):
         ):
             return dg.AssetKey(dbt_resource_props["meta"]["dagster"]["asset_key"])
 
+        # For taxi trip sources, organize them under silver layer
+        if (
+            resource_type == "source"
+            and resource_schema.endswith("_taxi_trip_silver")
+        ):
+            # Extract the taxi type (yellow, green, fhvhv)
+            taxi_type = resource_schema.replace("_taxi_trip_silver", "")
+            return dg.AssetKey(["nyc_database", "silver", taxi_type, resource_name])
+        
+        # For models in the gold layer
+        if resource_type == "model" and "fqn" in dbt_resource_props:
+            model_path = dbt_resource_props["fqn"]
+            # Check if this is a gold model
+            if len(model_path) > 1 and model_path[1] == "gold":
+                return dg.AssetKey(["nyc_database", "gold", resource_name])
+                
+        # Default case - use the original structure
         return dg.AssetKey([resource_database, resource_schema, resource_name])
 
     def get_metadata(

@@ -82,17 +82,22 @@ def fhvhv_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     deps=["taxi_zone_lookup_raw"],
     group_name="ingested_taxi_trip_silver",
     compute_kind="DuckDB",
+    key_prefix=["nyc_database", "silver"],
 )
 def taxi_zone_lookup(context: AssetExecutionContext, duckdb_resource: DuckDBResource):
     """The raw taxi zones dataset, loaded into a DuckDB database."""
     query = f"""
-        create or replace table taxi_zone_lookup as (
+        -- Create schema if it doesn't exist
+        CREATE SCHEMA IF NOT EXISTS silver;
+        
+        -- Create or replace the table in the silver schema
+        create or replace table silver.taxi_zone_lookup as (
             select
                 LocationID as zone_id,
                 zone,
                 borough,
                 the_geom as geometry
-            from '{constants.TAXI_ZONES_FILE_PATH}'
+            from '{constants.get_path_for_env(constants.TAXI_ZONES_FILE_PATH)}'
         );
     """
 
