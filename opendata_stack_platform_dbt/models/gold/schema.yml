@@ -3,6 +3,9 @@ version: 2
 models:
   - name: dim_date
     description: "Date dimension for the NYC Taxi & FHV data warehouse"
+    meta:
+      dagster:
+        asset_key: ["nyc_database", "gold", "dim_date"]
     columns:
       - name: date_key
         description: "Surrogate key in YYYYMMDD format (e.g., 20230201 for 2023-02-01)"
@@ -32,6 +35,9 @@ models:
 
   - name: dim_time
     description: "Time dimension for the NYC Taxi & FHV data warehouse"
+    meta:
+      dagster:
+        asset_key: ["nyc_database", "gold", "dim_time"]
     columns:
       - name: time_key
         description: "Surrogate key in HHMMSS format (e.g., 235959 for 23:59:59)"
@@ -65,6 +71,9 @@ models:
 
   - name: dim_location
     description: "Location dimension for NYC taxi zones"
+    meta:
+      dagster:
+        asset_key: ["nyc_database", "gold", "dim_location"]
     columns:
       - name: location_key
         description: "Surrogate key for location dimension"
@@ -92,6 +101,9 @@ models:
 
   - name: dim_vendor
     description: "Vendor dimension identifying the company or provider of the ride"
+    meta:
+      dagster:
+        asset_key: ["nyc_database", "gold", "dim_vendor"]
     columns:
       - name: vendor_key
         description: "Surrogate key for vendor dimension"
@@ -113,6 +125,9 @@ models:
 
   - name: dim_rate_code
     description: "Rate code dimension describing tariff types or negotiated rates"
+    meta:
+      dagster:
+        asset_key: ["nyc_database", "gold", "dim_rate_code"]
     columns:
       - name: rate_code_key
         description: "Surrogate key for rate code dimension"
@@ -134,6 +149,9 @@ models:
 
   - name: dim_payment_type
     description: "Payment type dimension distinguishing payment methods"
+    meta:
+      dagster:
+        asset_key: ["nyc_database", "gold", "dim_payment_type"]
     columns:
       - name: payment_type_key
         description: "Surrogate key for payment type dimension"
@@ -155,6 +173,9 @@ models:
 
   - name: dim_trip_type
     description: "Trip type dimension categorizing whether a trip was a street-hail or dispatch"
+    meta:
+      dagster:
+        asset_key: ["nyc_database", "gold", "dim_trip_type"]
     columns:
       - name: trip_type_key
         description: "Surrogate key for trip type dimension"
@@ -176,6 +197,9 @@ models:
 
   - name: fact_taxi_trip
     description: "Fact table for NYC taxi trips including Yellow, Green, and HVFHV trips"
+    meta:
+      dagster:
+        asset_key: ["nyc_database", "gold", "fact_taxi_trip"]
     columns:
       - name: taxi_trip_key
         description: "Surrogate key for the fact table"

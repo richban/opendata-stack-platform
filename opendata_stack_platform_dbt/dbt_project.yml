@@ -33,7 +33,7 @@ models:
   +tags: ["model"]
   +meta:
     dagster:
-      owners: ["@richban", "team:data"]
+      owners: ["richban@me.com", "team:data"]
   opendata_stack_platform_dbt:
     # Config indicated by + and applies to all files under models/example/
     silver:

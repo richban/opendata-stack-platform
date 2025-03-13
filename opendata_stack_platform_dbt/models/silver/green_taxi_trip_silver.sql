@@ -10,7 +10,7 @@
 ) }}
 
 select *
-from {{ source('green_taxi_trip_silver', 'green_taxi_trip_silver') }}
+from {{ source('silver_green', 'taxi_trip') }}
 {% if is_incremental() %}
     where partition_key = cast('{{ var("partition_key") }}' as date)
 {% endif %}
