@@ -195,9 +195,9 @@ sources:
       - name: taxi_zone_lookup
         description: "Mapping of location IDs to zone names and boroughs"
         columns:
-          - name: locationid
+          - name: zone_id
             description: "Unique identifier for the taxi zone"
-          - name: borough
+          - name: borough_name
             description: "Borough name (Manhattan, Brooklyn, Queens, Bronx, Staten Island)"
             tests:
               - accepted_values:
@@ -208,7 +208,11 @@ sources:
                     - Queens
                     - Staten Island
                     - EWR
-          - name: zone
+          - name: zone_name
             description: "Zone name within the borough"
-          - name: service_zone
-            description: "Service classification (e.g., EWR, Boro Zone, Yellow Zone)"
+          - name: geom_data
+            description: "Geometry data for the zone"
+          - name: area_size
+            description: "Area of the zone (in coordinate system units)"
+          - name: perimeter_length
+            description: "Perimeter of the zone (in coordinate system units)"
