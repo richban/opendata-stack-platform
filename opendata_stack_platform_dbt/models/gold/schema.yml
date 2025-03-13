@@ -84,20 +84,20 @@ models:
         description: "Original TLC zone identifier (matches LocationID in source)"
         tests:
           - not_null
-      - name: zone_name
+      - name: location_name
         description: "Zone description (e.g., JFK Airport, Upper East Side)"
         tests:
           - not_null
-      - name: borough
-        description: "Borough name (Manhattan, Queens, etc.)"
-      - name: object_id
-        description: "Unique identifier for the geographic feature"
-      - name: shape_length
-        description: "Length of the zone boundary (in coordinate system units)"
-      - name: shape_area
+      - name: geom_data
+        description: "Geometry data for the zone"
+      - name: area_size
         description: "Area of the zone (in coordinate system units)"
-      - name: geometry
-        description: "WKT (Well-Known Text) representation of the zone's MULTIPOLYGON geometry"
+        tests:
+          - not_null
+      - name: perimeter_length
+        description: "Perimeter of the zone (in coordinate system units)"
+        tests:
+          - not_null
 
   - name: dim_vendor
     description: "Vendor dimension identifying the company or provider of the ride"
