@@ -22,6 +22,11 @@ clean-targets:         # directories to be removed by `dbt clean`
   - "target"
   - "dbt_packages"
 
+# Define variables with default values
+vars:
+  database_name: nyc_database
+  silver_schema_prefix: silver
+  gold_schema: gold
 
 # Configuring models
 # Full documentation: https://docs.getdbt.com/docs/configuring-models
@@ -38,3 +43,6 @@ models:
     # Config indicated by + and applies to all files under models/example/
     silver:
       +materialized: table
+    gold:
+      +materialized: table
+      +schema: gold

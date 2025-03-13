@@ -1,6 +1,6 @@
 {{ config(
     materialized='table',
-    schema='gold',
+    schema=var('gold_schema', 'gold'),
     full_refresh=true
 ) }}
 
