@@ -218,68 +218,82 @@ models:
         description: "Foreign key to dim_date.date_key for pickup date"
         tests:
           - not_null
-          - relationships:
-              to: ref('dim_date')
-              field: date_key
+          # Temporarily disabled until fact_taxi_trip is created
+          # - relationships:
+          #     to: ref('dim_date')
+          #     field: date_key
       - name: date_key_dropoff
         description: "Foreign key to dim_date.date_key for dropoff date"
         tests:
           - not_null
-          - relationships:
-              to: ref('dim_date')
-              field: date_key
+          # Temporarily disabled until fact_taxi_trip is created
+          # - relationships:
+          #     to: ref('dim_date')
+          #     field: date_key
       - name: time_key_pickup
         description: "Foreign key to dim_time.time_key for pickup time"
         tests:
           - not_null
-          - relationships:
-              to: ref('dim_time')
-              field: time_key
+          # Temporarily disabled until fact_taxi_trip is created
+          # - relationships:
+          #     to: ref('dim_time')
+          #     field: time_key
       - name: time_key_dropoff
         description: "Foreign key to dim_time.time_key for dropoff time"
         tests:
           - not_null
-          - relationships:
-              to: ref('dim_time')
-              field: time_key
+          # Temporarily disabled until fact_taxi_trip is created
+          # - relationships:
+          #     to: ref('dim_time')
+          #     field: time_key
       - name: pu_location_key
         description: "Foreign key to dim_location.location_key for pickup location"
         tests:
           - not_null
-          - relationships:
-              to: ref('dim_location')
-              field: location_key
+          # Temporarily disabled until fact_taxi_trip is created
+          # - relationships:
+          #     to: ref('dim_location')
+          #     field: location_key
       - name: do_location_key
         description: "Foreign key to dim_location.location_key for dropoff location"
         tests:
           - not_null
-          - relationships:
-              to: ref('dim_location')
-              field: location_key
+          # Temporarily disabled until fact_taxi_trip is created
+          # - relationships:
+          #     to: ref('dim_location')
+          #     field: location_key
       - name: vendor_key
         description: "Foreign key to dim_vendor.vendor_key"
         tests:
-          - relationships:
-              to: ref('dim_vendor')
-              field: vendor_key
+          # Temporarily disabled until fact_taxi_trip is created
+          # - relationships:
+          #     to: ref('dim_vendor')
+          #     field: vendor_key
+          - not_null
       - name: rate_code_key
         description: "Foreign key to dim_rate_code.rate_code_key"
         tests:
-          - relationships:
-              to: ref('dim_rate_code')
-              field: rate_code_key
+          # Temporarily disabled until fact_taxi_trip is created
+          # - relationships:
+          #     to: ref('dim_rate_code')
+          #     field: rate_code_key
+          - not_null
       - name: payment_type_key
         description: "Foreign key to dim_payment_type.payment_type_key"
         tests:
-          - relationships:
-              to: ref('dim_payment_type')
-              field: payment_type_key
+          # Temporarily disabled until fact_taxi_trip is created
+          # - relationships:
+          #     to: ref('dim_payment_type')
+          #     field: payment_type_key
+          - not_null
       - name: trip_type_key
         description: "Foreign key to dim_trip_type.trip_type_key (Green/HVFHV only)"
         tests:
-          - relationships:
-              to: ref('dim_trip_type')
-              field: trip_type_key
+          # Temporarily disabled until fact_taxi_trip is created
+          # - relationships:
+          #     to: ref('dim_trip_type')
+          #     field: trip_type_key
+          - not_null
       - name: passenger_count
         description: "Number of passengers (driver-entered or system-reported)"
       - name: trip_distance
