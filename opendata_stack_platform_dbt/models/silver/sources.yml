@@ -3,7 +3,7 @@ version: 2
 sources:
   - name: silver_yellow
     description: "Yellow taxi trip data from NYC Open Data portal stored in DuckDB"
-    database: main
+    database: "{{ var('database_name', 'nyc_database') }}"
     schema: silver_yellow
     tables:
       - name: taxi_trip
@@ -61,7 +61,7 @@ sources:
 
   - name: silver_green
     description: "Green taxi trip data from NYC Open Data portal stored in DuckDB"
-    database: main
+    database: "{{ var('database_name', 'nyc_database') }}"
     schema: silver_green
     tables:
       - name: taxi_trip
@@ -121,7 +121,7 @@ sources:
 
   - name: silver_fhvhv
     description: "High-Volume For-Hire Vehicle (HVFHV) trip data from NYC Open Data portal stored in DuckDB"
-    database: main
+    database: "{{ var('database_name', 'nyc_database') }}"
     schema: silver_fhvhv
     tables:
       - name: taxi_trip
@@ -189,8 +189,8 @@ sources:
 
   - name: taxi_zone_lookup
     description: "Lookup table for NYC taxi zones"
-    database: main
-    schema: silver
+    database: "{{ var('database_name', 'nyc_database') }}"
+    schema: main
     tables:
       - name: taxi_zone_lookup
         description: "Mapping of location IDs to zone names and boroughs"
