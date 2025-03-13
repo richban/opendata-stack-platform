@@ -6,4 +6,4 @@ models:
     schema: silver_green
     meta:
       dagster:
-        asset_key: ["nyc_database", "silver", "green", "taxi_trip"]
+        asset_key: ["nyc_database", "silver", "green_taxi_trip"]

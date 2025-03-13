@@ -6,11 +6,11 @@ sources:
     database: "{{ var('database_name', 'nyc_database') }}"
     schema: silver_yellow
     tables:
-      - name: taxi_trip
+      - name: yellow_taxi_trip
         description: "Yellow taxi trip data at silver layer"
         meta:
           dagster:
-            asset_key: ["nyc_database", "silver", "yellow", "taxi_trip"]
+            asset_key: ["nyc_database", "silver", "yellow_taxi_trip"]
         columns:
           - name: vendor_id
             description: "A code indicating the TPEP provider that provided the record"
@@ -64,11 +64,11 @@ sources:
     database: "{{ var('database_name', 'nyc_database') }}"
     schema: silver_green
     tables:
-      - name: taxi_trip
+      - name: green_taxi_trip
         description: "Green taxi trip data at silver layer"
         meta:
           dagster:
-            asset_key: ["nyc_database", "silver", "green", "taxi_trip"]
+            asset_key: ["nyc_database", "silver", "green_taxi_trip"]
         columns:
           - name: vendor_id
             description: "A code indicating the LPEP provider that provided the record"
@@ -124,11 +124,11 @@ sources:
     database: "{{ var('database_name', 'nyc_database') }}"
     schema: silver_fhvhv
     tables:
-      - name: taxi_trip
+      - name: fhvhv_taxi_trip
         description: "High-Volume For-Hire Vehicle (HVFHV) trip data at silver layer"
         meta:
           dagster:
-            asset_key: ["nyc_database", "silver", "fhvhv", "taxi_trip"]
+            asset_key: ["nyc_database", "silver", "fhvhv_taxi_trip"]
         columns:
           - name: hvfhs_license_num
             description: "The TLC license number of the HVFHS base or business"

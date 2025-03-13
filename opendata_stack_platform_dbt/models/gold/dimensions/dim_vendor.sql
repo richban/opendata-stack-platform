@@ -5,17 +5,17 @@
 
 with yellow_vendors as (
     select distinct vendor_id
-    from {{ source('silver_yellow', 'taxi_trip') }}
+    from {{ source('silver_yellow', 'yellow_taxi_trip') }}
 ),
 
 green_vendors as (
     select distinct vendor_id
-    from {{ source('silver_green', 'taxi_trip') }}
+    from {{ source('silver_green', 'green_taxi_trip') }}
 ),
 
 fhvhv_vendors as (
     select distinct hvfhs_license_num as vendor_id
-    from {{ source('silver_fhvhv', 'taxi_trip') }}
+    from {{ source('silver_fhvhv', 'fhvhv_taxi_trip') }}
 ),
 
 all_vendors as (

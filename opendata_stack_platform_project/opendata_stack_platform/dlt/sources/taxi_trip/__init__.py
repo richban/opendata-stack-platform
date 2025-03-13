@@ -85,7 +85,7 @@ def taxi_trip_source(dataset_type: str, partition_key: Optional[str] = None) -> 
             partition_key=partition_key,
             key_columns=key_columns,
         )
-    ).with_name("taxi_trip")
+    ).with_name(f"{dataset_type}_taxi_trip")
 
     # Apply write configuration hints
     source.apply_hints(

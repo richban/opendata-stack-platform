@@ -113,7 +113,7 @@ def taxi_zone_lookup(context: AssetExecutionContext, duckdb_resource: DuckDBReso
             FROM ranked_zones
             WHERE row_num = 1
         );
-    """
+    """  # noqa: E501
 
     with duckdb_resource.get_connection() as conn:
         conn.execute(query)
