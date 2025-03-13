@@ -213,7 +213,7 @@ class CustomDagsterDbtTranslator(DagsterDbtTranslator):
     backfill_policy=dg.BackfillPolicy.single_run(),
     project=opendata_stack_platform_dbt_project,
     select="silver+",  # Only select silver models and their dependencies
-    exclude="gold+",   # Exclude gold models
+    exclude="gold+",  # Exclude gold models
 )
 def dbt_partitioned_models(
     context: dg.AssetExecutionContext,
