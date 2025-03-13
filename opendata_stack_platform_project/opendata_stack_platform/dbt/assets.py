@@ -132,10 +132,10 @@ class CustomDagsterDbtTranslator(DagsterDbtTranslator):
         # For taxi trip sources, organize them under silver layer
         if (
             resource_type == "source"
-            and resource_schema.endswith("_taxi_trip_silver")
+            and resource_schema.endswith("_taxi_trip")
         ):
             # Extract the taxi type (yellow, green, fhvhv)
-            taxi_type = resource_schema.replace("_taxi_trip_silver", "")
+            taxi_type = resource_schema.replace("_taxi_trip", "")
             return dg.AssetKey(["nyc_database", "silver", taxi_type, resource_name])
         
         # For models in the gold layer
