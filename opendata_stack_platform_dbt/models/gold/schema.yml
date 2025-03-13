@@ -52,11 +52,11 @@ models:
         description: "Hour in 12-hour format (1-12)"
         tests:
           - not_null
-      - name: minute
+      - name: minute_value
         description: "Minute (0-59)"
         tests:
           - not_null
-      - name: second
+      - name: second_value
         description: "Second (0-59)"
         tests:
           - not_null
