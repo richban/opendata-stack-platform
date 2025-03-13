@@ -101,82 +101,116 @@ CREATE TABLE fact_taxi_trip (
     record_loaded_timestamp timestamp DEFAULT 'CURRENT_TIMESTAMP'
 );
 
+-- Comments for dim tables
 COMMENT ON COLUMN dim_date.date_key IS 'e.g., 20230201 for 2023-02-01';
 
-COMMENT ON COLUMN dim_location.location_id IS 'TLC Zone ID from PULocationID or DOLocationID';
+COMMENT ON COLUMN dim_location.location_id IS
+    'TLC Zone ID from PULocationID or DOLocationID';
 
 COMMENT ON COLUMN dim_vendor.vendor_id IS 'e.g., 1, 2, HV0003, etc.';
 
-COMMENT ON COLUMN dim_rate_code.rate_code_id IS '1=Standard,2=JFK,3=Newark,...';
+COMMENT ON COLUMN dim_rate_code.rate_code_id IS
+    '1=Standard,2=JFK,3=Newark,...';
 
-COMMENT ON COLUMN dim_payment_type.payment_type_id IS '1=Credit,2=Cash,3=No charge, etc.';
+COMMENT ON COLUMN dim_payment_type.payment_type_id IS
+    '1=Credit,2=Cash,3=No charge, etc.';
 
-COMMENT ON COLUMN dim_trip_type.trip_type_id IS '1=Street-hail,2=Dispatch (Green)';
+COMMENT ON COLUMN dim_trip_type.trip_type_id IS
+    '1=Street-hail,2=Dispatch (Green)';
 
-COMMENT ON COLUMN fact_taxi_trip.taxi_trip_key IS 'Surrogate key for the fact table';
+-- Comments for fact table keys
+COMMENT ON COLUMN fact_taxi_trip.taxi_trip_key IS
+    'Surrogate key for the fact table';
 
 COMMENT ON COLUMN fact_taxi_trip.date_key_pickup IS 'FK to dim_date.date_key';
 
 COMMENT ON COLUMN fact_taxi_trip.date_key_dropoff IS 'FK to dim_date.date_key';
 
-COMMENT ON COLUMN fact_taxi_trip.pu_location_key IS 'FK to dim_location.location_key';
+COMMENT ON COLUMN fact_taxi_trip.pu_location_key IS
+    'FK to dim_location.location_key';
 
-COMMENT ON COLUMN fact_taxi_trip.do_location_key IS 'FK to dim_location.location_key';
+COMMENT ON COLUMN fact_taxi_trip.do_location_key IS
+    'FK to dim_location.location_key';
 
 COMMENT ON COLUMN fact_taxi_trip.vendor_key IS 'FK to dim_vendor.vendor_key';
 
-COMMENT ON COLUMN fact_taxi_trip.rate_code_key IS 'FK to dim_rate_code.rate_code_key';
+COMMENT ON COLUMN fact_taxi_trip.rate_code_key IS
+    'FK to dim_rate_code.rate_code_key';
 
-COMMENT ON COLUMN fact_taxi_trip.payment_type_key IS 'FK to dim_payment_type.payment_type_key';
+COMMENT ON COLUMN fact_taxi_trip.payment_type_key IS
+    'FK to dim_payment_type.payment_type_key';
 
-COMMENT ON COLUMN fact_taxi_trip.trip_type_key IS 'FK to dim_trip_type.trip_type_key (Green/HV only)';
+COMMENT ON COLUMN fact_taxi_trip.trip_type_key IS
+    'FK to dim_trip_type.trip_type_key (Green/HV only)';
 
-COMMENT ON COLUMN fact_taxi_trip.trip_distance IS 'Yellow/Green label for distance';
+-- Comments for trip metrics
+COMMENT ON COLUMN fact_taxi_trip.trip_distance IS
+    'Yellow/Green label for distance';
 
-COMMENT ON COLUMN fact_taxi_trip.fare_amount IS 'Taximeter fare or unified base fare';
+COMMENT ON COLUMN fact_taxi_trip.fare_amount IS
+    'Taximeter fare or unified base fare';
 
-COMMENT ON COLUMN fact_taxi_trip.extra IS '$0.50, $1 rush hour/overnight, etc. (Yellow/Green)';
+COMMENT ON COLUMN fact_taxi_trip.extra IS
+    '$0.50, $1 rush hour/overnight, etc. (Yellow/Green)';
 
 COMMENT ON COLUMN fact_taxi_trip.tip_amount IS 'tips or credit card tips';
 
 COMMENT ON COLUMN fact_taxi_trip.tolls_amount IS 'total tolls paid in the trip';
 
-COMMENT ON COLUMN fact_taxi_trip.total_amount IS 'total charged to passenger, not including cash tip';
+COMMENT ON COLUMN fact_taxi_trip.total_amount IS
+    'total charged to passenger, not including cash tip';
 
-COMMENT ON COLUMN fact_taxi_trip.store_and_fwd_flag IS 'Y/N if trip was stored before forward';
+COMMENT ON COLUMN fact_taxi_trip.store_and_fwd_flag IS
+    'Y/N if trip was stored before forward';
 
-COMMENT ON COLUMN fact_taxi_trip.hvfhs_license_num IS 'HVFHS base license # (Uber, Lyft, etc.)';
+-- Comments for HVFHS specific fields
+COMMENT ON COLUMN fact_taxi_trip.hvfhs_license_num IS
+    'HVFHS base license # (Uber, Lyft, etc.)';
 
-COMMENT ON COLUMN fact_taxi_trip.dispatching_base_num IS 'Base that dispatched the trip';
+COMMENT ON COLUMN fact_taxi_trip.dispatching_base_num IS
+    'Base that dispatched the trip';
 
-COMMENT ON COLUMN fact_taxi_trip.originating_base_num IS 'Base that received the original request';
+COMMENT ON COLUMN fact_taxi_trip.originating_base_num IS
+    'Base that received the original request';
 
-COMMENT ON COLUMN fact_taxi_trip.request_datetime IS 'When passenger requested the ride';
+COMMENT ON COLUMN fact_taxi_trip.request_datetime IS
+    'When passenger requested the ride';
 
-COMMENT ON COLUMN fact_taxi_trip.on_scene_datetime IS 'When driver arrived (Accessible Vehicles only)';
+COMMENT ON COLUMN fact_taxi_trip.on_scene_datetime IS
+    'When driver arrived (Accessible Vehicles only)';
 
-COMMENT ON COLUMN fact_taxi_trip.trip_miles IS 'HVFHV label for distance, unify if desired';
+COMMENT ON COLUMN fact_taxi_trip.trip_miles IS
+    'HVFHV label for distance, unify if desired';
 
-COMMENT ON COLUMN fact_taxi_trip.trip_time IS 'total seconds for passenger trip (HVFHV)';
+COMMENT ON COLUMN fact_taxi_trip.trip_time IS
+    'total seconds for passenger trip (HVFHV)';
 
-COMMENT ON COLUMN fact_taxi_trip.base_passenger_fare IS 'HVFHV fare before tolls/tips/taxes';
+COMMENT ON COLUMN fact_taxi_trip.base_passenger_fare IS
+    'HVFHV fare before tolls/tips/taxes';
 
 COMMENT ON COLUMN fact_taxi_trip.bcf IS 'Black Car Fund contribution';
 
 COMMENT ON COLUMN fact_taxi_trip.sales_tax IS 'NYS sales tax portion';
 
-COMMENT ON COLUMN fact_taxi_trip.driver_pay IS 'net driver pay, excluding tolls/tips';
+COMMENT ON COLUMN fact_taxi_trip.driver_pay IS
+    'net driver pay, excluding tolls/tips';
 
-COMMENT ON COLUMN fact_taxi_trip.shared_request_flag IS 'Y/N: passenger consented to a shared/pooled ride';
+-- Comments for flags
+COMMENT ON COLUMN fact_taxi_trip.shared_request_flag IS
+    'Y/N: passenger consented to a shared/pooled ride';
 
-COMMENT ON COLUMN fact_taxi_trip.shared_match_flag IS 'Y/N: passenger actually shared the ride w/ another passenger';
+COMMENT ON COLUMN fact_taxi_trip.shared_match_flag IS
+    'Y/N: passenger actually shared the ride w/ another passenger';
 
-COMMENT ON COLUMN fact_taxi_trip.access_a_ride_flag IS 'Y/N: MTA Access-a-Ride trip';
+COMMENT ON COLUMN fact_taxi_trip.access_a_ride_flag IS
+    'Y/N: MTA Access-a-Ride trip';
 
-COMMENT ON COLUMN fact_taxi_trip.wav_request_flag IS 'Y/N: wheelchair-accessible vehicle requested';
+COMMENT ON COLUMN fact_taxi_trip.wav_request_flag IS
+    'Y/N: wheelchair-accessible vehicle requested';
 
 COMMENT ON COLUMN fact_taxi_trip.wav_match_flag IS 'Y/N: trip occurred in a WAV';
 
+-- Foreign key constraints
 ALTER TABLE fact_taxi_trip ADD FOREIGN KEY (
     date_key_pickup
 ) REFERENCES dim_date (date_key);

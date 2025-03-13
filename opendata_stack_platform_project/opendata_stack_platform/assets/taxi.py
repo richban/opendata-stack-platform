@@ -90,10 +90,10 @@ def taxi_zone_lookup(context: AssetExecutionContext, duckdb_resource: DuckDBReso
         -- Install and load the spatial extension
         INSTALL spatial;
         LOAD spatial;
-        
+
         create or replace table taxi_zone_lookup as (
             WITH ranked_zones AS (
-                SELECT 
+                SELECT
                     LocationID as zone_id,
                     zone AS zone_name,
                     borough AS borough_name,
@@ -103,7 +103,7 @@ def taxi_zone_lookup(context: AssetExecutionContext, duckdb_resource: DuckDBReso
                     ROW_NUMBER() OVER (PARTITION BY LocationID ORDER BY LocationID) as row_num
                 FROM '{constants.get_path_for_env(constants.TAXI_ZONES_FILE_PATH)}'
             )
-            SELECT 
+            SELECT
                 zone_id,
                 zone_name,
                 borough_name,

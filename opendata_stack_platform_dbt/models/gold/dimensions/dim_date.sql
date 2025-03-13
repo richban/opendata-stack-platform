@@ -6,9 +6,8 @@
 
 -- Generate date dimension for 10 years (2015-2025)
 with date_spine as (
-    select 
-        date_add(DATE '2015-01-01', n * interval '1 day') as date_day
-    from 
+    select date_add(DATE '2015-01-01', n * INTERVAL '1 day') as date_day
+    from
         (select row_number() over () - 1 as n from range(4018))
 ),
 
@@ -22,8 +21,8 @@ transformed as (
             extract('year' from date_day) * 10000
             + extract('month' from date_day) * 100
             + extract('day' from date_day)
-        )::int as date_key,
-        case extract('dow' from date_day)::int
+        )::INT as date_key,
+        case extract('dow' from date_day)::INT
             when 0 then 'Sunday'
             when 1 then 'Monday'
             when 2 then 'Tuesday'
@@ -36,7 +35,7 @@ transformed as (
         extract('day' from date_day) as day_of_month,
         extract('week' from date_day) as week_of_year,
         extract('month' from date_day) as month_number,
-        case extract('month' from date_day)::int
+        case extract('month' from date_day)::INT
             when 1 then 'January'
             when 2 then 'February'
             when 3 then 'March'
