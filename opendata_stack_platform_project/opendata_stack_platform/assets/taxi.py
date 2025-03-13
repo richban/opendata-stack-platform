@@ -82,22 +82,36 @@ def fhvhv_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     deps=["taxi_zone_lookup_raw"],
     group_name="ingested_taxi_trip_silver",
     compute_kind="DuckDB",
-    key_prefix=["nyc_database", "silver"],
+    key_prefix=["nyc_database", "main"],
 )
 def taxi_zone_lookup(context: AssetExecutionContext, duckdb_resource: DuckDBResource):
     """The raw taxi zones dataset, loaded into a DuckDB database."""
     query = f"""
-        -- Create schema if it doesn't exist
-        CREATE SCHEMA IF NOT EXISTS silver;
+        -- Install and load the spatial extension
+        INSTALL spatial;
+        LOAD spatial;
         
-        -- Create or replace the table in the silver schema
-        create or replace table silver.taxi_zone_lookup as (
-            select
-                LocationID as zone_id,
-                zone,
-                borough,
-                the_geom as geometry
-            from '{constants.get_path_for_env(constants.TAXI_ZONES_FILE_PATH)}'
+        create or replace table taxi_zone_lookup as (
+            WITH ranked_zones AS (
+                SELECT 
+                    LocationID as zone_id,
+                    zone AS zone_name,
+                    borough AS borough_name,
+                    st_geomfromtext(the_geom) as geom_data,
+                    st_area(st_geomfromtext(the_geom)) as area_size,
+                    st_perimeter(st_geomfromtext(the_geom)) as perimeter_length,
+                    ROW_NUMBER() OVER (PARTITION BY LocationID ORDER BY LocationID) as row_num
+                FROM '{constants.get_path_for_env(constants.TAXI_ZONES_FILE_PATH)}'
+            )
+            SELECT 
+                zone_id,
+                zone_name,
+                borough_name,
+                geom_data,
+                area_size,
+                perimeter_length
+            FROM ranked_zones
+            WHERE row_num = 1
         );
     """
 
