@@ -212,15 +212,17 @@ class CustomDagsterDbtTranslator(DagsterDbtTranslator):
     partitions_def=monthly_partition,
     backfill_policy=dg.BackfillPolicy.single_run(),
     project=opendata_stack_platform_dbt_project,
+    select="silver+",  # Only select silver models and their dependencies
+    exclude="gold+",   # Exclude gold models
 )
 def dbt_partitioned_models(
     context: dg.AssetExecutionContext,
     dbt: DbtCliResource,
     config: DbtConfig,
 ) -> None:
-    """Execute DBT models with monthly partitioning in Dagster.
+    """Execute silver DBT models with monthly partitioning in Dagster.
 
-    Execute DBT models with monthly partitioning in Dagster, providing:
+    Execute silver DBT models with monthly partitioning in Dagster, providing:
     - Monthly partitioning of data processing
     - Code reference tracking for better observability
     - Single-run backfill policy for efficient historical processing
@@ -255,6 +257,7 @@ def dbt_partitioned_models(
         - Enables code references for better debugging and lineage tracking
         - Implements single-run backfill for efficient historical processing
         - Partition key is passed to DBT as a variable for time-based filtering
+        - Only applies to silver models, not gold models
     """
     context.log.info(f"partition_key: {context.partition_key}")
     # Pass the partition date directly to dbt
@@ -265,6 +268,65 @@ def dbt_partitioned_models(
 
     if config.full_refresh:
         args = ["build", "--full-refresh"]
+
+    yield from (
+        dbt.cli(args, context=context).stream().fetch_row_counts().fetch_column_metadata()
+    )
+
+
+@dbt_assets(
+    manifest=opendata_stack_platform_dbt_project.manifest_path,
+    dagster_dbt_translator=CustomDagsterDbtTranslator(
+        settings=DagsterDbtTranslatorSettings(enable_code_references=True)
+    ),
+    backfill_policy=dg.BackfillPolicy.single_run(),
+    project=opendata_stack_platform_dbt_project,
+    select="gold+",  # Only select gold models and their dependencies
+)
+def dbt_gold_models(
+    context: dg.AssetExecutionContext,
+    dbt: DbtCliResource,
+    config: DbtConfig,
+) -> None:
+    """Execute gold DBT models without partitioning in Dagster.
+
+    Execute gold DBT models (dimensions and facts) without partitioning, providing:
+    - Code reference tracking for better observability
+    - Single-run backfill policy for efficient historical processing
+
+    The function executes 'dbt build' for gold models which don't require partitioning.
+
+    Args:
+        context: Dagster execution context with logging capabilities
+        dbt: DBT CLI resource for executing DBT commands
+        config: Configuration object with full_refresh option
+
+    Yields:
+        Generator yielding DBT CLI execution results with:
+        - Row count information
+        - Column metadata
+        - Streaming output for real-time logging
+
+    Examples:
+        Regular build:
+            >>> dbt_gold_models(context, dbt, DbtConfig(full_refresh=False))
+            # Executes: dbt build --select gold+
+
+        Full refresh build:
+            >>> dbt_gold_models(context, dbt, DbtConfig(full_refresh=True))
+            # Executes: dbt build --select gold+ --full-refresh
+
+    Notes:
+        - Uses CustomDagsterDbtTranslator for asset organization
+        - Enables code references for better debugging and lineage tracking
+        - Implements single-run backfill for efficient historical processing
+        - Only applies to gold models (dimensions and facts)
+        - No partitioning is applied to these models
+    """
+    args = ["build"]
+
+    if config.full_refresh:
+        args.append("--full-refresh")
 
     yield from (
         dbt.cli(args, context=context).stream().fetch_row_counts().fetch_column_metadata()
