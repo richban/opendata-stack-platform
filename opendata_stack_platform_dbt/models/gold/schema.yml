@@ -76,13 +76,14 @@ models:
         asset_key: ["nyc_database", "gold", "dim_location"]
     columns:
       - name: location_key
-        description: "Surrogate key for location dimension"
+        description: "Surrogate key for the location dimension. -1 represents unknown location"
         tests:
           - unique
           - not_null
       - name: location_id
-        description: "Original TLC zone identifier (matches LocationID in source)"
+        description: "Natural key from taxi_zone_lookup. -1 represents unknown location"
         tests:
+          - unique
           - not_null
       - name: location_name
         description: "Zone description (e.g., JFK Airport, Upper East Side)"
@@ -211,8 +212,9 @@ models:
         tests:
           - not_null
       - name: trip_id
-        description: "Natural key for the trip from source systems"
+        description: "Natural key from source data (row_hash)"
         tests:
+          - unique
           - not_null
       - name: date_key_pickup
         description: "Foreign key to dim_date.date_key for pickup date"
@@ -247,21 +249,23 @@ models:
           #     to: ref('dim_time')
           #     field: time_key
       - name: pu_location_key
-        description: "Foreign key to dim_location.location_key for pickup location"
+        description: "Foreign key to dim_location for pickup location. -1 if location_id not found in taxi_zone_lookup"
         tests:
           - not_null
-          # Temporarily disabled until fact_taxi_trip is created
-          # - relationships:
-          #     to: ref('dim_location')
-          #     field: location_key
+          - relationships:
+              to: ref('dim_location')
+              field: location_key
       - name: do_location_key
-        description: "Foreign key to dim_location.location_key for dropoff location"
+        description: "Foreign key to dim_location for dropoff location. -1 if location_id not found in taxi_zone_lookup"
         tests:
           - not_null
-          # Temporarily disabled until fact_taxi_trip is created
-          # - relationships:
-          #     to: ref('dim_location')
-          #     field: location_key
+          - relationships:
+              to: ref('dim_location')
+              field: location_key
+      - name: pu_location_id
+        description: "Original TLC Taxi Zone ID for pickup location from source data"
+      - name: do_location_id
+        description: "Original TLC Taxi Zone ID for dropoff location from source data"
       - name: vendor_key
         description: "Foreign key to dim_vendor.vendor_key"
         tests:
@@ -271,29 +275,35 @@ models:
           #     field: vendor_key
           - not_null
       - name: rate_code_key
-        description: "Foreign key to dim_rate_code.rate_code_key"
+        description: "Foreign key to dim_rate_code.rate_code_key. Can be NULL for FHVHV trips"
         tests:
           # Temporarily disabled until fact_taxi_trip is created
           # - relationships:
           #     to: ref('dim_rate_code')
           #     field: rate_code_key
-          - not_null
+          - relationships:
+              to: ref('dim_rate_code')
+              field: rate_code_key
       - name: payment_type_key
-        description: "Foreign key to dim_payment_type.payment_type_key"
+        description: "Foreign key to dim_payment_type.payment_type_key. Can be NULL for FHVHV trips"
         tests:
           # Temporarily disabled until fact_taxi_trip is created
           # - relationships:
           #     to: ref('dim_payment_type')
           #     field: payment_type_key
-          - not_null
+          - relationships:
+              to: ref('dim_payment_type')
+              field: payment_type_key
       - name: trip_type_key
-        description: "Foreign key to dim_trip_type.trip_type_key (Green/HVFHV only)"
+        description: "Foreign key to dim_trip_type.trip_type_key. Can be NULL for yellow taxi trips"
         tests:
           # Temporarily disabled until fact_taxi_trip is created
           # - relationships:
           #     to: ref('dim_trip_type')
           #     field: trip_type_key
-          - not_null
+          - relationships:
+              to: ref('dim_trip_type')
+              field: trip_type_key
       - name: passenger_count
         description: "Number of passengers (driver-entered or system-reported)"
       - name: trip_distance
