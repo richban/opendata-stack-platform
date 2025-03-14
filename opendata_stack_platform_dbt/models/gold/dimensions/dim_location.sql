@@ -14,6 +14,20 @@ with source_data as (
         area_size,
         perimeter_length
     from {{ source('taxi_zone_lookup', 'taxi_zone_lookup') }}
+),
+
+-- Add unknown location record
+unknown_location as (
+    select
+        'Unknown Location' as location_name,
+        null as geom_data,
+        0 as area_size,
+        0 as perimeter_length,
+        -1 as location_key,
+        -1 as location_id
 )
 
+-- Combine valid locations with unknown location
 select * from source_data
+union all
+select * from unknown_location
