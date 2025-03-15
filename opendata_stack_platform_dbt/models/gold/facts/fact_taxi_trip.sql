@@ -1,7 +1,8 @@
 {{ config(
     materialized='incremental',
     unique_key='trip_id',
-    schema='gold'
+    schema='gold',
+    full_refresh=true
 ) }}
 
 -- Yellow taxi trips
@@ -22,26 +23,33 @@ with yellow_trips as (
         -- Date and time fields for dimension lookups
         tpep_pickup_datetime,
         tpep_dropoff_datetime,
+
+        -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
-            date_part('year', tpep_pickup_datetime) * 10000
-            + date_part('month', tpep_pickup_datetime) * 100
-            + date_part('day', tpep_pickup_datetime) as int
+            extract(year from tpep_pickup_datetime) * 10000 +
+            extract(month from tpep_pickup_datetime) * 100 +
+            extract(day from tpep_pickup_datetime)
+            as int
         ) as date_key_pickup,
         cast(
             date_part('year', tpep_dropoff_datetime) * 10000
             + date_part('month', tpep_dropoff_datetime) * 100
             + date_part('day', tpep_dropoff_datetime) as int
         ) as date_key_dropoff,
+
+        -- Create matching time values for joining to dim_time
+        -- IMPORTANT: Round to minute precision (60 seconds) to match dim_time
         cast(
-            date_part('hour', tpep_pickup_datetime) * 10000
-            + date_part('minute', tpep_pickup_datetime) * 100
-            + date_part('second', tpep_pickup_datetime) as int
-        ) as time_key_pickup,
+            date_part('hour', tpep_pickup_datetime) * 3600
+            + date_part('minute', tpep_pickup_datetime) * 60
+            as int
+        ) as seconds_of_day_pickup,
+
         cast(
-            date_part('hour', tpep_dropoff_datetime) * 10000
-            + date_part('minute', tpep_dropoff_datetime) * 100
-            + date_part('second', tpep_dropoff_datetime) as int
-        ) as time_key_dropoff,
+            date_part('hour', tpep_dropoff_datetime) * 3600
+            + date_part('minute', tpep_dropoff_datetime) * 60
+            as int
+        ) as seconds_of_day_dropoff,
 
         -- Location dimension keys
         pu_location_id,
@@ -83,6 +91,19 @@ with yellow_trips as (
     {% endif %}
 ),
 
+-- Get time_key for pickup and dropoff
+yellow_with_time_keys as (
+    select
+        y.*,
+        t_pickup.time_key as time_key_pickup,
+        t_dropoff.time_key as time_key_dropoff
+    from yellow_trips y
+    left join {{ ref('dim_time') }} t_pickup
+        on y.seconds_of_day_pickup = t_pickup.seconds_of_day
+    left join {{ ref('dim_time') }} t_dropoff
+        on y.seconds_of_day_dropoff = t_dropoff.seconds_of_day
+),
+
 -- Green taxi trips
 green_trips as (
     select
@@ -101,26 +122,34 @@ green_trips as (
         -- Date and time fields for dimension lookups
         lpep_pickup_datetime as tpep_pickup_datetime, -- Standardize column names
         lpep_dropoff_datetime as tpep_dropoff_datetime, -- Standardize column names
+
+        -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
-            date_part('year', lpep_pickup_datetime) * 10000
-            + date_part('month', lpep_pickup_datetime) * 100
-            + date_part('day', lpep_pickup_datetime) as int
+            extract(year from lpep_pickup_datetime) * 10000 +
+            extract(month from lpep_pickup_datetime) * 100 +
+            extract(day from lpep_pickup_datetime)
+            as int
         ) as date_key_pickup,
         cast(
-            date_part('year', lpep_dropoff_datetime) * 10000
-            + date_part('month', lpep_dropoff_datetime) * 100
-            + date_part('day', lpep_dropoff_datetime) as int
+            extract(year from lpep_dropoff_datetime) * 10000 +
+            extract(month from lpep_dropoff_datetime) * 100 +
+            extract(day from lpep_dropoff_datetime)
+            as int
         ) as date_key_dropoff,
+
+        -- Create matching time values for joining to dim_time
+        -- IMPORTANT: Round to minute precision (60 seconds) to match dim_time
         cast(
-            date_part('hour', lpep_pickup_datetime) * 10000
-            + date_part('minute', lpep_pickup_datetime) * 100
-            + date_part('second', lpep_pickup_datetime) as int
-        ) as time_key_pickup,
+            date_part('hour', lpep_pickup_datetime) * 3600
+            + date_part('minute', lpep_pickup_datetime) * 60
+            as int
+        ) as seconds_of_day_pickup,
+
         cast(
-            date_part('hour', lpep_dropoff_datetime) * 10000
-            + date_part('minute', lpep_dropoff_datetime) * 100
-            + date_part('second', lpep_dropoff_datetime) as int
-        ) as time_key_dropoff,
+            date_part('hour', lpep_dropoff_datetime) * 3600
+            + date_part('minute', lpep_dropoff_datetime) * 60
+            as int
+        ) as seconds_of_day_dropoff,
 
         -- Location dimension keys
         pu_location_id,
@@ -162,6 +191,19 @@ green_trips as (
     {% endif %}
 ),
 
+-- Get time_key for pickup and dropoff
+green_with_time_keys as (
+    select
+        g.*,
+        t_pickup.time_key as time_key_pickup,
+        t_dropoff.time_key as time_key_dropoff
+    from green_trips g
+    left join {{ ref('dim_time') }} t_pickup
+        on g.seconds_of_day_pickup = t_pickup.seconds_of_day
+    left join {{ ref('dim_time') }} t_dropoff
+        on g.seconds_of_day_dropoff = t_dropoff.seconds_of_day
+),
+
 -- High-Volume For-Hire Vehicle (HVFHV) trips
 fhvhv_trips as (
     select
@@ -180,26 +222,34 @@ fhvhv_trips as (
         -- Date and time fields for dimension lookups
         pickup_datetime as tpep_pickup_datetime, -- Standardize column names
         dropoff_datetime as tpep_dropoff_datetime, -- Standardize column names
+
+        -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
-            date_part('year', pickup_datetime) * 10000
-            + date_part('month', pickup_datetime) * 100
-            + date_part('day', pickup_datetime) as int
+            extract(year from pickup_datetime) * 10000 +
+            extract(month from pickup_datetime) * 100 +
+            extract(day from pickup_datetime)
+            as int
         ) as date_key_pickup,
         cast(
-            date_part('year', dropoff_datetime) * 10000
-            + date_part('month', dropoff_datetime) * 100
-            + date_part('day', dropoff_datetime) as int
+            extract(year from dropoff_datetime) * 10000 +
+            extract(month from dropoff_datetime) * 100 +
+            extract(day from dropoff_datetime)
+            as int
         ) as date_key_dropoff,
+
+        -- Create matching time values for joining to dim_time
+        -- IMPORTANT: Round to minute precision (60 seconds) to match dim_time
         cast(
-            date_part('hour', pickup_datetime) * 10000
-            + date_part('minute', pickup_datetime) * 100
-            + date_part('second', pickup_datetime) as int
-        ) as time_key_pickup,
+            date_part('hour', pickup_datetime) * 3600
+            + date_part('minute', pickup_datetime) * 60
+            as int
+        ) as seconds_of_day_pickup,
+
         cast(
-            date_part('hour', dropoff_datetime) * 10000
-            + date_part('minute', dropoff_datetime) * 100
-            + date_part('second', dropoff_datetime) as int
-        ) as time_key_dropoff,
+            date_part('hour', dropoff_datetime) * 3600
+            + date_part('minute', dropoff_datetime) * 60
+            as int
+        ) as seconds_of_day_dropoff,
 
         -- Location dimension keys
         pu_location_id,
@@ -209,17 +259,17 @@ fhvhv_trips as (
         null as passenger_count, -- FHVHV doesn't have passenger count
         trip_miles as trip_distance, -- Map miles to distance
         base_passenger_fare as fare_amount, -- Map base fare
-        0 as extra, -- FHVHV doesn't have extra
-        0 as mta_tax, -- FHVHV doesn't have MTA tax
+        null as extra, -- FHVHV doesn't have extra
+        null as mta_tax, -- FHVHV doesn't have MTA tax
         tips as tip_amount, -- Map tips
         tolls as tolls_amount, -- Map tolls
-        0 as improvement_surcharge, -- FHVHV doesn't have improvement surcharge
+        null as improvement_surcharge, -- FHVHV doesn't have improvement surcharge
         congestion_surcharge,
-        0 as airport_fee, -- FHVHV doesn't have airport fee
+        null as airport_fee, -- FHVHV doesn't have airport fee
         (base_passenger_fare + tips + tolls + congestion_surcharge) as total_amount,
 
         -- Trip flags
-        null as store_and_fwd_flag, -- FHVHV doesn't have store and forward flag
+        null as store_and_fwd_flag, -- No equivalent in FHVHV
 
         -- Timestamp for incremental loads
         pickup_datetime as incremental_timestamp,
@@ -241,13 +291,26 @@ fhvhv_trips as (
     {% endif %}
 ),
 
+-- Get time_key for pickup and dropoff
+fhvhv_with_time_keys as (
+    select
+        f.*,
+        t_pickup.time_key as time_key_pickup,
+        t_dropoff.time_key as time_key_dropoff
+    from fhvhv_trips f
+    left join {{ ref('dim_time') }} t_pickup
+        on f.seconds_of_day_pickup = t_pickup.seconds_of_day
+    left join {{ ref('dim_time') }} t_dropoff
+        on f.seconds_of_day_dropoff = t_dropoff.seconds_of_day
+),
+
 -- Combine all taxi trips
 all_trips as (
-    select * from yellow_trips
+    select * from yellow_with_time_keys
     union all
-    select * from green_trips
+    select * from green_with_time_keys
     union all
-    select * from fhvhv_trips
+    select * from fhvhv_with_time_keys
 ),
 
 -- Final select with dimension key lookups
@@ -259,21 +322,21 @@ final as (
         c.date_key_dropoff,
         c.time_key_pickup,
         c.time_key_dropoff,
-        
+
         -- Join to dimension tables to get surrogate keys
         v.vendor_key,
         r.rate_code_key,
         p.payment_type_key,
         t.trip_type_key,
-        
+
         -- Use coalesce to map invalid locations to unknown location (-1)
         coalesce(pu_loc.location_key, -1) as pu_location_key,
         coalesce(do_loc.location_key, -1) as do_location_key,
-        
+
         -- Keep original location IDs for reference
         c.pu_location_id,
         c.do_location_id,
-        
+
         -- Trip metrics
         c.passenger_count,
         c.trip_distance,
@@ -287,18 +350,25 @@ final as (
         c.airport_fee,
         c.total_amount,
         c.store_and_fwd_flag,
-        
+
         -- Timestamps
         c.tpep_pickup_datetime,
         c.tpep_dropoff_datetime,
-        
+
         -- Metadata
         c.incremental_timestamp,
         c.record_loaded_timestamp,
-        
-        -- Generate a surrogate key for the fact table
-        row_number() over (
-            order by c.tpep_pickup_datetime
+
+        -- Generate a surrogate key for the fact table as a STRING type
+        -- Use taxi_type, trip_id, and pickup time to ensure uniqueness
+        cast(
+            {{
+                dbt_utils.generate_surrogate_key([
+                    'c.taxi_type',
+                    'c.trip_id',
+                    'c.tpep_pickup_datetime'
+                ])
+            }} as varchar
         ) as taxi_trip_key
     from all_trips c
     left join {{ ref('dim_vendor') }} v

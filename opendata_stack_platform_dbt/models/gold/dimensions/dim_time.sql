@@ -7,14 +7,15 @@ with time_sequence as (
     select generate_series as seconds_of_day
     from (
         select *
-        from generate_series(0, 86399, 60)
+        from generate_series(0, 86399, 60)  -- Every minute (60 seconds)
     )
 ),
 
 time_attributes as (
     select
         seconds_of_day,
-        -- Create time key in format HHMMSS
+
+        -- Create proper time_key in standard format (HHMMSS)
         cast(
             (seconds_of_day / 3600) * 10000
             + ((seconds_of_day % 3600) / 60) * 100
@@ -22,18 +23,31 @@ time_attributes as (
             as int
         ) as time_key,
 
-        -- Time components
-        (seconds_of_day / 3600) as hour_24,
-        case
-            when (seconds_of_day / 3600) = 0 then 12
-            when (seconds_of_day / 3600) > 12 then (seconds_of_day / 3600) - 12
-            else (seconds_of_day / 3600)
-        end as hour_12,
+        -- Time components as proper integers
+        cast(seconds_of_day / 3600 as int) as hour_24,
+        cast((seconds_of_day % 3600) / 60 as int) as minute_value,
 
-        (seconds_of_day % 3600) / 60 as minute_value,
-        seconds_of_day % 60 as second_value,
+        cast(seconds_of_day % 60 as int) as second_value,
+        cast(
+            ((seconds_of_day / 3600) between 7 and 9)
+            or ((seconds_of_day / 3600) between 16 and 19)
+            as boolean
+        ) as is_rush_hour,
 
         -- Time period classifications
+        cast(
+            (seconds_of_day / 3600) between 7 and 20
+            as boolean
+        ) as is_peak_time,
+
+        -- AM/PM indicator
+        case
+            when cast(seconds_of_day / 3600 as int) = 0 then 12
+            when cast(seconds_of_day / 3600 as int) > 12 then cast(seconds_of_day / 3600 as int) - 12
+            else cast(seconds_of_day / 3600 as int)
+        end as hour_12,
+
+        -- Rush hour flag
         case
             when (seconds_of_day / 3600) between 6 and 9 then 'Morning Rush'
             when (seconds_of_day / 3600) between 10 and 15 then 'Midday'
@@ -42,24 +56,11 @@ time_attributes as (
             else 'Late Night/Early Morning'
         end as period_of_day,
 
-        -- AM/PM indicator
+        -- Peak time flag (broader than rush hour, includes lunch)
         case
             when (seconds_of_day / 3600) < 12 then 'AM'
             else 'PM'
-        end as am_pm_flag,
-
-        -- Rush hour flag
-        coalesce(
-            ((seconds_of_day / 3600) between 7 and 9)
-            or ((seconds_of_day / 3600) between 16 and 19),
-            false
-        ) as is_rush_hour,
-
-        -- Peak time flag (broader than rush hour, includes lunch)
-        coalesce(
-            (seconds_of_day / 3600) between 7 and 20,
-            false
-        ) as is_peak_time
+        end as am_pm_flag
     from time_sequence
 )
 
