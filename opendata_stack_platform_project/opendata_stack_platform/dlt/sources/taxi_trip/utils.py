@@ -3,40 +3,17 @@ import json
 import re
 
 from collections.abc import Iterator
-from datetime import date, datetime, timezone
 
-import dlt
 import pyarrow as pa
 
-from dlt.sources.filesystem import FileItemDict
 from pyarrow import parquet as pq
+
+import dlt
+
+from dlt.sources.filesystem import FileItemDict
 
 # Regex pattern to extract date from filenames like "green_tripdata_2024-01-01.parquet"
 DATE_PATTERN = re.compile(r"_(\d{4}-\d{2}(?:-\d{2})?)\.")
-
-
-def add_partition_column(batch: pa.RecordBatch, partition_key: str) -> pa.RecordBatch:
-    """Adds a new column with the partition key to the given recordbatch.
-
-    args:
-        batch (pa.RecordBatch): the original recordbatch.
-        partition_key (str): the partition key to add as a new column.
-
-    Returns:
-        pa.RecordBatch: the recordbatch with the new column added.
-    """
-    # Convert YYYY-MM-DD string to datetime.date first
-    partition_date = (
-        datetime.strptime(partition_key, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
-    )
-    # Convert to days since epoch (1970-01-01)
-    epoch = date(1970, 1, 1)
-    days_since_epoch = (partition_date - epoch).days
-
-    # Create an array of the same value repeated for the length of the batch
-    date_array = pa.array([days_since_epoch] * len(batch), type=pa.date32())
-    new_batch = batch.append_column("partition_key", date_array)
-    return new_batch
 
 
 def add_row_hash(
@@ -132,15 +109,13 @@ def read_parquet_custom(
         pyarrow.RecordBatch: Enriched RecordBatch with metadata.
     """
     for file_obj in items:
-        # Extract partition key from file name if not provided
-        file_partition_key = extract_partition_key_from_filename(file_obj["file_name"])
-
         with file_obj.open() as f:
             parquet_file = pq.ParquetFile(f)
             # Iterate over RecordBatch objects
             for raw_batch in parquet_file.iter_batches(batch_size=batch_size):
-                # Add partition column
-                processed_batch = add_partition_column(raw_batch, file_partition_key)
+                # Add the file_name as metadata
+                file_name_array = pa.array([file_obj["file_name"]] * len(raw_batch))
+                processed_batch = raw_batch.append_column("_file_name", file_name_array)
 
                 # Add row hash
                 processed_batch = add_row_hash(processed_batch, key_columns)

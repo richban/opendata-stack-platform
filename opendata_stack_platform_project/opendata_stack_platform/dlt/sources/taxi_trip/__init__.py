@@ -6,7 +6,6 @@ import dlt
 
 from dlt.extract.source import DltSource
 from dlt.sources.filesystem import filesystem
-
 from opendata_stack_platform.assets import constants
 from opendata_stack_platform.dlt.sources.taxi_trip.utils import read_parquet_custom
 
