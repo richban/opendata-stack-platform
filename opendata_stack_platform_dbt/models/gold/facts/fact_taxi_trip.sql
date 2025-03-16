@@ -6,8 +6,7 @@
         "field": "date_partition",
         "data_type": "date",
         "granularity": "month"
-    },
-    schema='gold'
+    }
 ) }}
 
 -- Yellow taxi trips
@@ -29,11 +28,8 @@ with yellow_trips as (
         1 as trip_type_id, -- Yellow taxis don't have trip type but byt law it's street-hail (1 = Street-hail)
 
         -- Date and time fields for dimension lookups
-        tpep_pickup_datetime,
-        tpep_dropoff_datetime,
-
-        -- Partition field for delete+insert strategy
-        date_trunc('month', tpep_pickup_datetime)::date as date_partition,
+        tpep_pickup_datetime as pickup_datetime,
+        tpep_dropoff_datetime as dropoff_datetime,
 
         -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
@@ -85,15 +81,18 @@ with yellow_trips as (
         -- Timestamp for incremental loads
         tpep_pickup_datetime as incremental_timestamp,
 
+        -- Partition field for delete+insert strategy
+        date_trunc('month', tpep_pickup_datetime) as date_partition,
+
         -- Metadata
         current_timestamp as record_loaded_timestamp
     from {{ source('silver_yellow', 'yellow_taxi_trip') }}
     where 1 = 1
     {% if is_incremental() and not var('backfill_start_date', false) %}
         -- Normal incremental behavior - only process new data
-        and date_trunc('month', tpep_pickup_datetime)::date >= (
+        and date_trunc('month', tpep_pickup_datetime) >= (
             select coalesce(
-                date_trunc('month', max(tpep_pickup_datetime))::date,
+                date_trunc('month', max(incremental_timestamp)),
                 '2000-01-01'::date
             )
             from {{ this }}
@@ -101,8 +100,8 @@ with yellow_trips as (
         )
     {% elif is_incremental() and var('backfill_start_date', false) %}
         -- Backfill behavior - process specified date range
-        and date_trunc('month', tpep_pickup_datetime)::date >= date(var('backfill_start_date'))
-        and date_trunc('month', tpep_pickup_datetime)::date <= date(var('backfill_end_date'))
+        and date_trunc('month', tpep_pickup_datetime) >=  cast('{{ var("backfill_start_date") }}' as date)
+        and date_trunc('month', tpep_pickup_datetime) <=  cast('{{ var("backfill_end_date") }}' as date)
     {% endif %}
 ),
 
@@ -138,11 +137,8 @@ green_trips as (
         trip_type as trip_type_id,
 
         -- Date and time fields for dimension lookups
-        lpep_pickup_datetime as tpep_pickup_datetime, -- Standardize column names
-        lpep_dropoff_datetime as tpep_dropoff_datetime, -- Standardize column names
-
-        -- Partition field for delete+insert strategy
-        date_trunc('month', lpep_pickup_datetime)::date as date_partition,
+        lpep_pickup_datetime as pickup_datetime,
+        lpep_dropoff_datetime as dropoff_datetime,
 
         -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
@@ -195,15 +191,18 @@ green_trips as (
         -- Timestamp for incremental loads
         lpep_pickup_datetime as incremental_timestamp,
 
+        -- Partition field for delete+insert strategy
+        date_trunc('month', lpep_pickup_datetime) as date_partition,
+
         -- Metadata
         current_timestamp as record_loaded_timestamp
     from {{ source('silver_green', 'green_taxi_trip') }}
     where 1 = 1
     {% if is_incremental() and not var('backfill_start_date', false) %}
         -- Normal incremental behavior - only process new data
-        and date_trunc('month', lpep_pickup_datetime)::date >= (
+        and date_trunc('month', lpep_pickup_datetime) >= (
             select coalesce(
-                date_trunc('month', max(tpep_pickup_datetime))::date,
+                date_trunc('month', max(incremental_timestamp)),
                 '2000-01-01'::date
             )
             from {{ this }}
@@ -211,8 +210,8 @@ green_trips as (
         )
     {% elif is_incremental() and var('backfill_start_date', false) %}
         -- Backfill behavior - process specified date range
-        and date_trunc('month', lpep_pickup_datetime)::date >= date(var('backfill_start_date'))
-        and date_trunc('month', lpep_pickup_datetime)::date <= date(var('backfill_end_date'))
+        and date_trunc('month', lpep_pickup_datetime) >=  cast('{{ var("backfill_start_date") }}' as date)
+        and date_trunc('month', lpep_pickup_datetime) <=  cast('{{ var("backfill_end_date") }}' as date)
     {% endif %}
 ),
 
@@ -249,11 +248,8 @@ fhvhv_trips as (
         3 as trip_type_id, -- FHVHV doesn't have trip type. Uber and Lyft are classified as e-dispatch services in New York City.
 
         -- Date and time fields for dimension lookups
-        pickup_datetime as tpep_pickup_datetime, -- Standardize column names
-        dropoff_datetime as tpep_dropoff_datetime, -- Standardize column names
-
-        -- Partition field for delete+insert strategy
-        date_trunc('month', pickup_datetime)::date as date_partition,
+        pickup_datetime,
+        dropoff_datetime,
 
         -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
@@ -306,15 +302,18 @@ fhvhv_trips as (
         -- Timestamp for incremental loads
         pickup_datetime as incremental_timestamp,
 
+        -- Partition field for delete+insert strategy
+        date_trunc('month', pickup_datetime)::date as date_partition,
+
         -- Metadata
         current_timestamp as record_loaded_timestamp
     from {{ source('silver_fhvhv', 'fhvhv_taxi_trip') }}
     where 1 = 1
     {% if is_incremental() and not var('backfill_start_date', false) %}
         -- Normal incremental behavior - only process new data
-        and date_trunc('month', pickup_datetime)::date >= (
+        and date_trunc('month', pickup_datetime) >= (
             select coalesce(
-                date_trunc('month', max(tpep_pickup_datetime))::date,
+                date_trunc('month', max(incremental_timestamp))::date,
                 '2000-01-01'::date
             )
             from {{ this }}
@@ -322,8 +321,8 @@ fhvhv_trips as (
         )
     {% elif is_incremental() and var('backfill_start_date', false) %}
         -- Backfill behavior - process specified date range
-        and date_trunc('month', pickup_datetime)::date >= date(var('backfill_start_date'))
-        and date_trunc('month', pickup_datetime)::date <= date(var('backfill_end_date'))
+        and date_trunc('month', pickup_datetime) >=  cast('{{ var("backfill_start_date") }}' as date)
+        and date_trunc('month', pickup_datetime) <=  cast('{{ var("backfill_end_date") }}' as date)
     {% endif %}
 ),
 
@@ -362,7 +361,7 @@ final as (
 
         -- Join to dimension tables to get surrogate keys
         v.vendor_key,
-        r.rate_code_key,
+        coalesce(c.ratecode_id, 99) as ratecode_id,
         p.payment_type_key,
         t.trip_type_key,
 
@@ -389,8 +388,8 @@ final as (
         c.store_and_fwd_flag,
 
         -- Timestamps
-        c.tpep_pickup_datetime,
-        c.tpep_dropoff_datetime,
+        c.pickup_datetime,
+        c.dropoff_datetime,
 
         -- Metadata
         c.incremental_timestamp,
@@ -403,7 +402,7 @@ final as (
                 dbt_utils.generate_surrogate_key([
                     'c.taxi_type',
                     'c.trip_id',
-                    'c.tpep_pickup_datetime'
+                    'c.pickup_datetime'
                 ])
             }} as varchar
         ) as taxi_trip_key

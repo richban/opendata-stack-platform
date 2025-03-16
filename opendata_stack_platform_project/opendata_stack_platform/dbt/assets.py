@@ -259,11 +259,22 @@ def dbt_partitioned_models(
         - Partition key is passed to DBT as a variable for time-based filtering
         - Only applies to silver models, not gold models
     """
-    context.log.info(f"partition_key: {context.partition_key}")
-    # Pass the partition date directly to dbt
-    dbt_vars = {
-        "partition_key": context.partition_key,
-    }
+    if hasattr(context, "partition_key_range") and context.partition_key_range:
+        time_window = context.partition_time_window
+        dbt_vars = {
+            "backfill_start_date": time_window.start.strftime("%Y-%m-%d"),
+            "backfill_end_date": time_window.end.strftime("%Y-%m-%d"),
+        }
+        context.log.info(
+            f"Executing backfill from {time_window.start} to {time_window.end}"
+        )
+    else:
+        context.log.info(f"partition_key: {context.partition_key}")
+        # Pass the partition date directly to dbt
+        dbt_vars = {
+            "backfill_start_date": context.partition_key,
+            "backfill_end_date": context.partition_key,
+        }
     args = ["build", "--vars", json.dumps(dbt_vars)]
 
     if config.full_refresh:
