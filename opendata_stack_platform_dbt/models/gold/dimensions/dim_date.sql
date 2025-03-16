@@ -1,7 +1,5 @@
 {{ config(
     materialized='table',
-    schema=var('gold_schema', 'gold'),
-    full_refresh=true
 ) }}
 
 -- Generate date dimension for 10 years (2015-2025)
