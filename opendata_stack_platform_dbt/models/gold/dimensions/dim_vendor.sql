@@ -1,57 +1,63 @@
 {{ config(
     materialized='table',
-    schema='gold'
+    unique_key='vendor_key',
 ) }}
 
-with yellow_vendors as (
+/*
+This dimension identifies taxi service providers and technology vendors.
+*/
+
+with vendor_ids as (
+    -- Yellow taxi vendor_ids
     select distinct vendor_id
     from {{ source('silver_yellow', 'yellow_taxi_trip') }}
-),
 
-green_vendors as (
+    union all
+
+    -- Green taxi vendor_ids
     select distinct vendor_id
     from {{ source('silver_green', 'green_taxi_trip') }}
-),
 
-fhvhv_vendors as (
-    select distinct hvfhs_license_num as vendor_id
+    union all
+
+    -- FHVHV (uber, lyft, etc) vendor_ids (hvfhs_license_num)
+    select distinct
+        -- Extract just the numeric part after 'HV'
+        case
+            when hvfhs_license_num like 'HV%'
+                then
+                    CAST(REPLACE(hvfhs_license_num, 'HV', '') as INT)
+            else -1 -- Default for unknown pattern
+        end as vendor_id
     from {{ source('silver_fhvhv', 'fhvhv_taxi_trip') }}
 ),
 
-all_vendors as (
-    select vendor_id from yellow_vendors
-    union
-    select vendor_id from green_vendors
-    union
-    select vendor_id from fhvhv_vendors
-),
-
-vendor_mapping as (
-    select
+vendor_codes as (
+    select distinct
         vendor_id,
         case
-            when vendor_id = '1' then 'Creative Mobile Technologies, LLC'
-            when vendor_id = '2' then 'VeriFone Inc.'
-            when vendor_id = 'HV0002' then 'Juno'
-            when vendor_id = 'HV0003' then 'Uber'
-            when vendor_id = 'HV0004' then 'Via'
-            when vendor_id = 'HV0005' then 'Lyft'
-            else 'Unknown'
+            -- Yellow and Green Taxi vendors
+            when vendor_id = 1 then 'Creative Mobile Technologies'
+            when vendor_id = 2 then 'VeriFone'
+            -- FHVHV vendors
+            when vendor_id = 2 then 'Juno'
+            when vendor_id = 3 then 'Uber'
+            when vendor_id = 4 then 'Via'
+            when vendor_id = 5 then 'Lyft'
+            else 'Unknown Vendor Code: ' || vendor_id
         end as vendor_name
-    from all_vendors
+    from vendor_ids
 ),
 
 final as (
     select
+        vendor_id as vendor_key,
         vendor_id,
         vendor_name,
-        cast(null as date) as row_expiration_date,
-        'Y' as current_flag,
-        row_number() over (
-            order by vendor_id
-        ) as vendor_key,
-        current_date as row_effective_date
-    from vendor_mapping
+        null::TIMESTAMP as valid_to,
+        true as is_current,
+        CURRENT_TIMESTAMP as valid_from
+    from vendor_codes
 )
 
 select * from final
