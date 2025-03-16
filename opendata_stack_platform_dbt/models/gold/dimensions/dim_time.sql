@@ -1,6 +1,5 @@
 {{ config(
     materialized='table',
-    schema='gold'
 ) }}
 
 with time_sequence as (
