@@ -1,49 +1,49 @@
 {{ config(
-    materialized='table',
-    schema='gold'
+    materialized='incremental',
+    unique_key='rate_code_key',
+    incremental_strategy='delete+insert',
 ) }}
 
-with rate_codes as (
+/*
+This dimension describes tariff types or negotiated rates used during taxi trips.
+Rate codes vary by taxi type, with Yellow and Green taxis sharing a similar structure.
+*/
+
+with rate_code_mapping as (
     select
-        1 as rate_code_id,
-        'Standard rate' as rate_code_desc
-    union all
-    select
-        2 as rate_code_id,
-        'JFK' as rate_code_desc
-    union all
-    select
-        3 as rate_code_id,
-        'Newark' as rate_code_desc
-    union all
-    select
-        4 as rate_code_id,
-        'Nassau or Westchester' as rate_code_desc
-    union all
-    select
-        5 as rate_code_id,
-        'Negotiated fare' as rate_code_desc
-    union all
-    select
-        6 as rate_code_id,
-        'Group ride' as rate_code_desc
-    union all
-    select
-        99 as rate_code_id,
-        'Unknown' as rate_code_desc
+        rate_code_id,
+        case
+            when rate_code_id = 1 then 'Standard rate'
+            when rate_code_id = 2 then 'JFK'
+            when rate_code_id = 3 then 'Newark'
+            when rate_code_id = 4 then 'Nassau or Westchester'
+            when rate_code_id = 5 then 'Negotiated fare'
+            when rate_code_id = 6 then 'Group ride'
+            when rate_code_id = 99 then 'Unknown'
+            else 'Rate Code ' || rate_code_id
+        end as rate_code_desc
+    from (
+        -- Get all distinct ratecode_id values from Yellow Taxi
+        select distinct coalesce(cast(ratecode_id as int), 99) as rate_code_id
+        from {{ source('silver_yellow', 'yellow_taxi_trip') }}
+
+        union
+
+        -- Get all distinct ratecode_id values from Green Taxi
+        select distinct coalesce(cast(ratecode_id as int), 99) as rate_code_id
+        from {{ source('silver_green', 'green_taxi_trip') }}
+    )
 ),
 
 final as (
     select
+        rate_code_id as rate_code_key,
         rate_code_id,
         rate_code_desc,
-        cast(null as date) as row_expiration_date,
-        'Y' as current_flag,
-        row_number() over (
-            order by rate_code_id
-        ) as rate_code_key,
-        current_date as row_effective_date
-    from rate_codes
+        null::timestamp as valid_to,
+        true as is_current,
+        current_timestamp as valid_from
+    from rate_code_mapping
 )
 
 select * from final
