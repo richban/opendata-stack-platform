@@ -1,43 +1,45 @@
 {{ config(
     materialized='table',
-    schema='gold'
+    unique_key='payment_type_key',
 ) }}
 
 with payment_types as (
     select
-        1 as payment_type_id,
-        'Credit card' as payment_desc
-    union all
-    select
-        2 as payment_type_id,
-        'Cash' as payment_desc
-    union all
-    select
-        3 as payment_type_id,
-        'No charge' as payment_desc
-    union all
-    select
-        4 as payment_type_id,
-        'Dispute' as payment_desc
-    union all
-    select
-        5 as payment_type_id,
-        'Unknown' as payment_desc
-    union all
-    select
-        6 as payment_type_id,
-        'Voided trip' as payment_desc
+        payment_type_id,
+        case
+            when payment_type_id = 1 then 'Credit card'
+            when payment_type_id = 2 then 'Cash'
+            when payment_type_id = 3 then 'No charge'
+            when payment_type_id = 4 then 'Dispute'
+            when payment_type_id = 5 then 'Unknown'
+            when payment_type_id = 6 then 'Voided trip'
+            else 'Unknown Payment Type: ' || payment_type_id
+        end as payment_desc
+    from (
+        select distinct payment_type_id
+        from (
+            select 1 as payment_type_id
+            union all
+            select 2
+            union all
+            select 3
+            union all
+            select 4
+            union all
+            select 5
+            union all
+            select 6
+        )
+    )
 ),
 
 final as (
     select
+        payment_type_id as payment_type_key,
         payment_type_id,
         payment_desc,
         cast(null as date) as row_expiration_date,
         'Y' as current_flag,
-        row_number() over (
-            order by payment_type_id
-        ) as payment_type_key,
         current_date as row_effective_date
     from payment_types
 )
