@@ -1,8 +1,13 @@
 {{ config(
     materialized='incremental',
     unique_key='trip_id',
-    schema='gold',
-    full_refresh=true
+    incremental_strategy='delete+insert',
+    partition_by={
+        "field": "date_partition",
+        "data_type": "date",
+        "granularity": "month"
+    },
+    schema='gold'
 ) }}
 
 -- Yellow taxi trips
@@ -16,13 +21,19 @@ with yellow_trips as (
 
         -- Dimension keys will be joined later
         vendor_id,
-        cast(ratecode_id as int) as ratecode_id,
-        cast(payment_type as int) as payment_type_id,
-        null as trip_type_id, -- Yellow taxis don't have trip type
+        coalesce(cast(ratecode_id as int), 99) as ratecode_id, -- default to 99 if null (unknown)
+        case
+            when payment_type = 0 then 5 -- payment_type 0 is unknown
+            else coalesce(payment_type, 5) -- Default to 5 if payment_type is null
+        end as payment_type_id,
+        1 as trip_type_id, -- Yellow taxis don't have trip type but byt law it's street-hail (1 = Street-hail)
 
         -- Date and time fields for dimension lookups
         tpep_pickup_datetime,
         tpep_dropoff_datetime,
+
+        -- Partition field for delete+insert strategy
+        date_trunc('month', tpep_pickup_datetime)::date as date_partition,
 
         -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
@@ -78,8 +89,8 @@ with yellow_trips as (
         current_timestamp as record_loaded_timestamp
     from {{ source('silver_yellow', 'yellow_taxi_trip') }}
     where 1 = 1
-    {% if is_incremental() %}
-        -- Match DLT partition strategy (YEAR_MONTH_FORMAT)
+    {% if is_incremental() and not var('backfill_start_date', false) %}
+        -- Normal incremental behavior - only process new data
         and date_trunc('month', tpep_pickup_datetime)::date >= (
             select coalesce(
                 date_trunc('month', max(tpep_pickup_datetime))::date,
@@ -88,6 +99,10 @@ with yellow_trips as (
             from {{ this }}
             where taxi_type = 'yellow'
         )
+    {% elif is_incremental() and var('backfill_start_date', false) %}
+        -- Backfill behavior - process specified date range
+        and date_trunc('month', tpep_pickup_datetime)::date >= date(var('backfill_start_date'))
+        and date_trunc('month', tpep_pickup_datetime)::date <= date(var('backfill_end_date'))
     {% endif %}
 ),
 
@@ -115,13 +130,19 @@ green_trips as (
 
         -- Dimension keys will be joined later
         vendor_id,
-        cast(ratecode_id as int) as ratecode_id,
-        cast(payment_type as int) as payment_type_id,
-        cast(trip_type as int) as trip_type_id,
+        coalesce(cast(ratecode_id as int), 99) as ratecode_id,
+        case
+            when payment_type = 0 then 5 -- payment_type 0 is unknown
+            else coalesce(payment_type, 5) -- Default to 5 if payment_type is null
+        end as payment_type_id,
+        trip_type as trip_type_id,
 
         -- Date and time fields for dimension lookups
         lpep_pickup_datetime as tpep_pickup_datetime, -- Standardize column names
         lpep_dropoff_datetime as tpep_dropoff_datetime, -- Standardize column names
+
+        -- Partition field for delete+insert strategy
+        date_trunc('month', lpep_pickup_datetime)::date as date_partition,
 
         -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
@@ -165,7 +186,7 @@ green_trips as (
         tolls_amount,
         improvement_surcharge,
         congestion_surcharge,
-        0 as airport_fee, -- Green taxis don't have airport fee
+        null as airport_fee, -- Green taxis don't have airport fee
         total_amount,
 
         -- Trip flags
@@ -178,8 +199,8 @@ green_trips as (
         current_timestamp as record_loaded_timestamp
     from {{ source('silver_green', 'green_taxi_trip') }}
     where 1 = 1
-    {% if is_incremental() %}
-        -- Match DLT partition strategy (YEAR_MONTH_FORMAT)
+    {% if is_incremental() and not var('backfill_start_date', false) %}
+        -- Normal incremental behavior - only process new data
         and date_trunc('month', lpep_pickup_datetime)::date >= (
             select coalesce(
                 date_trunc('month', max(tpep_pickup_datetime))::date,
@@ -188,6 +209,10 @@ green_trips as (
             from {{ this }}
             where taxi_type = 'green'
         )
+    {% elif is_incremental() and var('backfill_start_date', false) %}
+        -- Backfill behavior - process specified date range
+        and date_trunc('month', lpep_pickup_datetime)::date >= date(var('backfill_start_date'))
+        and date_trunc('month', lpep_pickup_datetime)::date <= date(var('backfill_end_date'))
     {% endif %}
 ),
 
@@ -213,15 +238,22 @@ fhvhv_trips as (
         -- Use row_hash from source as trip_id
         row_hash as trip_id,
 
-        -- Dimension keys will be joined later
-        hvfhs_license_num as vendor_id, -- Map license number to vendor
+        -- Extract just the numeric part after 'HV'
+        CASE
+            WHEN hvfhs_license_num LIKE 'HV%' THEN
+                CAST(REPLACE(hvfhs_license_num, 'HV', '') AS INT)
+            ELSE -1 -- Default for unknown pattern
+        END as vendor_id,
         null as ratecode_id, -- FHVHV doesn't have rate code
-        null as payment_type_id, -- FHVHV doesn't have payment type
-        null as trip_type_id, -- FHVHV doesn't have trip type
+        5 as payment_type_id, -- FHVHV doesn't have payment type so use 5 (unknown)
+        3 as trip_type_id, -- FHVHV doesn't have trip type. Uber and Lyft are classified as e-dispatch services in New York City.
 
         -- Date and time fields for dimension lookups
         pickup_datetime as tpep_pickup_datetime, -- Standardize column names
         dropoff_datetime as tpep_dropoff_datetime, -- Standardize column names
+
+        -- Partition field for delete+insert strategy
+        date_trunc('month', pickup_datetime)::date as date_partition,
 
         -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
@@ -278,8 +310,8 @@ fhvhv_trips as (
         current_timestamp as record_loaded_timestamp
     from {{ source('silver_fhvhv', 'fhvhv_taxi_trip') }}
     where 1 = 1
-    {% if is_incremental() %}
-        -- Match DLT partition strategy (YEAR_MONTH_FORMAT)
+    {% if is_incremental() and not var('backfill_start_date', false) %}
+        -- Normal incremental behavior - only process new data
         and date_trunc('month', pickup_datetime)::date >= (
             select coalesce(
                 date_trunc('month', max(tpep_pickup_datetime))::date,
@@ -288,6 +320,10 @@ fhvhv_trips as (
             from {{ this }}
             where taxi_type = 'fhvhv'
         )
+    {% elif is_incremental() and var('backfill_start_date', false) %}
+        -- Backfill behavior - process specified date range
+        and date_trunc('month', pickup_datetime)::date >= date(var('backfill_start_date'))
+        and date_trunc('month', pickup_datetime)::date <= date(var('backfill_end_date'))
     {% endif %}
 ),
 
@@ -317,7 +353,8 @@ all_trips as (
 final as (
     select
         c.taxi_type,
-        c.trip_id,
+        c.trip_id, -- natural key
+        c.date_partition, -- partition field for delete+insert
         c.date_key_pickup,
         c.date_key_dropoff,
         c.time_key_pickup,
