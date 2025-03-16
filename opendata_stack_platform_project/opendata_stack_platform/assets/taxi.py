@@ -19,7 +19,7 @@ from opendata_stack_platform.utils.download_and_upload_file import (
 )
 
 
-@asset(group_name="raw_files")
+@asset(group_name="raw_files", kinds={"csv"})
 def taxi_zone_lookup_raw(s3: S3Resource) -> None:
     """
     The raw CSV file for the taxi zones dataset. Sourced from the NYC Open Data portal.
@@ -39,7 +39,7 @@ def taxi_zone_lookup_raw(s3: S3Resource) -> None:
     return MaterializeResult(metadata={"Number of records": MetadataValue.int(num_rows)})
 
 
-@asset(partitions_def=monthly_partition, group_name="raw_files")
+@asset(partitions_def=monthly_partition, group_name="raw_files", kinds={"parquet"})
 def yellow_taxi_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     """
     The raw parquet files for the yellow taxi trips dataset. Sourced from the
@@ -52,7 +52,7 @@ def yellow_taxi_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None
     )
 
 
-@asset(partitions_def=monthly_partition, group_name="raw_files")
+@asset(partitions_def=monthly_partition, group_name="raw_files", kinds={"parquet"})
 def green_taxi_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     """
     The raw parquet files for the green taxi trips dataset. Sourced from the
@@ -65,7 +65,7 @@ def green_taxi_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     )
 
 
-@asset(partitions_def=monthly_partition, group_name="raw_files")
+@asset(partitions_def=monthly_partition, group_name="raw_files", kinds={"parquet"})
 def fhvhv_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     """
     The raw parquet files for the High Volume FHV trips dataset. Sourced from
@@ -82,7 +82,7 @@ def fhvhv_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     deps=["taxi_zone_lookup_raw"],
     group_name="ingested_taxi_trip_silver",
     compute_kind="DuckDB",
-    key_prefix=["nyc_database", "main"],
+    key_prefix=["nyc_database", "silver"],
 )
 def taxi_zone_lookup(context: AssetExecutionContext, duckdb_resource: DuckDBResource):
     """The raw taxi zones dataset, loaded into a DuckDB database."""
