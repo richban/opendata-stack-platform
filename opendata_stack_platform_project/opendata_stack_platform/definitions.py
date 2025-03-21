@@ -101,7 +101,7 @@ dynamic_sensor_job = dynamic_sensor_graph_calculation_climate_impact.to_job(
 )
 
 
-core_defs = Definitions(
+defs = Definitions(
     assets=all_assets,
     sensors=[make_s3_sensor(dynamic_sensor_job)],
     resources={
