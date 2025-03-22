@@ -40,7 +40,7 @@ with yellow_trips as (
 
         -- Dimension keys will be joined later
         -- default to 99 if null (unknown)
-        coalesce(cast(ratecode_id as int), 99) as ratecode_id,
+        coalesce(ratecode_id, 99) as rate_code_id,
         -- payment_type 0 is unknown
         -- Default to 5 if payment_type is null
         case
@@ -146,7 +146,8 @@ green_trips as (
         lpep_pickup_datetime as incremental_timestamp,
 
         -- Dimension keys will be joined later
-        coalesce(cast(ratecode_id as int), 99) as ratecode_id,
+        -- default to 99 if null (unknown)
+        coalesce(ratecode_id, 99) as rate_code_id,
         case
             when payment_type = 0 then 5 -- payment_type 0 is unknown
             else coalesce(payment_type, 5) -- Default to 5 if payment_type is null
@@ -252,7 +253,7 @@ fhvhv_trips as (
         pickup_datetime as incremental_timestamp,
 
         -- Dimension keys will be joined later
-        null as ratecode_id, -- FHVHV doesn't have rate code
+        99 as rate_code_id, -- FHVHV doesn't have rate code (99 = unknown)
         5 as payment_type_id, -- FHVHV doesn't have payment type so use 5 (unknown)
         3 as trip_type_id, -- FHVHV doesn't have trip type. Uber and Lyft are classified as e-dispatch services in New York City.
 
@@ -342,19 +343,15 @@ final as (
         c.time_key_pickup,
         c.time_key_dropoff,
 
-        -- Join to dimension tables to get surrogate keys
+        -- Foreign keys from dimensions
         v.vendor_key,
-        coalesce(c.ratecode_id, 99) as ratecode_id,
+        r.rate_code_key,
         p.payment_type_key,
         t.trip_type_key,
 
         -- Use coalesce to map invalid locations to unknown location (264)
         coalesce(pu_loc.location_key, 264) as pu_location_key,
         coalesce(do_loc.location_key, 264) as do_location_key,
-
-        -- Keep original location IDs for reference
-        c.pu_location_id,
-        c.do_location_id,
 
         -- Trip metrics
         c.passenger_count,
@@ -391,7 +388,7 @@ final as (
     left join {{ ref('dim_vendor') }} v
         on c.vendor_id = v.vendor_id
     left join {{ ref('dim_rate_code') }} r
-        on c.ratecode_id = r.rate_code_id
+        on c.rate_code_id = r.rate_code_id
     left join {{ ref('dim_payment_type') }} p
         on c.payment_type_id = p.payment_type_id
     left join {{ ref('dim_trip_type') }} t
