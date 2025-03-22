@@ -90,10 +90,11 @@ with yellow_trips as (
         {% if is_incremental() and not var('backfill_start_date', false) %}
             -- Normal incremental behavior - only process new data
             and date_trunc('month', tpep_pickup_datetime) >= (
-                select coalesce(
-                    date_trunc('month', max(incremental_timestamp)),
-                    '2000-01-01'::date
-                )
+                select
+                    coalesce(
+                        date_trunc('month', max(incremental_timestamp)),
+                        '2000-01-01'::date
+                    )
                 from {{ this }}
                 where taxi_type = 'yellow'
             )
@@ -193,10 +194,11 @@ green_trips as (
         {% if is_incremental() and not var('backfill_start_date', false) %}
             -- Normal incremental behavior - only process new data
             and date_trunc('month', lpep_pickup_datetime) >= (
-                select coalesce(
-                    date_trunc('month', max(incremental_timestamp)),
-                    '2000-01-01'::date
-                )
+                select
+                    coalesce(
+                        date_trunc('month', max(incremental_timestamp)),
+                        '2000-01-01'::date
+                    )
                 from {{ this }}
                 where taxi_type = 'green'
             )
@@ -296,10 +298,11 @@ fhvhv_trips as (
         {% if is_incremental() and not var('backfill_start_date', false) %}
             -- Normal incremental behavior - only process new data
             and date_trunc('month', pickup_datetime) >= (
-                select coalesce(
-                    date_trunc('month', max(incremental_timestamp))::date,
-                    '2000-01-01'::date
-                )
+                select
+                    coalesce(
+                        date_trunc('month', max(incremental_timestamp))::date,
+                        '2000-01-01'::date
+                    )
                 from {{ this }}
                 where taxi_type = 'fhvhv'
             )
