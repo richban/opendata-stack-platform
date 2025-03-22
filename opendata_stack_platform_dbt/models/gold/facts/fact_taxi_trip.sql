@@ -18,19 +18,39 @@ with yellow_trips as (
         -- Use row_hash from source as trip_id
         row_hash as trip_id,
 
-        -- Dimension keys will be joined later
+        -- Simple direct references first
         vendor_id,
-        coalesce(cast(ratecode_id as int), 99) as ratecode_id, -- default to 99 if null (unknown)
-        case
-            when payment_type = 0 then 5 -- payment_type 0 is unknown
-            else coalesce(payment_type, 5) -- Default to 5 if payment_type is null
-        end as payment_type_id,
-        1 as trip_type_id, -- Yellow taxis don't have trip type but byt law it's street-hail (1 = Street-hail)
-
-        -- Date and time fields for dimension lookups
+        pu_location_id,
+        do_location_id,
+        passenger_count,
+        trip_distance,
+        fare_amount,
+        extra,
+        mta_tax,
+        tip_amount,
+        tolls_amount,
+        improvement_surcharge,
+        congestion_surcharge,
+        airport_fee,
+        total_amount,
+        store_and_fwd_flag,
         tpep_pickup_datetime as pickup_datetime,
         tpep_dropoff_datetime as dropoff_datetime,
+        tpep_pickup_datetime as incremental_timestamp,
 
+        -- Dimension keys will be joined later
+        -- default to 99 if null (unknown)
+        coalesce(cast(ratecode_id as int), 99) as ratecode_id,
+        -- payment_type 0 is unknown
+        -- Default to 5 if payment_type is null
+        case
+            when payment_type = 0 then 5
+            else coalesce(payment_type, 5)
+        end as payment_type_id,
+        -- Yellow taxis don't have trip type but by law it's street-hail (1 = Street-hail)
+        1 as trip_type_id,
+
+        -- Date and time fields for dimension lookups
         -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
             extract(year from tpep_pickup_datetime) * 10000 +
@@ -51,35 +71,11 @@ with yellow_trips as (
             + date_part('minute', tpep_pickup_datetime) * 60
             as int
         ) as seconds_of_day_pickup,
-
         cast(
             date_part('hour', tpep_dropoff_datetime) * 3600
             + date_part('minute', tpep_dropoff_datetime) * 60
             as int
         ) as seconds_of_day_dropoff,
-
-        -- Location dimension keys
-        pu_location_id,
-        do_location_id,
-
-        -- Trip metrics
-        passenger_count,
-        trip_distance,
-        fare_amount,
-        extra,
-        mta_tax,
-        tip_amount,
-        tolls_amount,
-        improvement_surcharge,
-        congestion_surcharge,
-        airport_fee,
-        total_amount,
-
-        -- Trip flags
-        store_and_fwd_flag,
-
-        -- Timestamp for incremental loads
-        tpep_pickup_datetime as incremental_timestamp,
 
         -- Partition field for delete+insert strategy
         date_trunc('month', tpep_pickup_datetime) as date_partition,
@@ -123,22 +119,36 @@ green_trips as (
     select
         -- Source identifier
         'green' as taxi_type,
-
         -- Use row_hash from source as trip_id
         row_hash as trip_id,
-
-        -- Dimension keys will be joined later
+        
+        -- Simple direct references first
         vendor_id,
+        pu_location_id,
+        do_location_id,
+        passenger_count,
+        trip_distance,
+        fare_amount,
+        extra,
+        mta_tax,
+        tip_amount,
+        tolls_amount,
+        improvement_surcharge,
+        congestion_surcharge,
+        null as airport_fee,
+        total_amount,
+        store_and_fwd_flag,
+        lpep_pickup_datetime as pickup_datetime,
+        lpep_dropoff_datetime as dropoff_datetime,
+        lpep_pickup_datetime as incremental_timestamp,
+        
+        -- Dimension keys will be joined later
         coalesce(cast(ratecode_id as int), 99) as ratecode_id,
         case
             when payment_type = 0 then 5 -- payment_type 0 is unknown
             else coalesce(payment_type, 5) -- Default to 5 if payment_type is null
         end as payment_type_id,
         trip_type as trip_type_id,
-
-        -- Date and time fields for dimension lookups
-        lpep_pickup_datetime as pickup_datetime,
-        lpep_dropoff_datetime as dropoff_datetime,
 
         -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
@@ -161,39 +171,14 @@ green_trips as (
             + date_part('minute', lpep_pickup_datetime) * 60
             as int
         ) as seconds_of_day_pickup,
-
         cast(
             date_part('hour', lpep_dropoff_datetime) * 3600
             + date_part('minute', lpep_dropoff_datetime) * 60
             as int
         ) as seconds_of_day_dropoff,
 
-        -- Location dimension keys
-        pu_location_id,
-        do_location_id,
-
-        -- Trip metrics
-        passenger_count,
-        trip_distance,
-        fare_amount,
-        extra,
-        mta_tax,
-        tip_amount,
-        tolls_amount,
-        improvement_surcharge,
-        congestion_surcharge,
-        null as airport_fee, -- Green taxis don't have airport fee
-        total_amount,
-
-        -- Trip flags
-        store_and_fwd_flag,
-
-        -- Timestamp for incremental loads
-        lpep_pickup_datetime as incremental_timestamp,
-
         -- Partition field for delete+insert strategy
         date_trunc('month', lpep_pickup_datetime) as date_partition,
-
         -- Metadata
         current_timestamp as record_loaded_timestamp
     from {{ source('silver_green', 'green_taxi_trip') }}
@@ -233,23 +218,37 @@ fhvhv_trips as (
     select
         -- Source identifier
         'fhvhv' as taxi_type,
-
         -- Use row_hash from source as trip_id
         row_hash as trip_id,
-
-        -- Extract just the numeric part after 'HV'
+        
+        -- Simple direct references first
         CASE
             WHEN hvfhs_license_num LIKE 'HV%' THEN
                 CAST(REPLACE(hvfhs_license_num, 'HV', '') AS INT)
             ELSE -1 -- Default for unknown pattern
         END as vendor_id,
+        pu_location_id,
+        do_location_id,
+        null as passenger_count, -- FHVHV doesn't have passenger count
+        trip_miles as trip_distance, -- Map miles to distance
+        base_passenger_fare as fare_amount, -- Map base fare
+        null as extra, -- FHVHV doesn't have extra
+        null as mta_tax, -- FHVHV doesn't have MTA tax
+        tips as tip_amount, -- Map tips
+        tolls as tolls_amount, -- Map tolls
+        null as improvement_surcharge, -- FHVHV doesn't have improvement surcharge
+        congestion_surcharge,
+        null as airport_fee, -- FHVHV doesn't have airport fee
+        (base_passenger_fare + tips + tolls + congestion_surcharge) as total_amount,
+        null as store_and_fwd_flag, -- No equivalent in FHVHV
+        pickup_datetime,
+        dropoff_datetime,
+        pickup_datetime as incremental_timestamp,
+        
+        -- Dimension keys will be joined later
         null as ratecode_id, -- FHVHV doesn't have rate code
         5 as payment_type_id, -- FHVHV doesn't have payment type so use 5 (unknown)
         3 as trip_type_id, -- FHVHV doesn't have trip type. Uber and Lyft are classified as e-dispatch services in New York City.
-
-        -- Date and time fields for dimension lookups
-        pickup_datetime,
-        dropoff_datetime,
 
         -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
@@ -272,39 +271,14 @@ fhvhv_trips as (
             + date_part('minute', pickup_datetime) * 60
             as int
         ) as seconds_of_day_pickup,
-
         cast(
             date_part('hour', dropoff_datetime) * 3600
             + date_part('minute', dropoff_datetime) * 60
             as int
         ) as seconds_of_day_dropoff,
 
-        -- Location dimension keys
-        pu_location_id,
-        do_location_id,
-
-        -- Trip metrics
-        null as passenger_count, -- FHVHV doesn't have passenger count
-        trip_miles as trip_distance, -- Map miles to distance
-        base_passenger_fare as fare_amount, -- Map base fare
-        null as extra, -- FHVHV doesn't have extra
-        null as mta_tax, -- FHVHV doesn't have MTA tax
-        tips as tip_amount, -- Map tips
-        tolls as tolls_amount, -- Map tolls
-        null as improvement_surcharge, -- FHVHV doesn't have improvement surcharge
-        congestion_surcharge,
-        null as airport_fee, -- FHVHV doesn't have airport fee
-        (base_passenger_fare + tips + tolls + congestion_surcharge) as total_amount,
-
-        -- Trip flags
-        null as store_and_fwd_flag, -- No equivalent in FHVHV
-
-        -- Timestamp for incremental loads
-        pickup_datetime as incremental_timestamp,
-
         -- Partition field for delete+insert strategy
         date_trunc('month', pickup_datetime)::date as date_partition,
-
         -- Metadata
         current_timestamp as record_loaded_timestamp
     from {{ source('silver_fhvhv', 'fhvhv_taxi_trip') }}
