@@ -1,12 +1,17 @@
 [sqlfluff]
 # Dialect configuration
 dialect = duckdb
-templater = jinja
+templater = dbt
 
 # General configuration
 max_line_length = 120
 indent_unit = space
 tab_space_size = 4
+rules = core
+exclude_rules = AL01,LT05
+
+[sqlfluff:templater:dbt]
+project_dir = ./
 
 # Layout
 [sqlfluff:layout:type:comma]

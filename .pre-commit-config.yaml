@@ -25,10 +25,6 @@ repos:
         additional_dependencies: ['dbt-postgres']
         args: [--config, opendata_stack_platform_dbt/.sqlfluff]
         files: ^opendata_stack_platform_dbt/
-      - id: sqlfluff-fix
-        additional_dependencies: ['dbt-postgres']
-        args: [--config, opendata_stack_platform_dbt/.sqlfluff]
-        files: ^opendata_stack_platform_dbt/
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
     rev: 0.27.3
