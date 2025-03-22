@@ -71,6 +71,8 @@ with yellow_trips as (
             + date_part('minute', tpep_pickup_datetime) * 60
             as int
         ) as seconds_of_day_pickup,
+
+        -- Calculate seconds of day from dropoff datetime (0-86399)
         cast(
             date_part('hour', tpep_dropoff_datetime) * 3600
             + date_part('minute', tpep_dropoff_datetime) * 60
@@ -83,22 +85,23 @@ with yellow_trips as (
         -- Metadata
         current_timestamp as record_loaded_timestamp
     from {{ source('silver_yellow', 'yellow_taxi_trip') }}
-    where 1 = 1
-    {% if is_incremental() and not var('backfill_start_date', false) %}
-        -- Normal incremental behavior - only process new data
-        and date_trunc('month', tpep_pickup_datetime) >= (
-            select coalesce(
-                date_trunc('month', max(incremental_timestamp)),
-                '2000-01-01'::date
+    where
+        1 = 1
+        {% if is_incremental() and not var('backfill_start_date', false) %}
+            -- Normal incremental behavior - only process new data
+            and date_trunc('month', tpep_pickup_datetime) >= (
+                select coalesce(
+                    date_trunc('month', max(incremental_timestamp)),
+                    '2000-01-01'::date
+                )
+                from {{ this }}
+                where taxi_type = 'yellow'
             )
-            from {{ this }}
-            where taxi_type = 'yellow'
-        )
-    {% elif is_incremental() and var('backfill_start_date', false) %}
-        -- Backfill behavior - process specified date range
-        and date_trunc('month', tpep_pickup_datetime) >=  cast('{{ var("backfill_start_date") }}' as date)
-        and date_trunc('month', tpep_pickup_datetime) <=  cast('{{ var("backfill_end_date") }}' as date)
-    {% endif %}
+        {% elif is_incremental() and var('backfill_start_date', false) %}
+            -- Backfill behavior - process specified date range
+            and date_trunc('month', tpep_pickup_datetime) >= cast('{{ var("backfill_start_date") }}' as date)
+            and date_trunc('month', tpep_pickup_datetime) <= cast('{{ var("backfill_end_date") }}' as date)
+        {% endif %}
 ),
 
 -- Get time_key for pickup and dropoff
@@ -171,6 +174,8 @@ green_trips as (
             + date_part('minute', lpep_pickup_datetime) * 60
             as int
         ) as seconds_of_day_pickup,
+
+        -- Calculate seconds of day from dropoff datetime (0-86399)
         cast(
             date_part('hour', lpep_dropoff_datetime) * 3600
             + date_part('minute', lpep_dropoff_datetime) * 60
@@ -182,22 +187,23 @@ green_trips as (
         -- Metadata
         current_timestamp as record_loaded_timestamp
     from {{ source('silver_green', 'green_taxi_trip') }}
-    where 1 = 1
-    {% if is_incremental() and not var('backfill_start_date', false) %}
-        -- Normal incremental behavior - only process new data
-        and date_trunc('month', lpep_pickup_datetime) >= (
-            select coalesce(
-                date_trunc('month', max(incremental_timestamp)),
-                '2000-01-01'::date
+    where
+        1 = 1
+        {% if is_incremental() and not var('backfill_start_date', false) %}
+            -- Normal incremental behavior - only process new data
+            and date_trunc('month', lpep_pickup_datetime) >= (
+                select coalesce(
+                    date_trunc('month', max(incremental_timestamp)),
+                    '2000-01-01'::date
+                )
+                from {{ this }}
+                where taxi_type = 'green'
             )
-            from {{ this }}
-            where taxi_type = 'green'
-        )
-    {% elif is_incremental() and var('backfill_start_date', false) %}
-        -- Backfill behavior - process specified date range
-        and date_trunc('month', lpep_pickup_datetime) >=  cast('{{ var("backfill_start_date") }}' as date)
-        and date_trunc('month', lpep_pickup_datetime) <=  cast('{{ var("backfill_end_date") }}' as date)
-    {% endif %}
+        {% elif is_incremental() and var('backfill_start_date', false) %}
+            -- Backfill behavior - process specified date range
+            and date_trunc('month', lpep_pickup_datetime) >= cast('{{ var("backfill_start_date") }}' as date)
+            and date_trunc('month', lpep_pickup_datetime) <= cast('{{ var("backfill_end_date") }}' as date)
+        {% endif %}
 ),
 
 -- Get time_key for pickup and dropoff
@@ -223,8 +229,8 @@ fhvhv_trips as (
 
         -- Simple direct references first
         case
-            when lower(hvfhs_license_num) like 'HV%' then
-                cast(replace(hvfhs_license_num, 'HV', '') as int)
+            when lower(hvfhs_license_num) like 'HV%'
+                then cast(replace(hvfhs_license_num, 'HV', '') as int)
             else 6 -- Default for unknown pattern
         end as vendor_id,
         pu_location_id,
@@ -264,13 +270,15 @@ fhvhv_trips as (
             as int
         ) as date_key_dropoff,
 
-        -- Create matching time values for joining to dim_time
-        -- IMPORTANT: Round to minute precision (60 seconds) to match dim_time
+        -- Calculate seconds of day from pickup datetime (0-86399)
+        -- We'll use this to join to the time dimension
         cast(
             date_part('hour', pickup_datetime) * 3600
             + date_part('minute', pickup_datetime) * 60
             as int
         ) as seconds_of_day_pickup,
+
+        -- Calculate seconds of day from dropoff datetime (0-86399)
         cast(
             date_part('hour', dropoff_datetime) * 3600
             + date_part('minute', dropoff_datetime) * 60
@@ -282,22 +290,23 @@ fhvhv_trips as (
         -- Metadata
         current_timestamp as record_loaded_timestamp
     from {{ source('silver_fhvhv', 'fhvhv_taxi_trip') }}
-    where 1 = 1
-    {% if is_incremental() and not var('backfill_start_date', false) %}
-        -- Normal incremental behavior - only process new data
-        and date_trunc('month', pickup_datetime) >= (
-            select coalesce(
-                date_trunc('month', max(incremental_timestamp))::date,
-                '2000-01-01'::date
+    where
+        1 = 1
+        {% if is_incremental() and not var('backfill_start_date', false) %}
+            -- Normal incremental behavior - only process new data
+            and date_trunc('month', pickup_datetime) >= (
+                select coalesce(
+                    date_trunc('month', max(incremental_timestamp))::date,
+                    '2000-01-01'::date
+                )
+                from {{ this }}
+                where taxi_type = 'fhvhv'
             )
-            from {{ this }}
-            where taxi_type = 'fhvhv'
-        )
-    {% elif is_incremental() and var('backfill_start_date', false) %}
-        -- Backfill behavior - process specified date range
-        and date_trunc('month', pickup_datetime) >=  cast('{{ var("backfill_start_date") }}' as date)
-        and date_trunc('month', pickup_datetime) <=  cast('{{ var("backfill_end_date") }}' as date)
-    {% endif %}
+        {% elif is_incremental() and var('backfill_start_date', false) %}
+            -- Backfill behavior - process specified date range
+            and date_trunc('month', pickup_datetime) >= cast('{{ var("backfill_start_date") }}' as date)
+            and date_trunc('month', pickup_datetime) <= cast('{{ var("backfill_end_date") }}' as date)
+        {% endif %}
 ),
 
 -- Get time_key for pickup and dropoff
@@ -371,15 +380,13 @@ final as (
 
         -- Generate a surrogate key for the fact table as a STRING type
         -- Use taxi_type, trip_id, and pickup time to ensure uniqueness
-        cast(
-            {{
-                dbt_utils.generate_surrogate_key([
-                    'c.taxi_type',
-                    'c.trip_id',
-                    'c.pickup_datetime'
-                ])
-            }} as varchar
-        ) as taxi_trip_key
+        {{
+            dbt_utils.generate_surrogate_key([
+                'c.taxi_type',
+                'c.trip_id',
+                'c.pickup_datetime'
+            ])
+        }} as taxi_trip_key
     from all_trips c
     left join {{ ref('dim_vendor') }} v
         on c.vendor_id = v.vendor_id
