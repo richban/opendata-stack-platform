@@ -222,11 +222,11 @@ fhvhv_trips as (
         row_hash as trip_id,
 
         -- Simple direct references first
-        CASE
-            WHEN hvfhs_license_num LIKE 'HV%' THEN
-                CAST(REPLACE(hvfhs_license_num, 'HV', '') AS INT)
-            ELSE -1 -- Default for unknown pattern
-        END as vendor_id,
+        case
+            when lower(hvfhs_license_num) like 'HV%' then
+                cast(replace(hvfhs_license_num, 'HV', '') as int)
+            else 6 -- Default for unknown pattern
+        end as vendor_id,
         pu_location_id,
         do_location_id,
         null as passenger_count, -- FHVHV doesn't have passenger count
@@ -239,10 +239,7 @@ fhvhv_trips as (
         null as improvement_surcharge, -- FHVHV doesn't have improvement surcharge
         congestion_surcharge,
         null as airport_fee, -- FHVHV doesn't have airport fee
-        (base_passenger_fare 
-        + tips 
-        + tolls 
-        + congestion_surcharge) as total_amount,
+        (base_passenger_fare + tips + tolls + congestion_surcharge) as total_amount,
         null as store_and_fwd_flag, -- No equivalent in FHVHV
         pickup_datetime,
         dropoff_datetime,
@@ -342,9 +339,9 @@ final as (
         p.payment_type_key,
         t.trip_type_key,
 
-        -- Use coalesce to map invalid locations to unknown location (-1)
-        coalesce(pu_loc.location_key, -1) as pu_location_key,
-        coalesce(do_loc.location_key, -1) as do_location_key,
+        -- Use coalesce to map invalid locations to unknown location (264)
+        coalesce(pu_loc.location_key, 264) as pu_location_key,
+        coalesce(do_loc.location_key, 264) as do_location_key,
 
         -- Keep original location IDs for reference
         c.pu_location_id,
