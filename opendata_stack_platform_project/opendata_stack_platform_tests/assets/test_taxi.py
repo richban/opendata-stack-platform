@@ -91,7 +91,7 @@ def test_taxi_zone_lookup_raw(s3_resource: boto3.client, sample_csv_content):
 
             # 3. Verify the request was made to the correct URL
             mock_get.assert_called_once_with(
-                "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv"
+                "https://community-engineering-artifacts.s3.us-west-2.amazonaws.com/dagster-university/data/taxi_zones.csv"
             )
 
             # 5. Verify that the file was uploaded to the correct location in S3

@@ -25,7 +25,7 @@ def taxi_zone_lookup_raw(s3: S3Resource) -> None:
     The raw CSV file for the taxi zones dataset. Sourced from the NYC Open Data portal.
     """
     raw_taxi_zones = requests.get(
-        "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv"
+        "https://community-engineering-artifacts.s3.us-west-2.amazonaws.com/dagster-university/data/taxi_zones.csv"
     )
 
     s3_key = constants.TAXI_ZONES_FILE_PATH
