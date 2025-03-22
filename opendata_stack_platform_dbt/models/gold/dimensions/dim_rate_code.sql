@@ -40,7 +40,7 @@ final as (
         rate_code_id as rate_code_key,
         rate_code_id,
         rate_code_desc,
-        null::timestamp as valid_to,
+        null as valid_to,
         true as is_current,
         current_timestamp as valid_from
     from rate_code_mapping

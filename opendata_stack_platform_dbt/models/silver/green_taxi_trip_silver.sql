@@ -12,5 +12,5 @@
 select *
 from {{ source('silver_green', 'green_taxi_trip') }}
 {% if is_incremental() %}
-    where partition_key = cast('{{ var("partition_key") }}' as date)
+    where partition_key = cast('{{ var("backfill_start_date") }}' as date)
 {% endif %}

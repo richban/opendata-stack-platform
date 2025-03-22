@@ -54,7 +54,7 @@ final as (
         vendor_id as vendor_key,
         vendor_id,
         vendor_name,
-        null::TIMESTAMP as valid_to,
+        null as valid_to,
         true as is_current,
         CURRENT_TIMESTAMP as valid_from
     from vendor_codes
