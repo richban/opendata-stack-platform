@@ -53,9 +53,9 @@ with yellow_trips as (
         -- Date and time fields for dimension lookups
         -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
-            extract(year from tpep_pickup_datetime) * 10000 +
-            extract(month from tpep_pickup_datetime) * 100 +
-            extract(day from tpep_pickup_datetime)
+            extract(year from tpep_pickup_datetime) * 10000
+            + extract(month from tpep_pickup_datetime) * 100
+            + extract(day from tpep_pickup_datetime)
             as int
         ) as date_key_pickup,
         cast(
@@ -121,7 +121,7 @@ green_trips as (
         'green' as taxi_type,
         -- Use row_hash from source as trip_id
         row_hash as trip_id,
-        
+
         -- Simple direct references first
         vendor_id,
         pu_location_id,
@@ -141,7 +141,7 @@ green_trips as (
         lpep_pickup_datetime as pickup_datetime,
         lpep_dropoff_datetime as dropoff_datetime,
         lpep_pickup_datetime as incremental_timestamp,
-        
+
         -- Dimension keys will be joined later
         coalesce(cast(ratecode_id as int), 99) as ratecode_id,
         case
@@ -152,15 +152,15 @@ green_trips as (
 
         -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
-            extract(year from lpep_pickup_datetime) * 10000 +
-            extract(month from lpep_pickup_datetime) * 100 +
-            extract(day from lpep_pickup_datetime)
+            extract(year from lpep_pickup_datetime) * 10000
+            + extract(month from lpep_pickup_datetime) * 100
+            + extract(day from lpep_pickup_datetime)
             as int
         ) as date_key_pickup,
         cast(
-            extract(year from lpep_dropoff_datetime) * 10000 +
-            extract(month from lpep_dropoff_datetime) * 100 +
-            extract(day from lpep_dropoff_datetime)
+            extract(year from lpep_dropoff_datetime) * 10000
+            + extract(month from lpep_dropoff_datetime) * 100
+            + extract(day from lpep_dropoff_datetime)
             as int
         ) as date_key_dropoff,
 
@@ -220,7 +220,7 @@ fhvhv_trips as (
         'fhvhv' as taxi_type,
         -- Use row_hash from source as trip_id
         row_hash as trip_id,
-        
+
         -- Simple direct references first
         CASE
             WHEN hvfhs_license_num LIKE 'HV%' THEN
@@ -239,12 +239,15 @@ fhvhv_trips as (
         null as improvement_surcharge, -- FHVHV doesn't have improvement surcharge
         congestion_surcharge,
         null as airport_fee, -- FHVHV doesn't have airport fee
-        (base_passenger_fare + tips + tolls + congestion_surcharge) as total_amount,
+        (base_passenger_fare 
+        + tips 
+        + tolls 
+        + congestion_surcharge) as total_amount,
         null as store_and_fwd_flag, -- No equivalent in FHVHV
         pickup_datetime,
         dropoff_datetime,
         pickup_datetime as incremental_timestamp,
-        
+
         -- Dimension keys will be joined later
         null as ratecode_id, -- FHVHV doesn't have rate code
         5 as payment_type_id, -- FHVHV doesn't have payment type so use 5 (unknown)
@@ -252,15 +255,15 @@ fhvhv_trips as (
 
         -- Format date_key as YYYYMMDD integer - match dim_date format
         cast(
-            extract(year from pickup_datetime) * 10000 +
-            extract(month from pickup_datetime) * 100 +
-            extract(day from pickup_datetime)
+            extract(year from pickup_datetime) * 10000
+            + extract(month from pickup_datetime) * 100
+            + extract(day from pickup_datetime)
             as int
         ) as date_key_pickup,
         cast(
-            extract(year from dropoff_datetime) * 10000 +
-            extract(month from dropoff_datetime) * 100 +
-            extract(day from dropoff_datetime)
+            extract(year from dropoff_datetime) * 10000
+            + extract(month from dropoff_datetime) * 100
+            + extract(day from dropoff_datetime)
             as int
         ) as date_key_dropoff,
 
