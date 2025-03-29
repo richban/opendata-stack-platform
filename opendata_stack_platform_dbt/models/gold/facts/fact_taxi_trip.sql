@@ -234,7 +234,7 @@ fhvhv_trips as (
         case
             when lower(hvfhs_license_num) like 'HV%'
                 then cast(replace(hvfhs_license_num, 'HV', '') as int)
-            else 6 -- Default for unknown pattern
+            else -1 -- Default for unknown pattern
         end as vendor_id,
         pu_location_id,
         do_location_id,
@@ -347,7 +347,7 @@ final as (
         c.time_key_dropoff,
 
         -- Foreign keys from dimensions
-        v.vendor_key,
+        coalesce(v.vendor_key, -1) as vendor_key,
         r.rate_code_key,
         p.payment_type_key,
         t.trip_type_key,
