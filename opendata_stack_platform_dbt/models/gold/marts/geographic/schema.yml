@@ -1,0 +1,135 @@
+version: 2
+
+models:
+  - name: mart_zone_analysis
+    description: >
+      Geographic analysis of taxi trip patterns across NYC zones.
+      Provides insights into demand distribution, service coverage,
+      and zone-specific metrics across different time periods.
+
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - pickup_location_id
+            - dropoff_location_id
+            - year_number
+            - month_name
+            - day_name
+            - period_of_day
+            - taxi_type
+
+    columns:
+      # Zone identifiers
+      - name: pickup_location_id
+        description: "ID of the pickup taxi zone"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_location')
+              field: location_id
+
+      - name: pickup_zone
+        description: "Name of the pickup taxi zone"
+        tests:
+          - not_null
+
+      - name: pickup_borough
+        description: "Name of the borough containing the pickup zone"
+        tests:
+          - not_null
+
+      - name: dropoff_location_id
+        description: "ID of the dropoff taxi zone"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_location')
+              field: location_id
+
+      - name: dropoff_zone
+        description: "Name of the dropoff taxi zone"
+        tests:
+          - not_null
+
+      - name: dropoff_borough
+        description: "Name of the borough containing the dropoff zone"
+        tests:
+          - not_null
+
+      # Time dimensions
+      - name: year_number
+        description: "Year of the trip"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [2020, 2021, 2022, 2023, 2024, 2025, 2026]
+
+      - name: month_name
+        description: "Month name of the trip"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+      - name: day_name
+        description: "Day of week name"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+      - name: period_of_day
+        description: "Time period category (Morning Rush, Midday, etc.)"
+        tests:
+          - not_null
+
+      - name: taxi_type
+        description: "Type of taxi (Yellow, Green, FHV)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['yellow', 'green', 'fhvhv']
+
+      # Metrics
+      - name: total_pickups
+        description: "Total number of trips originating from the pickup zone"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+      - name: total_pickup_revenue
+        description: "Total revenue from trips originating from the pickup zone"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+      - name: total_dropoffs
+        description: "Total number of trips ending in the dropoff zone"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+      - name: pair_trip_count
+        description: "Number of trips between the specific pickup-dropoff zone pair"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+      - name: pair_revenue
+        description: "Total revenue from trips between the specific pickup-dropoff zone pair"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+      - name: percentage_of_all_trips
+        description: "Percentage this zone pair represents of all trips"
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
