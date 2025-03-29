@@ -4,7 +4,7 @@
 
 -- Generate date dimension for 10 years (2015-2025)
 with date_spine as (
-    select date_add(DATE '2015-01-01', n * INTERVAL '1 day') as date_day
+    select date_add(DATE '2020-01-01', n * INTERVAL '1 day') as date_day
     from
         (select row_number() over () - 1 as n from range(4018))
 ),
