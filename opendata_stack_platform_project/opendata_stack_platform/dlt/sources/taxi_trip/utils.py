@@ -4,13 +4,12 @@ import re
 
 from collections.abc import Iterator
 
+import dlt
+import pandas as pd
 import pyarrow as pa
 
-from pyarrow import parquet as pq
-
-import dlt
-
 from dlt.sources.filesystem import FileItemDict
+from pyarrow import parquet as pq
 
 # Regex pattern to extract date from filenames like "green_tripdata_2024-01-01.parquet"
 DATE_PATTERN = re.compile(r"_(\d{4}-\d{2}(?:-\d{2})?)\.")
@@ -108,6 +107,13 @@ def read_parquet_custom(
     Yields:
         pyarrow.RecordBatch: Enriched RecordBatch with metadata.
     """
+
+    # a scalar date for filtering
+    min_date = pa.scalar(
+        pd.Timestamp("2020-01-01 00:00:00", tz="UTC"),
+        type=pa.timestamp("us"),  # no timezone
+    )
+
     for file_obj in items:
         with file_obj.open() as f:
             parquet_file = pq.ParquetFile(f)
@@ -120,5 +126,11 @@ def read_parquet_custom(
                 # Add row hash
                 processed_batch = add_row_hash(processed_batch, key_columns)
 
+                # filter out rows before 2020-01-01
+                filter_condition = pa.compute.greater_equal(
+                    pa.compute.field(key_columns[0]), min_date
+                )
+                filtered_batch = processed_batch.filter(filter_condition)
+
                 # Yield the enriched RecordBatch
-                yield processed_batch
+                yield filtered_batch
