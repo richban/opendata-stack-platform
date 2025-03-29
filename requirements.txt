@@ -13,6 +13,6 @@ boto3==1.37.1
 aiobotocore==2.21.0
 botocore==1.37.1
 duckdb==1.2.1
-dbt-core==1.9.2
+dbt-core==1.9.3
 dbt-duckdb==1.9.2
 dagster-dbt==0.26.1
