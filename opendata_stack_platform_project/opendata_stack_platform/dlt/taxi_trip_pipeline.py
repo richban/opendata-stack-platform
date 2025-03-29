@@ -21,13 +21,17 @@ def create_taxi_trip_pipeline(dataset_type: str):
     Args:
         dataset_type: Type of taxi data (yellow, green, fhvhv)
     """
+    # Get the DuckDB path
+    duckdb_path = str(get_duckdb_path())
+
+    # Create pipeline with the correct destination structure
     pipeline = dlt.pipeline(
-        pipeline_name=f"{dataset_type}_taxi_trip_bronze_pipeline",
+        pipeline_name=f"{dataset_type}_taxi_trip_silver_pipeline",
         destination=dlt.destinations.duckdb(
-            str(get_duckdb_path()),
-            table_name=f"{dataset_type}_taxi_trip_bronze",
+            duckdb_path,
+            # Define the dataset path to create the proper hierarchy
+            dataset_name=f"silver/{dataset_type}",
         ),
-        dataset_name=f"{dataset_type}_taxi_trip_bronze",
         progress="log",
     )
 

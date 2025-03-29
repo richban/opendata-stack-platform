@@ -19,8 +19,8 @@ from opendata_stack_platform.utils.download_and_upload_file import (
 )
 
 
-@asset(group_name="raw_files")
-def taxi_zones_file(s3: S3Resource) -> None:
+@asset(group_name="raw_files", kinds={"csv"})
+def taxi_zone_lookup_raw(s3: S3Resource) -> None:
     """
     The raw CSV file for the taxi zones dataset. Sourced from the NYC Open Data portal.
     """
@@ -39,7 +39,7 @@ def taxi_zones_file(s3: S3Resource) -> None:
     return MaterializeResult(metadata={"Number of records": MetadataValue.int(num_rows)})
 
 
-@asset(partitions_def=monthly_partition, group_name="raw_files")
+@asset(partitions_def=monthly_partition, group_name="raw_files", kinds={"parquet"})
 def yellow_taxi_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     """
     The raw parquet files for the yellow taxi trips dataset. Sourced from the
@@ -52,7 +52,7 @@ def yellow_taxi_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None
     )
 
 
-@asset(partitions_def=monthly_partition, group_name="raw_files")
+@asset(partitions_def=monthly_partition, group_name="raw_files", kinds={"parquet"})
 def green_taxi_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     """
     The raw parquet files for the green taxi trips dataset. Sourced from the
@@ -65,7 +65,7 @@ def green_taxi_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     )
 
 
-@asset(partitions_def=monthly_partition, group_name="raw_files")
+@asset(partitions_def=monthly_partition, group_name="raw_files", kinds={"parquet"})
 def fhvhv_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     """
     The raw parquet files for the High Volume FHV trips dataset. Sourced from
@@ -79,22 +79,41 @@ def fhvhv_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
 
 
 @asset(
-    deps=["taxi_zones_file"],
-    group_name="ingested_taxi_trip_bronze",
+    deps=["taxi_zone_lookup_raw"],
+    group_name="ingested_taxi_trip_silver",
     compute_kind="DuckDB",
+    key_prefix=["nyc_database", "silver"],
 )
-def taxi_zones(context: AssetExecutionContext, duckdb_resource: DuckDBResource):
+def taxi_zone_lookup(context: AssetExecutionContext, duckdb_resource: DuckDBResource):
     """The raw taxi zones dataset, loaded into a DuckDB database."""
     query = f"""
-        create or replace table taxi_zone as (
-            select
-                LocationID as zone_id,
-                zone,
-                borough,
-                the_geom as geometry
-            from '{constants.TAXI_ZONES_FILE_PATH}'
+        -- Install and load the spatial extension
+        INSTALL spatial;
+        LOAD spatial;
+
+        create or replace table taxi_zone_lookup as (
+            WITH ranked_zones AS (
+                SELECT
+                    LocationID as zone_id,
+                    zone AS zone_name,
+                    borough AS borough_name,
+                    st_geomfromtext(the_geom) as geom_data,
+                    st_area(st_geomfromtext(the_geom)) as area_size,
+                    st_perimeter(st_geomfromtext(the_geom)) as perimeter_length,
+                    ROW_NUMBER() OVER (PARTITION BY LocationID ORDER BY LocationID) as row_num
+                FROM '{constants.get_path_for_env(constants.TAXI_ZONES_FILE_PATH)}'
+            )
+            SELECT
+                zone_id,
+                zone_name,
+                borough_name,
+                geom_data,
+                area_size,
+                perimeter_length
+            FROM ranked_zones
+            WHERE row_num = 1
         );
-    """
+    """  # noqa: E501
 
     with duckdb_resource.get_connection() as conn:
         conn.execute(query)

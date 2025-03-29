@@ -128,3 +128,92 @@ Source: https://www.nyc.gov/assets/tlc/downloads/pdf/data_dictionary_trip_record
 | **access_a_ride_flag**   | Indicates if the trip was administered on behalf of the Metropolitan Transportation Authority (MTA). (Y/N)                                                                |
 | **wav_request_flag**     | Indicates if the passenger requested a wheelchair-accessible vehicle (WAV). (Y/N)                                                                                        |
 | **wav_match_flag**       | Indicates if the trip occurred in a wheelchair-accessible vehicle (WAV). (Y/N)                                                                                           |
+
+# Unified Mapping
+
+```python
+NORMALIZED_FIELD_MAPPINGS = {
+    # Pickup datetime fields
+    'tpep_pickup_datetime': 'pickup_datetime',   # Yellow taxi
+    'lpep_pickup_datetime': 'pickup_datetime',   # Green taxi
+    'pickup_datetime': 'pickup_datetime',        # HVFHV (already normalized)
+
+    # Dropoff datetime fields
+    'tpep_dropoff_datetime': 'dropoff_datetime', # Yellow taxi
+    'lpep_dropoff_datetime': 'dropoff_datetime', # Green taxi
+    'dropoff_datetime': 'dropoff_datetime',      # HVFHV (already normalized)
+
+    # Trip distance fields
+    'trip_distance': 'trip_distance',            # Yellow/Green taxi (already normalized)
+    'trip_miles': 'trip_distance',               # HVFHV
+
+    # Fare amount fields
+    'fare_amount': 'fare_amount',                # Yellow/Green taxi (already normalized)
+    'base_passenger_fare': 'fare_amount',        # HVFHV
+
+    # Tolls fields
+    'tolls_amount': 'tolls_amount',              # Yellow/Green taxi (already normalized)
+    'tolls': 'tolls_amount',                     # HVFHV
+
+    # Tip amount fields
+    'tip_amount': 'tip_amount',                  # Yellow/Green taxi (already normalized)
+    'tips': 'tip_amount'                         # HVFHV
+}
+
+UNIFIED_TAXI_TRIP_MAPPING = {
+    # Yellow Taxi → Unified
+    'vendor_id': 'vendor_id',
+    'tpep_pickup_datetime': 'pickup_datetime',
+    'tpep_dropoff_datetime': 'dropoff_datetime',
+    'passenger_count': 'passenger_count',
+    'trip_distance': 'trip_distance',
+    'ratecode_id': 'ratecode_id',
+    'store_and_fwd_flag': 'store_and_fwd_flag',
+    'pu_location_id': 'pu_location_id',
+    'do_location_id': 'do_location_id',
+    'payment_type': 'payment_type',
+    'fare_amount': 'fare_amount',
+    'extra': 'extra',
+    'mta_tax': 'mta_tax',
+    'tip_amount': 'tip_amount',
+    'tolls_amount': 'tolls_amount',
+    'improvement_surcharge': 'improvement_surcharge',
+    'total_amount': 'total_amount',
+    'congestion_surcharge': 'congestion_surcharge',
+    'airport_fee': 'airport_fee',
+
+    # Green Taxi → Unified (additional/different fields)
+    'lpep_pickup_datetime': 'pickup_datetime',
+    'lpep_dropoff_datetime': 'dropoff_datetime',
+    'trip_type': 'trip_type',
+
+    # HVFHV → Unified (additional/different fields)
+    'hvfhs_license_num': 'hvfhs_license_num',
+    'dispatching_base_num': 'dispatching_base_num',
+    'pickup_datetime': 'pickup_datetime',
+    'dropoff_datetime': 'dropoff_datetime',
+    'originating_base_num': 'originating_base_num',
+    'request_datetime': 'request_datetime',
+    'on_scene_datetime': 'on_scene_datetime',
+    'trip_miles': 'trip_distance',  # Map to common trip_distance
+    'trip_time': 'trip_time',
+    'base_passenger_fare': 'fare_amount',  # Map to common fare_amount
+    'tolls': 'tolls_amount',  # Map to common tolls_amount
+    'bcf': 'bcf',
+    'sales_tax': 'sales_tax',
+    'tips': 'tip_amount',  # Map to common tip_amount
+    'driver_pay': 'driver_pay',
+    'shared_request_flag': 'shared_request_flag',
+    'shared_match_flag': 'shared_match_flag',
+    'access_a_ride_flag': 'access_a_ride_flag',
+    'wav_request_flag': 'wav_request_flag',
+    'wav_match_flag': 'wav_match_flag',
+
+    # System columns
+    'partition_key': 'partition_key',
+    'date_partition': 'date_partition',
+    'row_hash': 'row_hash',
+    '_dlt_id': '_dlt_id',
+    '_dlt_load_id': '_dlt_load_id'
+}
+```

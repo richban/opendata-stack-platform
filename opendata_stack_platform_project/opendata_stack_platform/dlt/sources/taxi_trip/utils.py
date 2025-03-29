@@ -1,45 +1,25 @@
 import hashlib
 import json
+import re
 
 from collections.abc import Iterator
-from datetime import date, datetime, timezone
 
-import dlt
 import pyarrow as pa
 
-from dlt.sources.filesystem import FileItemDict
 from pyarrow import parquet as pq
 
+import dlt
 
-def add_partition_column(batch: pa.RecordBatch, partition_key: str) -> pa.RecordBatch:
-    """
-    adds a new column with the partition key to the given recordbatch.
+from dlt.sources.filesystem import FileItemDict
 
-    args:
-        batch (pa.RecordBatch): the original recordbatch.
-        partition_key (str): the partition key to add as a new column.
-    returns:
-        pa.RecordBatch: the recordbatch with the new column added.
-    """
-    # Convert YYYY-MM-DD string to datetime.date first
-    partition_date = (
-        datetime.strptime(partition_key, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
-    )
-    # Convert to days since epoch (1970-01-01)
-    epoch = date(1970, 1, 1)
-    days_since_epoch = (partition_date - epoch).days
-
-    # Create an array of the same value repeated for the length of the batch
-    date_array = pa.array([days_since_epoch] * len(batch), type=pa.date32())
-    new_batch = batch.append_column("partition_key", date_array)
-    return new_batch
+# Regex pattern to extract date from filenames like "green_tripdata_2024-01-01.parquet"
+DATE_PATTERN = re.compile(r"_(\d{4}-\d{2}(?:-\d{2})?)\.")
 
 
 def add_row_hash(
     batch: pa.RecordBatch, key_columns: list[str], hash_column_name: str = "row_hash"
 ) -> pa.RecordBatch:
-    """
-    Add a hash column to a PyArrow RecordBatch based on selected columns.
+    """Add a hash column to a PyArrow RecordBatch based on selected columns.
 
     Args:
         batch: PyArrow RecordBatch to process
@@ -92,21 +72,37 @@ def add_row_hash(
     return new_batch
 
 
+def extract_partition_key_from_filename(file_name: str) -> str:
+    """Extract the partition key (YYYY-MM-DD) from a file name.
+
+    Args:
+        file_name: Name of the file to extract partition key from
+        (e.g., "green_tripdata_2024-01-01.parquet")
+
+    Returns:
+        str: Partition key in YYYY-MM-DD format
+    """
+    # Use regex to extract the date part from the filename
+    match = DATE_PATTERN.search(file_name)
+    if not match:
+        raise ValueError(f"Could not extract date from filename: {file_name}")
+
+    date_part = match.group(1)
+
+    return date_part
+
+
 @dlt.transformer(standalone=True)
 def read_parquet_custom(
     items: Iterator[FileItemDict],
-    partition_key: str,
     key_columns: list[str],
     batch_size: int = 64_000,
 ) -> Iterator[pa.RecordBatch]:
-    """
-    Reads Parquet file content and enriches it with file metadata using
-        PyArrow RecordBatch.
+    """Reads Parquet file content and enriches it with metadata using PyArrow RecordBatch.
 
     Args:
         items (Iterator[FileItemDict]): Iterator over file items.
-        partition_key (Optional[str]): Partition key to add to the data.
-        key_columns (Optional[List[str]]): Columns to use for row hash calculation.
+        key_columns (list[str]): Columns to use for row hash calculation.
         batch_size (int, optional): Maximum number of rows to process per batch
 
     Yields:
@@ -117,8 +113,9 @@ def read_parquet_custom(
             parquet_file = pq.ParquetFile(f)
             # Iterate over RecordBatch objects
             for raw_batch in parquet_file.iter_batches(batch_size=batch_size):
-                # Add partition column
-                processed_batch = add_partition_column(raw_batch, partition_key)
+                # Add the file_name as metadata
+                file_name_array = pa.array([file_obj["file_name"]] * len(raw_batch))
+                processed_batch = raw_batch.append_column("_file_name", file_name_array)
 
                 # Add row hash
                 processed_batch = add_row_hash(processed_batch, key_columns)

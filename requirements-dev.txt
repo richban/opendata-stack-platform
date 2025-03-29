@@ -5,3 +5,5 @@ ipykernel==6.29.5
 jupysql==0.10.17
 python-dotenv==1.0.1
 sqlfluff-templater-dbt==3.3.1
+pytest==8.3.5
+moto[all]==5.1.1

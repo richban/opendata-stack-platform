@@ -6,7 +6,6 @@ import dlt
 
 from dlt.extract.source import DltSource
 from dlt.sources.filesystem import filesystem
-
 from opendata_stack_platform.assets import constants
 from opendata_stack_platform.dlt.sources.taxi_trip.utils import read_parquet_custom
 
@@ -46,12 +45,17 @@ def get_key_columns_for_dataset(dataset_type: str) -> list[str]:
 
 
 @dlt.source(name="taxi_trip_source")
-def taxi_trip_source(dataset_type: str, partition_key: Optional[str] = None) -> DltSource:
+def taxi_trip_source(
+    dataset_type: str,
+    partition_key: Optional[str] = None,
+    partition_range: Optional[tuple[str, str]] = None,
+) -> DltSource:
     """Source for taxi trips data (yellow, green, or FHV) based on file path.
 
     Args:
         dataset_type: Type of dataset ('yellow', 'green', or 'fhvhv')
-        partition_key: Optional partition key for filtering data
+        partition_key: Optional partition key for filtering data (single partition)
+        partition_range: Optional tuple of (start, end) partition keys for backfills
 
     Returns:
         DltSource: A data source for the specified taxi trip type
@@ -73,19 +77,30 @@ def taxi_trip_source(dataset_type: str, partition_key: Optional[str] = None) -> 
     # Initialize the filesystem connector
     raw_files = filesystem(bucket_url=BUCKET_URL, file_glob=file_glob)
 
-    # Apply partition filter if provided
-    if partition_key:
+    # Apply partition filter
+    if partition_range:
+        # For backfills with a date range
+        start_date, end_date = partition_range
+
+        # Simple one-line filter that checks if the file's date is in range
+        raw_files.add_filter(
+            lambda item: start_date
+            <= item["file_name"].split("_")[-1].split(".")[0]
+            <= end_date
+        )
+    elif partition_key:
+        # Single partition case
         # YYYY-MM-DD to YYYY-MM
-        raw_files.add_filter(lambda item: partition_key[:-3] in item["file_name"])
+        partition_ym = partition_key[:-3]
+        raw_files.add_filter(lambda item: partition_ym in item["file_name"])
 
     # Create source with transformations
     source = (
         raw_files
         | read_parquet_custom(
-            partition_key=partition_key,
             key_columns=key_columns,
         )
-    ).with_name(f"{dataset_type}_taxi_trip_bronze")
+    ).with_name(f"{dataset_type}_taxi_trip")
 
     # Apply write configuration hints
     source.apply_hints(
@@ -100,9 +115,9 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     dlt_pipeline = dlt.pipeline(
-        pipeline_name="green_taxi_trip_bronze_pipeline",
+        pipeline_name="unified_taxi_trip_silver_pipeline",
         destination=dlt.destinations.duckdb("../data/nyc_database.duckdb"),
-        dataset_name="green_taxi_trip_bronze",
+        dataset_name="silver/green/taxi_trip",
         dev_mode=True,
         progress="log",
     )
