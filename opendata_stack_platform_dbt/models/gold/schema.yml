@@ -303,6 +303,12 @@ models:
         description: "Total charged to passenger, not including cash tip"
         tests:
           - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              # No max_value needed, checking >= 0
+              strictly: false # Allows total_amount to be exactly 0
+              config:
+                severity: warn # Trips with zero duration might be valid
       - name: congestion_surcharge
         description: "Additional surcharge applied in congested zones"
         tests:
@@ -314,10 +320,25 @@ models:
         tests:
           - not_null
       - name: dropoff_datetime
-        description: "Date and time when the passenger was dropped off"
+        description: "Timestamp when the trip ended."
         tests:
           - not_null
       - name: incremental_timestamp
         description: "Timestamp used for incremental processing"
       - name: record_loaded_timestamp
         description: "Audit column noting when the record was loaded"
+
+    # Model-level tests (applied to the entire table)
+    tests:
+       # Custom SQL Test: Check FHVHV total amount calculation consistency
+       - dbt_utils.expression_is_true:
+           expression: "abs(total_amount - (coalesce(fare_amount, 0) + coalesce(tip_amount, 0) + coalesce(tolls_amount, 0) + coalesce(congestion_surcharge, 0))) < 0.01" # Allow for small floating point differences
+           config:
+             where: "taxi_type = 'fhvhv'"
+             severity: warn # Flag discrepancies for investigation
+       - dbt_expectations.expect_column_pair_values_A_to_be_greater_than_B:
+          column_A: dropoff_datetime
+          column_B: pickup_datetime
+          or_equal: true # Ensure it checks for >=
+          config:
+            severity: warn # Trips with zero duration might be valid
