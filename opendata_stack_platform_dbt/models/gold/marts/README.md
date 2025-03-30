@@ -66,7 +66,7 @@ marts/
 
 > Given that taxi patterns typically follow weekly cycles with time-of-day variations, this granularity seems reasonable, but adding the specific date as an additional dimension would provide more analytical flexibility without significantly increasing the mart size.
 
-**Key Mart: `mart_zone_analysis` granularity** 
+**Key Mart: `mart_zone_analysis` granularity**
 
 - `year_number` (2023)
 - `month_name` (January)
@@ -211,7 +211,7 @@ These marts can be used to build dashboards, reports, and ad-hoc analyses that p
 
 These marts are built from the `fact_taxi_trip` fact table and related dimension tables. The underlying data includes:
 - Yellow Taxi trip data
-- Green Taxi trip data 
+- Green Taxi trip data
 - High-Volume For-Hire Vehicle (HVFHV) trip data
 
 ## Future Enhancements
