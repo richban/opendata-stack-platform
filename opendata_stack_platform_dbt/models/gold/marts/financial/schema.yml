@@ -1,0 +1,198 @@
+version: 2
+
+models:
+  - name: mart_revenue_analysis
+    description: >
+      Comprehensive view of all revenue metrics aggregated by various dimensions
+      for financial analysis and reporting.
+    columns:
+      # Time dimensions
+      - name: trip_date
+        description: Date of the trip
+
+      - name: day_name
+        description: Day of the week (Monday, Tuesday, etc.)
+
+      - name: period_of_day
+        description: Period classification (Morning Rush, Midday, Evening Rush, Evening, Late Night/Early Morning)
+
+      - name: is_rush_hour
+        description: Boolean flag indicating if the trip occurred during rush hour
+
+      - name: month_name
+        description: Month name of the trip
+
+      - name: quarter_number
+        description: Quarter number (1-4)
+
+      - name: year_number
+        description: Year of the trip
+
+      # Categorical dimensions
+      - name: taxi_type
+        description: Type of taxi service (yellow, green, fhvhv)
+
+      - name: vendor_name
+        description: Name of the service vendor
+
+      - name: pickup_borough
+        description: Borough where the trip started
+
+      - name: dropoff_borough
+        description: Borough where the trip ended
+
+      - name: payment_desc
+        description: Payment method description
+
+      # Volume metrics
+      - name: total_trips
+        description: Total number of trips
+
+      # Revenue metrics
+      - name: total_fare_amount
+        description: Total base fare amount before fees and tips
+
+      - name: total_tip_amount
+        description: Total tip amount
+
+      - name: total_revenue
+        description: Total revenue including all fees and tips
+
+      # Fee breakdown metrics
+      - name: total_extra_charges
+        description: Total extra charges
+
+      - name: total_mta_tax
+        description: Total MTA tax collected
+
+      - name: total_tolls
+        description: Total toll charges
+
+      - name: total_improvement_surcharge
+        description: Total improvement surcharge fees
+
+      - name: total_congestion_surcharge
+        description: Total congestion surcharge fees
+
+      - name: total_airport_fees
+        description: Total airport fees
+
+      # Average metrics
+      - name: avg_fare_per_trip
+        description: Average base fare per trip
+
+      - name: avg_tip_per_trip
+        description: Average tip amount per trip
+
+      - name: avg_total_per_trip
+        description: Average total revenue per trip
+
+      # Fee composition analysis
+      - name: fare_percent_of_total
+        description: Base fare as percentage of total revenue
+
+      - name: tip_percent_of_total
+        description: Tips as percentage of total revenue
+
+      - name: fees_percent_of_total
+        description: All fees as percentage of total revenue
+
+      - name: tolls_percent_of_total
+        description: Tolls as percentage of total revenue
+
+      # Payment analysis
+      - name: credit_card_revenue
+        description: Total revenue from credit card payments
+
+      - name: cash_revenue
+        description: Total revenue from cash payments
+
+      - name: credit_card_percent
+        description: Percentage of revenue from credit card payments
+
+      - name: cash_percent
+        description: Percentage of revenue from cash payments
+
+      # Tip analysis
+      - name: credit_card_tips
+        description: Total tips from credit card payments
+
+      - name: credit_card_trips
+        description: Count of trips paid by credit card
+
+      - name: avg_credit_card_tip
+        description: Average tip amount per credit card trip
+
+      - name: tip_percent_on_card
+        description: Tips as percentage of credit card revenue
+
+      # Peak vs. Off-peak analysis
+      - name: peak_revenue
+        description: Total revenue during peak hours
+
+      - name: off_peak_revenue
+        description: Total revenue during off-peak hours
+
+      - name: peak_trips
+        description: Count of trips during peak hours
+
+      - name: off_peak_trips
+        description: Count of trips during off-peak hours
+
+      - name: peak_revenue_percent
+        description: Percentage of total revenue from peak hours
+
+      - name: off_peak_revenue_percent
+        description: Percentage of total revenue from off-peak hours
+
+      - name: peak_trips_percent
+        description: Percentage of trips during peak hours
+
+      - name: off_peak_trips_percent
+        description: Percentage of trips during off-peak hours
+
+      # Average metrics by peak/off-peak
+      - name: avg_fare_per_peak_trip
+        description: Average fare per trip during peak hours
+
+      - name: avg_fare_per_off_peak_trip
+        description: Average fare per trip during off-peak hours
+
+      - name: peak_to_off_peak_fare_ratio
+        description: Ratio of average fare during peak hours vs. off-peak hours
+
+      # Time period revenue analysis
+      - name: morning_rush_revenue
+        description: Total revenue during morning rush hours
+
+      - name: midday_revenue
+        description: Total revenue during midday hours
+
+      - name: evening_rush_revenue
+        description: Total revenue during evening rush hours
+
+      - name: evening_revenue
+        description: Total revenue during evening (non-rush) hours
+
+      - name: late_night_revenue
+        description: Total revenue during late night/early morning hours
+
+      # Time period revenue percentages
+      - name: morning_rush_revenue_percent
+        description: Percentage of total revenue from morning rush hours
+
+      - name: midday_revenue_percent
+        description: Percentage of total revenue from midday hours
+
+      - name: evening_rush_revenue_percent
+        description: Percentage of total revenue from evening rush hours
+
+      - name: evening_revenue_percent
+        description: Percentage of total revenue from evening (non-rush) hours
+
+      - name: late_night_revenue_percent
+        description: Percentage of total revenue from late night/early morning hours
+
+      # Surge pricing effectiveness
+      - name: rush_to_non_rush_revenue_ratio
+        description: Ratio of revenue during rush hours vs. non-rush hours
