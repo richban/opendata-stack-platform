@@ -29,8 +29,10 @@ with yellow_trips as (
         mta_tax,
         tip_amount,
         tolls_amount,
-        improvement_surcharge,
-        congestion_surcharge,
+        -- flat fee added to all taxi trips to fund taxi industry improvements
+        coalesce(improvement_surcharge, 0.5) as improvement_surcharge,
+        -- Applies to trips that start, end, or pass through Manhattan below 96th Street
+        coalesce(congestion_surcharge, 0) as congestion_surcharge,
         airport_fee,
         total_amount,
         store_and_fwd_flag,
@@ -137,8 +139,10 @@ green_trips as (
         mta_tax,
         tip_amount,
         tolls_amount,
-        improvement_surcharge,
-        congestion_surcharge,
+        -- flat fee added to all taxi trips to fund taxi industry improvements
+        coalesce(improvement_surcharge, 0.5) as improvement_surcharge,
+        -- Applies to trips that start, end, or pass through Manhattan below 96th Street
+        coalesce(congestion_surcharge, 0) as congestion_surcharge,
         null as airport_fee,
         total_amount,
         store_and_fwd_flag,
@@ -246,9 +250,10 @@ fhvhv_trips as (
         tips as tip_amount, -- Map tips
         tolls as tolls_amount, -- Map tolls
         null as improvement_surcharge, -- FHVHV doesn't have improvement surcharge
-        congestion_surcharge,
+        -- Applies to trips that start, end, or pass through Manhattan below 96th Street
+        coalesce(congestion_surcharge, 0) as congestion_surcharge,
         null as airport_fee, -- FHVHV doesn't have airport fee
-        (base_passenger_fare + tips + tolls + congestion_surcharge) as total_amount,
+        (base_passenger_fare + tips + tolls + coalesce(congestion_surcharge, 0)) as total_amount,
         null as store_and_fwd_flag, -- No equivalent in FHVHV
         pickup_datetime,
         dropoff_datetime,

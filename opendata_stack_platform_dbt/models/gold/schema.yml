@@ -268,13 +268,13 @@ models:
               to: ref('dim_rate_code')
               field: rate_code_key
       - name: payment_type_key
-        description: "Foreign key to dim_payment_type. NULL for FHVHV trips, must exist in dim_payment_type when not NULL"
+        description: "Foreign key to dim_payment_type. NULL for FHVHV trips"
         tests:
           - relationships:
               to: ref('dim_payment_type')
               field: payment_type_key
       - name: trip_type_key
-        description: "Foreign key to dim_trip_type. NULL for yellow taxi trips, must exist in dim_trip_type when not NULL"
+        description: "Foreign key to dim_trip_type. NULL for yellow taxi trips"
         tests:
           - relationships:
               to: ref('dim_trip_type')
@@ -282,17 +282,15 @@ models:
       - name: passenger_count
         description: "Number of passengers (driver-entered or system-reported)"
       - name: trip_distance
-        description: "Distance traveled in miles (Yellow/Green label)"
-      - name: trip_miles
-        description: "Distance traveled in miles (HVFHV label)"
-      - name: trip_time
-        description: "Total seconds for passenger trip (HVFHV)"
+        description: "Distance traveled in miles"
       - name: store_and_fwd_flag
-        description: "Y/N if trip record was stored before forward (Yellow/Green)"
+        description: "Y/N if trip record was stored before forward"
       - name: fare_amount
-        description: "Meter-based fare (Yellow/Green) or base fare (HVFHV)"
+        description: "Meter-based fare or base fare"
+        tests:
+          - not_null
       - name: extra
-        description: "$0.50, $1 rush hour/overnight, etc. (Yellow/Green)"
+        description: "Additional charges (rush hour/overnight surcharges)"
       - name: mta_tax
         description: "Metropolitan Transportation Authority tax"
       - name: tip_amount
@@ -303,37 +301,23 @@ models:
         description: "Improvement surcharge assessed on hailed trips"
       - name: total_amount
         description: "Total charged to passenger, not including cash tip"
+        tests:
+          - not_null
       - name: congestion_surcharge
         description: "Additional surcharge applied in congested zones"
+        tests:
+          - not_null
       - name: airport_fee
         description: "Airport pickup/drop-off fee (where applicable)"
-      - name: hvfhs_license_num
-        description: "HVFHS base license # (Uber, Lyft, etc.)"
-      - name: dispatching_base_num
-        description: "Base that dispatched the trip"
-      - name: originating_base_num
-        description: "Base that received the original request"
-      - name: request_datetime
-        description: "When passenger requested the ride"
-      - name: on_scene_datetime
-        description: "When driver arrived (Accessible Vehicles only)"
-      - name: base_passenger_fare
-        description: "HVFHV fare before tolls/tips/taxes"
-      - name: bcf
-        description: "Black Car Fund contribution"
-      - name: sales_tax
-        description: "NYS sales tax portion"
-      - name: driver_pay
-        description: "Net driver pay, excluding tolls/tips"
-      - name: shared_request_flag
-        description: "Y/N: passenger consented to a shared/pooled ride"
-      - name: shared_match_flag
-        description: "Y/N: passenger actually shared the ride w/ another passenger"
-      - name: access_a_ride_flag
-        description: "Y/N: MTA Access-a-Ride trip"
-      - name: wav_request_flag
-        description: "Y/N: wheelchair-accessible vehicle requested"
-      - name: wav_match_flag
-        description: "Y/N: trip occurred in a WAV"
+      - name: pickup_datetime
+        description: "Date and time when the passenger was picked up"
+        tests:
+          - not_null
+      - name: dropoff_datetime
+        description: "Date and time when the passenger was dropped off"
+        tests:
+          - not_null
+      - name: incremental_timestamp
+        description: "Timestamp used for incremental processing"
       - name: record_loaded_timestamp
         description: "Audit column noting when the record was loaded"
