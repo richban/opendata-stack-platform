@@ -1,9 +1,286 @@
 version: 2
 
 models:
-  - name: green_taxi_trip_silver
-    description: "Processed green taxi trip data at silver layer"
-    schema: silver_green
-    meta:
-      dagster:
-        asset_key: ["nyc_database", "silver", "green_taxi_trip"]
+  - name: silver_taxi_trips
+    description: >
+      Unified silver layer model that combines yellow, green, and high-volume for-hire vehicle (HVFHV) taxi trips.
+      This model standardizes fields across different taxi types and applies basic data cleaning.
+      It serves as the input for the silver_taxi_trips_validated model which applies data quality filters.
+    columns:
+      - name: taxi_trip_key
+        description: Unique surrogate key for each taxi trip
+        tests:
+          - unique
+          - not_null
+
+      - name: trip_id
+        description: Original trip ID from the source system
+        tests:
+          - not_null
+
+      - name: taxi_type
+        description: Type of taxi (yellow, green, or fhvhv)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['yellow', 'green', 'fhvhv']
+
+      - name: vendor_id
+        description: ID of the taxi vendor
+        tests:
+          - not_null
+
+      - name: rate_code_id
+        description: Rate code for the trip
+        tests:
+          - not_null
+
+      - name: payment_type_id
+        description: Payment type ID
+        tests:
+          - not_null
+
+      - name: trip_type_id
+        description: Trip type ID
+        tests:
+          - not_null
+
+      - name: pu_location_id
+        description: Pickup location ID
+        tests:
+          - not_null
+
+      - name: do_location_id
+        description: Dropoff location ID
+        tests:
+          - not_null
+
+      - name: passenger_count
+        description: Number of passengers
+
+      - name: trip_distance
+        description: Distance of the trip in miles
+        tests:
+          - not_null
+
+      - name: fare_amount
+        description: Base fare amount
+        tests:
+          - not_null
+
+      - name: extra
+        description: Extra charges
+
+      - name: mta_tax
+        description: MTA tax amount
+
+      - name: tip_amount
+        description: Tip amount
+
+      - name: tolls_amount
+        description: Tolls amount
+
+      - name: improvement_surcharge
+        description: Improvement surcharge
+
+      - name: congestion_surcharge
+        description: Congestion surcharge
+
+      - name: airport_fee
+        description: Airport fee
+
+      - name: total_amount
+        description: Total amount for the trip
+        tests:
+          - not_null
+
+      - name: store_and_fwd_flag
+        description: Flag indicating if the trip data was sent via store and forward
+
+      - name: pickup_datetime
+        description: Pickup date and time
+        tests:
+          - not_null
+
+      - name: dropoff_datetime
+        description: Dropoff date and time
+        tests:
+          - not_null
+
+      - name: _date_partition
+        description: Date partition for incremental processing
+        tests:
+          - not_null
+
+      - name: _incremental_timestamp
+        description: Timestamp for incremental processing
+        tests:
+          - not_null
+
+      - name: _record_loaded_timestamp
+        description: Timestamp when the record was loaded
+        tests:
+          - not_null
+
+  - name: silver_taxi_trips_validated
+    description: >
+      Validates and filters taxi trip data before it enters the fact table.
+      This model applies data quality checks and only includes records that pass these checks.
+    columns:
+      - name: taxi_trip_key
+        description: Unique surrogate key for each taxi trip
+        tests:
+          - unique
+          - not_null
+
+      - name: trip_id
+        description: Original trip ID from the source system
+        tests:
+          - not_null
+
+      - name: taxi_type
+        description: Type of taxi (yellow, green, or fhvhv)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['yellow', 'green', 'fhvhv']
+
+      - name: vendor_id
+        description: ID of the taxi vendor
+        tests:
+          - not_null
+
+      - name: rate_code_id
+        description: Rate code for the trip
+        tests:
+          - not_null
+
+      - name: payment_type_id
+        description: Payment type ID
+        tests:
+          - not_null
+
+      - name: trip_type_id
+        description: Trip type ID
+        tests:
+          - not_null
+
+      - name: pu_location_id
+        description: Pickup location ID
+        tests:
+          - not_null
+
+      - name: do_location_id
+        description: Dropoff location ID
+        tests:
+          - not_null
+
+      - name: passenger_count
+        description: Number of passengers
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "passenger_count >= 0 or passenger_count is null"
+
+      - name: trip_distance
+        description: Distance of the trip in miles
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "trip_distance > 0"
+
+      - name: fare_amount
+        description: Base fare amount
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "fare_amount >= 0"
+
+      - name: extra
+        description: Extra charges
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "extra >= 0"
+
+      - name: mta_tax
+        description: MTA tax amount
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "mta_tax >= 0"
+
+      - name: tip_amount
+        description: Tip amount
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "tip_amount >= 0"
+
+      - name: tolls_amount
+        description: Tolls amount
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "tolls_amount >= 0"
+
+      - name: improvement_surcharge
+        description: Improvement surcharge
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "improvement_surcharge >= 0"
+
+      - name: congestion_surcharge
+        description: Congestion surcharge
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "congestion_surcharge >= 0"
+
+      - name: airport_fee
+        description: Airport fee
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "airport_fee >= 0"
+
+      - name: total_amount
+        description: Total amount for the trip
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "total_amount >= 0"
+
+      - name: pickup_datetime
+        description: Pickup date and time
+        tests:
+          - not_null
+
+      - name: dropoff_datetime
+        description: Dropoff date and time
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "dropoff_datetime >= pickup_datetime"
+
+      - name: _is_valid
+        description: Flag indicating if the record passes all data quality checks
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "_is_valid = true"
+
+      - name: _date_partition
+        description: Date partition for incremental processing
+        tests:
+          - not_null
+
+      - name: _incremental_timestamp
+        description: Timestamp for incremental processing
+        tests:
+          - not_null
+
+      - name: _record_loaded_timestamp
+        description: Timestamp when the record was loaded
+        tests:
+          - not_null
