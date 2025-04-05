@@ -129,15 +129,19 @@ class CustomDagsterDbtTranslator(DagsterDbtTranslator):
         ):
             return dg.AssetKey(dbt_resource_props["meta"]["dagster"]["asset_key"])
 
-        # For sources in the silver layer (taxi trip data)
-        if resource_type == "source" and resource_schema.startswith("silver_"):
+        # For sources in the bronze layer (taxi trip data)
+        if resource_type == "source" and resource_schema.startswith("bronze_"):
             # Extract taxi type (yellow, green, fhvhv) from schema name
-            taxi_type = resource_schema.replace("silver_", "")
-            return dg.AssetKey(["nyc_database", "silver", f"{taxi_type}_taxi_trip"])
+            taxi_type = resource_schema.replace("bronze_", "")
+            return dg.AssetKey(["nyc_database", "bronze", f"{taxi_type}_taxi_trip"])
 
-        # For models in the gold layer
+        # For models in the gold or silver layer
         if resource_type == "model" and "fqn" in dbt_resource_props:
             model_path = dbt_resource_props["fqn"]
+            # Check if this is a silver model
+            if len(model_path) > 1 and model_path[1] == "silver":
+                return dg.AssetKey(["nyc_database", "silver", resource_name])
+
             # Check if this is a gold model
             if len(model_path) > 1 and model_path[1] == "gold":
                 return dg.AssetKey(["nyc_database", "gold", resource_name])
@@ -212,7 +216,6 @@ class CustomDagsterDbtTranslator(DagsterDbtTranslator):
     partitions_def=monthly_partition,
     backfill_policy=dg.BackfillPolicy.single_run(),
     project=opendata_stack_platform_dbt_project,
-    select="silver+",  # Only select silver models and their dependencies
     exclude="gold+",  # Exclude gold models
 )
 def dbt_partitioned_models(
@@ -220,9 +223,9 @@ def dbt_partitioned_models(
     dbt: DbtCliResource,
     config: DbtConfig,
 ) -> None:
-    """Execute silver DBT models with monthly partitioning in Dagster.
+    """Execute DBT models with monthly partitioning in Dagster.
 
-    Execute silver DBT models with monthly partitioning in Dagster, providing:
+    Execute DBT models with monthly partitioning in Dagster, providing:
     - Monthly partitioning of data processing
     - Code reference tracking for better observability
     - Single-run backfill policy for efficient historical processing
@@ -257,7 +260,6 @@ def dbt_partitioned_models(
         - Enables code references for better debugging and lineage tracking
         - Implements single-run backfill for efficient historical processing
         - Partition key is passed to DBT as a variable for time-based filtering
-        - Only applies to silver models, not gold models
     """
     if hasattr(context, "partition_key_range") and context.partition_key_range:
         time_window = context.partition_time_window
