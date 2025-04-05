@@ -22,17 +22,7 @@ with rate_code_mapping as (
             when rate_code_id = 99 then 'Unknown'
             else 'Unknown'
         end as rate_code_desc
-    from (
-        -- Get all distinct ratecode_id values from Yellow Taxi
-        select distinct coalesce(cast(ratecode_id as int), 99) as rate_code_id
-        from {{ source('silver_yellow', 'yellow_taxi_trip') }}
-
-        union
-
-        -- Get all distinct ratecode_id values from Green Taxi
-        select distinct coalesce(cast(ratecode_id as int), 99) as rate_code_id
-        from {{ source('silver_green', 'green_taxi_trip') }}
-    )
+    from {{ ref('silver_taxi_trips_validated') }}
 ),
 
 final as (

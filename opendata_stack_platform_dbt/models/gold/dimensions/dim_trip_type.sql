@@ -23,7 +23,7 @@ with trip_type_codes as (
         -- FHVHV is always dispatch type (2)
         -- Yellow Taxi is always street-hail (1)
         select distinct trip_type as trip_type_id
-        from {{ source('silver_green', 'green_taxi_trip') }}
+        from {{ ref('silver_taxi_trips_validated') }}
         where trip_type is not null
     )
     union all
