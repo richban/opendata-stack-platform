@@ -1,7 +1,7 @@
 import json
 
 from collections.abc import Mapping
-from typing import Any, Optional
+from typing import Any, Optional, Generator
 
 import dagster as dg
 
@@ -222,7 +222,7 @@ def dbt_partitioned_models(
     context: dg.AssetExecutionContext,
     dbt: DbtCliResource,
     config: DbtConfig,
-) -> None:
+) -> Generator[Any, Any, Any]:
     """Execute DBT models with monthly partitioning in Dagster.
 
     Execute DBT models with monthly partitioning in Dagster, providing:
@@ -300,7 +300,7 @@ def dbt_gold_models(
     context: dg.AssetExecutionContext,
     dbt: DbtCliResource,
     config: DbtConfig,
-) -> None:
+) -> Generator[Any, Any, Any]:
     """Execute gold DBT models without partitioning in Dagster.
 
     Execute gold DBT models (dimensions and facts) without partitioning, providing:

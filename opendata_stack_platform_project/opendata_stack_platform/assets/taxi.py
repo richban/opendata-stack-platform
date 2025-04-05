@@ -80,9 +80,9 @@ def fhvhv_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
 
 @asset(
     deps=["taxi_zone_lookup_raw"],
-    group_name="ingested_taxi_trip_silver",
+    group_name="ingested_taxi_trip_bronze",
     compute_kind="DuckDB",
-    key_prefix=["nyc_database", "silver"],
+    key_prefix=["nyc_database", "bronze"],
 )
 def taxi_zone_lookup(context: AssetExecutionContext, duckdb_resource: DuckDBResource):
     """The raw taxi zones dataset, loaded into a DuckDB database."""
