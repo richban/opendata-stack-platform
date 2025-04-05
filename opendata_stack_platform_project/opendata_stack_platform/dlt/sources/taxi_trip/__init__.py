@@ -116,9 +116,9 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     dlt_pipeline = dlt.pipeline(
-        pipeline_name="unified_taxi_trip_silver_pipeline",
+        pipeline_name="unified_taxi_trip_bronze_pipeline",
         destination=dlt.destinations.duckdb("../data/nyc_database.duckdb"),
-        dataset_name="silver/green/taxi_trip",
+        dataset_name="bronze/green/taxi_trip",
         dev_mode=True,
         progress="log",
     )

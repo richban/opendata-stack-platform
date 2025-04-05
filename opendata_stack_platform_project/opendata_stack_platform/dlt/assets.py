@@ -21,7 +21,7 @@ class TaxiTripDagsterDltTranslator(DagsterDltTranslator):
 
     def get_asset_key(self, resource: DagsterDltResource) -> AssetKey:
         """Overrides asset key to be the dlt resource name."""
-        return AssetKey(["nyc_database", "silver", f"{self.dataset_type}_taxi_trip"])
+        return AssetKey(["nyc_database", "bronze", f"{self.dataset_type}_taxi_trip"])
 
     def get_deps_asset_keys(self, resource: DagsterDltResource) -> Iterable[AssetKey]:
         """Get the dependent asset keys for this DLT pipeline.
@@ -39,9 +39,8 @@ class TaxiTripDagsterDltTranslator(DagsterDltTranslator):
         yield AssetKey(self.deps_asset_key)
 
 
-def create_taxi_trip_silver_asset(dataset_type: str, deps_asset_key: str):
-    """
-    Creates a DLT asset definition for the specified dataset type.
+def create_taxi_trip_bronze_asset(dataset_type: str, deps_asset_key: str):
+    """Creates a DLT asset definition for the specified dataset type.
 
     Args:
         dataset_type (str): The type of taxi dataset ("yellow", "green", "fhvhv").
@@ -51,18 +50,18 @@ def create_taxi_trip_silver_asset(dataset_type: str, deps_asset_key: str):
     @dlt_assets(
         dlt_source=taxi_trip_source(dataset_type=dataset_type),
         dlt_pipeline=create_taxi_trip_pipeline(dataset_type),
-        name=f"{dataset_type}_taxi_trip_silver",
-        group_name="ingested_taxi_trip_silver",
+        name=f"{dataset_type}_taxi_trip_bronze",
+        group_name="ingested_taxi_trip_bronze",
         dagster_dlt_translator=TaxiTripDagsterDltTranslator(dataset_type, deps_asset_key),
         partitions_def=monthly_partition,
         backfill_policy=BackfillPolicy.single_run(),
         # This pool will need to be configured in the Definitions object
         pool="dlt_backfill",
     )
-    def dagster_taxi_trip_silver_asset(
+    def dagster_taxi_trip_bronze_asset(
         context: AssetExecutionContext, dlt_resource: DagsterDltResource
     ):
-        """Asset function for taxi trip silver data."""
+        """Asset function for taxi trip bronze data."""
         # Check if we're doing a backfill (multiple partitions)
         if hasattr(context, "partition_key_range") and context.partition_key_range:
             # For backfills with multiple partitions
@@ -89,16 +88,16 @@ def create_taxi_trip_silver_asset(dataset_type: str, deps_asset_key: str):
             dlt_source=source,
         )
 
-    return dagster_taxi_trip_silver_asset
+    return dagster_taxi_trip_bronze_asset
 
 
 # Define assets for each dataset type
-dagster_yellow_taxi_trip_silver_assets = create_taxi_trip_silver_asset(
+dagster_yellow_taxi_trip_bronze_assets = create_taxi_trip_bronze_asset(
     dataset_type="yellow", deps_asset_key="yellow_taxi_trip_raw"
 )
-dagster_green_taxi_trip_silver_assets = create_taxi_trip_silver_asset(
+dagster_green_taxi_trip_bronze_assets = create_taxi_trip_bronze_asset(
     dataset_type="green", deps_asset_key="green_taxi_trip_raw"
 )
-dagster_fhv_taxi_trip_silver_assets = create_taxi_trip_silver_asset(
+dagster_fhv_taxi_trip_bronze_assets = create_taxi_trip_bronze_asset(
     dataset_type="fhvhv", deps_asset_key="fhvhv_trip_raw"
 )
