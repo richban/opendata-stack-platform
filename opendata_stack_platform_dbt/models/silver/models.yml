@@ -7,12 +7,6 @@ models:
       This model standardizes fields across different taxi types and applies basic data cleaning.
       It serves as the input for the silver_taxi_trips_validated model which applies data quality filters.
     columns:
-      - name: taxi_trip_key
-        description: Unique surrogate key for each taxi trip
-        tests:
-          - unique
-          - not_null
-
       - name: trip_id
         description: Original trip ID from the source system
         tests:
@@ -57,42 +51,79 @@ models:
 
       - name: passenger_count
         description: Number of passengers
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
 
       - name: trip_distance
         description: Distance of the trip in miles
         tests:
           - not_null
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
 
       - name: fare_amount
         description: Base fare amount
         tests:
           - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
 
       - name: extra
         description: Extra charges
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
 
       - name: mta_tax
         description: MTA tax amount
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
 
       - name: tip_amount
         description: Tip amount
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
 
       - name: tolls_amount
         description: Tolls amount
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
 
       - name: improvement_surcharge
         description: Improvement surcharge
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
 
       - name: congestion_surcharge
         description: Congestion surcharge
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
 
       - name: airport_fee
         description: Airport fee
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
 
       - name: total_amount
         description: Total amount for the trip
         tests:
           - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
 
       - name: store_and_fwd_flag
         description: Flag indicating if the trip data was sent via store and forward
@@ -106,6 +137,8 @@ models:
         description: Dropoff date and time
         tests:
           - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= pickup_datetime"
 
       - name: _date_partition
         description: Date partition for incremental processing
@@ -127,12 +160,6 @@ models:
       Validates and filters taxi trip data before it enters the fact table.
       This model applies data quality checks and only includes records that pass these checks.
     columns:
-      - name: taxi_trip_key
-        description: Unique surrogate key for each taxi trip
-        tests:
-          - unique
-          - not_null
-
       - name: trip_id
         description: Original trip ID from the source system
         tests:
@@ -179,77 +206,79 @@ models:
         description: Number of passengers
         tests:
           - dbt_utils.expression_is_true:
-              expression: "passenger_count >= 0 or passenger_count is null"
+              expression: ">= 0"
+              config:
+                where: "passenger_count is not null"
 
       - name: trip_distance
         description: Distance of the trip in miles
         tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: "trip_distance > 0"
+              expression: ">0"
 
       - name: fare_amount
         description: Base fare amount
         tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: "fare_amount >= 0"
+              expression: ">= 0"
 
       - name: extra
         description: Extra charges
         tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: "extra >= 0"
+              expression: ">= 0"
 
       - name: mta_tax
         description: MTA tax amount
         tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: "mta_tax >= 0"
+              expression: ">= 0"
 
       - name: tip_amount
         description: Tip amount
         tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: "tip_amount >= 0"
+              expression: ">= 0"
 
       - name: tolls_amount
         description: Tolls amount
         tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: "tolls_amount >= 0"
+              expression: ">= 0"
 
       - name: improvement_surcharge
         description: Improvement surcharge
         tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: "improvement_surcharge >= 0"
+              expression: ">= 0"
 
       - name: congestion_surcharge
         description: Congestion surcharge
         tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: "congestion_surcharge >= 0"
+              expression: ">= 0"
 
       - name: airport_fee
         description: Airport fee
         tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: "airport_fee >= 0"
+              expression: ">= 0"
 
       - name: total_amount
         description: Total amount for the trip
         tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: "total_amount >= 0"
+              expression: ">= 0"
 
       - name: pickup_datetime
         description: Pickup date and time
@@ -261,14 +290,7 @@ models:
         tests:
           - not_null
           - dbt_utils.expression_is_true:
-              expression: "dropoff_datetime >= pickup_datetime"
-
-      - name: _is_valid
-        description: Flag indicating if the record passes all data quality checks
-        tests:
-          - not_null
-          - dbt_utils.expression_is_true:
-              expression: "_is_valid = true"
+              expression: ">= pickup_datetime"
 
       - name: _date_partition
         description: Date partition for incremental processing

@@ -17,4 +17,4 @@
         and date_trunc('month', {{ date_column }}) >= cast('{{ var("backfill_start_date") }}' as date)
         and date_trunc('month', {{ date_column }}) <= cast('{{ var("backfill_end_date") }}' as date)
     {% endif %}
-{% endmacro %} 
+{% endmacro %}

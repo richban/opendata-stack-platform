@@ -37,5 +37,5 @@ select
     _record_loaded_timestamp
 from {{ ref('silver_taxi_trips') }}
 where
-    is_valid = true
+    _is_valid = true
     {{ incremental_backfill('pickup_datetime') }}

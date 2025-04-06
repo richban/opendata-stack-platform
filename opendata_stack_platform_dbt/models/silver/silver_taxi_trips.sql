@@ -107,7 +107,7 @@ green_trips as (
             when payment_type = 0 then 5 -- payment_type 0 is unknown
             else coalesce(payment_type, 5) -- Default to 5 if payment_type is null
         end as payment_type_id,
-        trip_type as trip_type_id,
+        coalesce(trip_type, 1) as trip_type_id, -- Default to 1 (street-hail) if null
         -- Partition field for delete+insert strategy
         date_trunc('month', lpep_pickup_datetime) as _date_partition,
         -- Metadata
@@ -207,6 +207,7 @@ validated_trips as (
         c.store_and_fwd_flag,
         c.pickup_datetime,
         c.dropoff_datetime,
+        c._date_partition,
         c._incremental_timestamp,
         c._record_loaded_timestamp,
 
@@ -218,6 +219,13 @@ validated_trips as (
 
         -- Critical business rules
         c.trip_distance > 0 and
+        c.extra >= 0 and
+        c.tolls_amount >= 0 and
+        c.improvement_surcharge >= 0 and
+        c.congestion_surcharge >= 0 and
+        c.airport_fee >= 0 and
+        c.mta_tax >= 0 and
+        c.tip_amount >= 0 and
         c.fare_amount >= 0 and
         c.total_amount >= 0 as _is_valid
     from all_trips c
@@ -251,5 +259,5 @@ select
     _is_valid,
     _date_partition,
     _incremental_timestamp,
-    _record_loaded_timestamps
+    _record_loaded_timestamp
 from validated_trips
