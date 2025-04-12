@@ -30,7 +30,6 @@ with validated_trips as (
         congestion_surcharge,
         airport_fee,
         total_amount,
-        store_and_fwd_flag,
         pickup_datetime,
         dropoff_datetime,
 
@@ -124,7 +123,6 @@ final as (
         c.congestion_surcharge,
         c.airport_fee,
         c.total_amount,
-        c.store_and_fwd_flag,
 
         -- Timestamps
         c.pickup_datetime,
@@ -191,7 +189,6 @@ select
     congestion_surcharge,
     airport_fee,
     total_amount,
-    store_and_fwd_flag,
 
     -- Timestamps
     pickup_datetime,
