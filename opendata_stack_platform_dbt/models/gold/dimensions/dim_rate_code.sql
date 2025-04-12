@@ -1,7 +1,6 @@
 {{ config(
-    materialized='incremental',
+    materialized='table',
     unique_key='rate_code_key',
-    incremental_strategy='delete+insert',
 ) }}
 
 /*
@@ -11,18 +10,32 @@ Rate codes vary by taxi type, with Yellow and Green taxis sharing a similar stru
 
 with rate_code_mapping as (
     select
-        rate_code_id,
-        case
-            when rate_code_id = 1 then 'Standard rate'
-            when rate_code_id = 2 then 'JFK'
-            when rate_code_id = 3 then 'Newark'
-            when rate_code_id = 4 then 'Nassau or Westchester'
-            when rate_code_id = 5 then 'Negotiated fare'
-            when rate_code_id = 6 then 'Group ride'
-            when rate_code_id = 99 then 'Unknown'
-            else 'Unknown'
-        end as rate_code_desc
-    from {{ ref('silver_taxi_trips_validated') }}
+        1 as rate_code_id,
+        'Standard rate' as rate_code_desc
+    union all
+    select
+        2 as rate_code_id,
+        'JFK' as rate_code_desc
+    union all
+    select
+        3 as rate_code_id,
+        'Newark' as rate_code_desc
+    union all
+    select
+        4 as rate_code_id,
+        'Nassau or Westchester' as rate_code_desc
+    union all
+    select
+        5 as rate_code_id,
+        'Negotiated fare' as rate_code_desc
+    union all
+    select
+        6 as rate_code_id,
+        'Group ride' as rate_code_desc
+    union all
+    select
+        99 as rate_code_id,
+        'Unknown' as rate_code_desc
 ),
 
 final as (
