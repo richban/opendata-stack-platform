@@ -11,7 +11,7 @@ Implemented as a hardcoded reference table for stability and business definition
 with vendor_reference as (
     -- Static reference mapping that doesn't rely on source data
     -- Each vendor has a stable vendor_key for joining
-    select * from (
+    select t.* from (
         values
         -- Yellow/Green taxi vendors
         (1, 'yellow_green', 1, 'Creative Mobile Technologies, LLC'),
@@ -26,7 +26,7 @@ with vendor_reference as (
 
         -- Default unknown vendor
         (-1, 'unknown', -1, 'Unknown Vendor')
-    )
+    ) as t (vendor_key, vendor_type, vendor_id, vendor_name)
 ),
 
 final as (
