@@ -44,10 +44,9 @@ with yellow_trips as (
         -- flat fee added to all taxi trips to fund taxi industry improvements
         coalesce(improvement_surcharge, 0.5) as improvement_surcharge,
         -- Applies to trips that start, end, or pass through Manhattan below 96th Street
-        coalesce(congestion_surcharge, 0) as congestion_surcharge,
+        coalesce(congestion_surcharge, 0.0) as congestion_surcharge,
         airport_fee,
         total_amount,
-        store_and_fwd_flag,
         tpep_pickup_datetime as pickup_datetime,
         tpep_dropoff_datetime as dropoff_datetime,
         -- Dimension keys will be joined later
@@ -94,10 +93,9 @@ green_trips as (
         -- flat fee added to all taxi trips to fund taxi industry improvements
         coalesce(improvement_surcharge, 0.5) as improvement_surcharge,
         -- Applies to trips that start, end, or pass through Manhattan below 96th Street
-        coalesce(congestion_surcharge, 0) as congestion_surcharge,
+        coalesce(congestion_surcharge, 0.0) as congestion_surcharge,
         null as airport_fee,
         total_amount,
-        store_and_fwd_flag,
         lpep_pickup_datetime as pickup_datetime,
         lpep_dropoff_datetime as dropoff_datetime,
         -- Dimension keys will be joined later
@@ -143,10 +141,9 @@ fhvhv_trips as (
         tolls as tolls_amount, -- Map tolls
         null as improvement_surcharge, -- FHVHV doesn't have improvement surcharge
         -- Applies to trips that start, end, or pass through Manhattan below 96th Street
-        coalesce(congestion_surcharge, 0) as congestion_surcharge,
+        coalesce(congestion_surcharge, 0.0) as congestion_surcharge,
         null as airport_fee, -- FHVHV doesn't have airport fee
         (base_passenger_fare + tips + tolls + coalesce(congestion_surcharge, 0)) as total_amount,
-        null as store_and_fwd_flag, -- No equivalent in FHVHV
         pickup_datetime,
         dropoff_datetime,
         -- Dimension keys will be joined later
@@ -173,8 +170,8 @@ all_trips as (
     select * from fhvhv_trips
 ),
 
--- Apply data quality checks and clean data in a single pass
-validated_trips as (
+-- Apply cleaning and coalescing first
+cleaned_trips as (
     select
         c.taxi_type,
         c.trip_id,
@@ -185,51 +182,62 @@ validated_trips as (
         c.pu_location_id,
         c.do_location_id,
         c.passenger_count,
-        c.trip_distance,
-        -- Clean financial fields
-        coalesce(c.fare_amount, 0) as fare_amount,
-        coalesce(c.extra, 0) as extra,
-        coalesce(c.mta_tax, 0) as mta_tax,
-        coalesce(c.tip_amount, 0) as tip_amount,
-        coalesce(c.tolls_amount, 0) as tolls_amount,
-        coalesce(c.improvement_surcharge, 0) as improvement_surcharge,
-        coalesce(c.congestion_surcharge, 0) as congestion_surcharge,
-        coalesce(c.airport_fee, 0) as airport_fee,
-        -- Recalculate total amount with cleaned values
-        coalesce(c.fare_amount, 0) +
-        coalesce(c.extra, 0) +
-        coalesce(c.mta_tax, 0) +
-        coalesce(c.tip_amount, 0) +
-        coalesce(c.tolls_amount, 0) +
-        coalesce(c.improvement_surcharge, 0) +
-        coalesce(c.congestion_surcharge, 0) +
-        coalesce(c.airport_fee, 0) as total_amount,
-        c.store_and_fwd_flag,
+        coalesce(c.trip_distance, 0.0) as trip_distance,
+        coalesce(c.fare_amount, 0.0) as fare_amount,
+        coalesce(c.extra, 0.0) as extra,
+        coalesce(c.mta_tax, 0.0) as mta_tax,
+        coalesce(c.tip_amount, 0.0) as tip_amount,
+        coalesce(c.tolls_amount, 0.0) as tolls_amount,
+        coalesce(c.improvement_surcharge, 0.0) as improvement_surcharge,
+        coalesce(c.congestion_surcharge, 0.0) as congestion_surcharge,
+        coalesce(c.airport_fee, 0.0) as airport_fee,
+        -- Recalculate total amount with potentially cleaned values
+        coalesce(c.fare_amount, 0.0) +
+        coalesce(c.extra, 0.0) +
+        coalesce(c.mta_tax, 0.0) +
+        coalesce(c.tip_amount, 0.0) +
+        coalesce(c.tolls_amount, 0.0) +
+        coalesce(c.improvement_surcharge, 0.0) +
+        coalesce(c.congestion_surcharge, 0.0) +
+        coalesce(c.airport_fee, 0.0) as total_amount,
         c.pickup_datetime,
         c.dropoff_datetime,
         c._date_partition,
         c._incremental_timestamp,
-        c._record_loaded_timestamp,
-
-        -- Data quality flags - simplified to essential checks only
-        -- Essential data integrity
-        c.pickup_datetime is not null and
-        c.dropoff_datetime is not null and
-        c.pickup_datetime <= c.dropoff_datetime and
-
-        -- Critical business rules
-        c.trip_distance > 0 and
-        c.extra >= 0 and
-        c.tolls_amount >= 0 and
-        c.improvement_surcharge >= 0 and
-        c.congestion_surcharge >= 0 and
-        c.airport_fee >= 0 and
-        c.mta_tax >= 0 and
-        c.tip_amount >= 0 and
-        c.fare_amount >= 0 and
-        c.total_amount >= 0 as _is_valid
+        c._record_loaded_timestamp
     from all_trips c
-    where c.pickup_datetime::date between '2024-01-01' and '2025-01-31'
+    where c.pickup_datetime::date between '2024-01-01' and '2025-01-31' -- Apply date filter earlier if possible
+),
+
+-- Now apply validation checks on the cleaned data
+validated_trips as (
+    select
+        ct.*, -- Select all columns from cleaned_trips
+
+        -- Data quality flags using cleaned columns from ct.*
+        ct.trip_type_id is not null and
+        ct.pickup_datetime is not null and
+        ct.dropoff_datetime is not null and
+        -- Handle potential NULL datetimes before comparison if they shouldn't exist
+        -- Or ensure they are filtered out earlier if truly invalid
+        (ct.pickup_datetime is null or ct.dropoff_datetime is null or ct.pickup_datetime <= ct.dropoff_datetime) and
+
+        -- Allow NULL passenger_count for FHVHV trips, but ensure non-NULL values are valid
+        (ct.passenger_count is null or (ct.passenger_count > 0 and ct.passenger_count <= 10)) and
+
+        -- Financial fields are non-negative
+        ct.trip_distance > 0.0 and
+        ct.extra >= 0.0 and
+        ct.tolls_amount >= 0.0 and
+        ct.improvement_surcharge >= 0.0 and
+        ct.congestion_surcharge >= 0.0 and
+        ct.airport_fee >= 0.0 and
+        ct.mta_tax >= 0.0 and
+        ct.tip_amount >= 0.0 and
+        ct.fare_amount >= 0.0 and
+        ct.total_amount >= 0.0 as _is_valid
+
+    from cleaned_trips ct
 )
 
 -- Final select - only include valid records
@@ -253,7 +261,6 @@ select
     congestion_surcharge,
     airport_fee,
     total_amount,
-    store_and_fwd_flag,
     pickup_datetime,
     dropoff_datetime,
     _is_valid,

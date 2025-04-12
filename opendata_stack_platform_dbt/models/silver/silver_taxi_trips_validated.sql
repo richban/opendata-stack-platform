@@ -29,12 +29,12 @@ select
     congestion_surcharge,
     airport_fee,
     total_amount,
-    store_and_fwd_flag,
     pickup_datetime,
     dropoff_datetime,
     _date_partition,
     _incremental_timestamp,
-    _record_loaded_timestamp
+    _record_loaded_timestamp,
+    _is_valid
 from {{ ref('silver_taxi_trips') }}
 where
     _is_valid = true
