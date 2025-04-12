@@ -1,7 +1,7 @@
 import json
 
-from collections.abc import Mapping
-from typing import Any, Optional, Generator
+from collections.abc import Generator, Mapping
+from typing import Any, Optional
 
 import dagster as dg
 
