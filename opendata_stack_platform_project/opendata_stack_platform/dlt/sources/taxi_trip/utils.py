@@ -1,13 +1,11 @@
 import hashlib
 import json
 import re
-
 from collections.abc import Iterator
 
 import dlt
 import pandas as pd
 import pyarrow as pa
-
 from dlt.sources.filesystem import FileItemDict
 from pyarrow import parquet as pq
 
@@ -32,9 +30,7 @@ def add_row_hash(
     existing_columns = [col for col in key_columns if col in batch.schema.names]
 
     if not existing_columns:
-        raise ValueError(
-            f"None of the key columns {key_columns} exist in the batch schema"
-        )
+        raise ValueError(f"None of the key columns {key_columns} exist in the batch schema")
 
     # Initialize a list to store hash values
     hash_values = []

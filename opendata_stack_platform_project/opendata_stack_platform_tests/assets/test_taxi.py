@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 import boto3
 import polars as pl
 import pytest
-
 from dagster import (
     MaterializeResult,
     MetadataValue,
@@ -116,9 +115,7 @@ def test_yellow_taxi_trip_raw():
     context = build_op_context(partition_key="2023-01-01", resources={"s3": S3Resource()})
 
     # Patch the download_and_upload_file function
-    with patch(
-        "opendata_stack_platform.assets.taxi.download_and_upload_file"
-    ) as mock_download:
+    with patch("opendata_stack_platform.assets.taxi.download_and_upload_file") as mock_download:
         # Call the asset function
         yellow_taxi_trip_raw(context)
 
@@ -141,9 +138,7 @@ def test_download_and_upload_file(s3_resource):
     mocked_s3_resource.get_client.return_value = s3_resource
 
     # Create a Dagster context with partition key and resources
-    context = build_op_context(
-        partition_key="2023-01-01", resources={"s3": mocked_s3_resource}
-    )
+    context = build_op_context(partition_key="2023-01-01", resources={"s3": mocked_s3_resource})
 
     # Patch the requests.get function
     with patch("requests.get") as mock_get:
@@ -159,9 +154,7 @@ def test_download_and_upload_file(s3_resource):
 
         # Verify the file was uploaded
         expected_key = f"raw/yellow/yellow_tripdata_{context.partition_key}.parquet"
-        response = s3_resource.list_objects_v2(
-            Bucket=constants.BUCKET, Prefix="raw/yellow"
-        )
+        response = s3_resource.list_objects_v2(Bucket=constants.BUCKET, Prefix="raw/yellow")
 
         objects = response.get("Contents", [])
         assert len(objects) >= 1

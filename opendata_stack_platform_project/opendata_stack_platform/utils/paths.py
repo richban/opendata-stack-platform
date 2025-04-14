@@ -1,7 +1,6 @@
 """Utility functions for handling paths in the project."""
 
 import os
-
 from pathlib import Path
 
 

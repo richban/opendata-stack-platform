@@ -1,10 +1,8 @@
 import json
-
 from collections.abc import Generator, Mapping
 from typing import Any, Optional
 
 import dagster as dg
-
 from dagster_dbt import (
     DagsterDbtTranslator,
     DagsterDbtTranslatorSettings,
@@ -267,9 +265,7 @@ def dbt_partitioned_models(
             "backfill_start_date": time_window.start.strftime("%Y-%m-%d"),
             "backfill_end_date": time_window.end.strftime("%Y-%m-%d"),
         }
-        context.log.info(
-            f"Executing backfill from {time_window.start} to {time_window.end}"
-        )
+        context.log.info(f"Executing backfill from {time_window.start} to {time_window.end}")
     else:
         context.log.info(f"partition_key: {context.partition_key}")
         # Pass the partition date directly to dbt
@@ -282,9 +278,7 @@ def dbt_partitioned_models(
     if config.full_refresh:
         args = ["build", "--full-refresh"]
 
-    yield from (
-        dbt.cli(args, context=context).stream().fetch_row_counts().fetch_column_metadata()
-    )
+    yield from (dbt.cli(args, context=context).stream().fetch_row_counts().fetch_column_metadata())
 
 
 @dbt_assets(
@@ -341,6 +335,4 @@ def dbt_gold_models(
     if config.full_refresh:
         args.append("--full-refresh")
 
-    yield from (
-        dbt.cli(args, context=context).stream().fetch_row_counts().fetch_column_metadata()
-    )
+    yield from (dbt.cli(args, context=context).stream().fetch_row_counts().fetch_column_metadata())

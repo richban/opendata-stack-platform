@@ -1,9 +1,7 @@
 import logging
-
 from typing import Optional
 
 import dlt
-
 from dlt.extract.source import DltSource
 from dlt.sources.filesystem import filesystem
 
@@ -85,9 +83,7 @@ def taxi_trip_source(
 
         # Simple one-line filter that checks if the file's date is in range
         raw_files.add_filter(
-            lambda item: start_date
-            <= item["file_name"].split("_")[-1].split(".")[0]
-            <= end_date
+            lambda item: start_date <= item["file_name"].split("_")[-1].split(".")[0] <= end_date
         )
     elif partition_key:
         # Single partition case
@@ -104,9 +100,7 @@ def taxi_trip_source(
     ).with_name(f"{dataset_type}_taxi_trip")
 
     # Apply write configuration hints
-    source.apply_hints(
-        write_disposition="merge", primary_key=natural_key, merge_key=natural_key
-    )
+    source.apply_hints(write_disposition="merge", primary_key=natural_key, merge_key=natural_key)
 
     return source
 
@@ -123,7 +117,5 @@ if __name__ == "__main__":
         progress="log",
     )
     # Run the pipeline, specifying a sample partition (e.g., "2024-01-01")
-    load_info = dlt_pipeline.run(
-        taxi_trip_source(dataset_type="green", partition_key="2024-01-01")
-    )
+    load_info = dlt_pipeline.run(taxi_trip_source(dataset_type="green", partition_key="2024-01-01"))
     logger.info("Pipeline load info: %s", load_info)

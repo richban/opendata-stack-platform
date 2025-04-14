@@ -1,5 +1,4 @@
 import requests
-
 from botocore.exceptions import BotoCoreError, ClientError
 from dagster import AssetExecutionContext, Failure
 from dagster_aws.s3 import S3Resource
@@ -53,15 +52,13 @@ def download_and_upload_file(
         # Calculate file size in MiB
         file_size_mib = len(response.content) / (1024 * 1024)
         context.log.info(
-            f"Downloaded {dataset_type} data for {partition_key}, "
-            f"size: {file_size_mib:.2f} MiB"
+            f"Downloaded {dataset_type} data for {partition_key}, " f"size: {file_size_mib:.2f} MiB"
         )
 
         # Upload the file to S3
         s3.get_client().put_object(Bucket=s3_bucket, Key=s3_key, Body=response.content)
         context.log.info(
-            f"Successfully uploaded {s3_key} to bucket "
-            f"{s3_bucket} for {dataset_type} trips"
+            f"Successfully uploaded {s3_key} to bucket " f"{s3_bucket} for {dataset_type} trips"
         )
 
     except requests.exceptions.RequestException as e:

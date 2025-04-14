@@ -2,7 +2,6 @@ from io import BytesIO
 
 import polars as pl
 import requests
-
 from dagster import (
     AssetExecutionContext,
     MaterializeResult,
@@ -30,9 +29,7 @@ def taxi_zone_lookup_raw(s3: S3Resource) -> None:
 
     s3_key = constants.TAXI_ZONES_FILE_PATH
 
-    s3.get_client().put_object(
-        Bucket=constants.BUCKET, Key=s3_key, Body=raw_taxi_zones.content
-    )
+    s3.get_client().put_object(Bucket=constants.BUCKET, Key=s3_key, Body=raw_taxi_zones.content)
 
     num_rows = len(pl.read_csv(BytesIO(raw_taxi_zones.content)))
 

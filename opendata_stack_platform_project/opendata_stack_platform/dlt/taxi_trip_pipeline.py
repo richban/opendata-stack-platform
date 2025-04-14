@@ -41,7 +41,5 @@ def create_taxi_trip_pipeline(dataset_type: str):
 if __name__ == "__main__":
     # Example of running the pipeline directly (for testing)
     pipeline = create_taxi_trip_pipeline("green")
-    load_info = pipeline.run(
-        taxi_trip_source(dataset_type="green", partition_key="2024-02")
-    )
+    load_info = pipeline.run(taxi_trip_source(dataset_type="green", partition_key="2024-02"))
     print(load_info)  # noqa: T201
