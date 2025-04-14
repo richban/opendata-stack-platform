@@ -7,7 +7,7 @@ import polars as pl
 
 from dagster import AssetKey, DynamicOut, DynamicOutput, In, OpExecutionContext, Out, op
 
-from opendata_stack_platform.input_types import Asset
+from physical_risk_impact.defs.input_types import Asset
 
 
 @op

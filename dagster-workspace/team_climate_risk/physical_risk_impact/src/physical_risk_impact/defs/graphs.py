@@ -1,8 +1,8 @@
 from dagster import graph
 
-from opendata_stack_platform.assets.core import source_portfolio_asset
-from opendata_stack_platform.input_types import Asset
-from opendata_stack_platform.ops import (
+from physical_risk_impact.defs.assets import source_portfolio_asset
+from physical_risk_impact.defs.input_types import Asset
+from physical_risk_impact.defs.ops import (
     add_scenario_column,
     calculate_climate_impact,
     input_split_portfolio_to_rows,

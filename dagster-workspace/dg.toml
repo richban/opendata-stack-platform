@@ -1,0 +1,7 @@
+directory_type = "workspace"
+
+
+[[workspace.projects]]
+path = "team_climate_risk/physical_risk_impact"
+[[workspace.projects]]
+path = "team_data_platform/data_platform"
