@@ -97,5 +97,5 @@ defs = dg.Definitions.merge(
             dynamic_sensor_job,
         ],
     ),
-    dg.components.load_defs(physical_risk_impact.defs)
+    dg.components.load_defs(physical_risk_impact.defs),
 )
