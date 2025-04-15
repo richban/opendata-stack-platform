@@ -1,14 +1,9 @@
 import dagster as dg
 
-from dagster import (
-    in_process_executor,
-    mem_io_manager,
-    load_assets_from_modules
-)
+from dagster import in_process_executor, load_assets_from_modules, mem_io_manager
 from dagster_aws.s3 import S3Resource
 
 from physical_risk_impact.defs import assets
-
 from physical_risk_impact.defs.graphs import (
     dynamic_graph_calculation_climate_impact,
     dynamic_sensor_graph_calculation_climate_impact,
@@ -98,4 +93,3 @@ defs = dg.Definitions(
         dynamic_sensor_job,
     ],
 )
-
