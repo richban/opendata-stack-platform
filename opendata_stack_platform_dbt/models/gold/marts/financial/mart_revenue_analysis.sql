@@ -29,7 +29,7 @@ with revenue_by_day as (
         d.full_date as trip_date,
         d.day_name,
         t.period_of_day,
-        t.is_rush_hour,
+        t.is_peak_time,
         d.month_name,
         d.quarter_number,
         d.year_number,
@@ -57,10 +57,10 @@ with revenue_by_day as (
         avg(f.total_amount) as avg_total_per_trip,
 
         -- Peak vs. Off-peak metrics
-        sum(case when t.is_rush_hour then f.total_amount else 0 end) as peak_revenue,
-        sum(case when not t.is_rush_hour then f.total_amount else 0 end) as off_peak_revenue,
-        count(case when t.is_rush_hour then 1 end) as peak_trips,
-        count(case when not t.is_rush_hour then 1 end) as off_peak_trips,
+        sum(case when t.is_peak_time then f.total_amount else 0 end) as peak_revenue,
+        sum(case when not t.is_peak_time then f.total_amount else 0 end) as off_peak_revenue,
+        count(case when t.is_peak_time then 1 end) as peak_trips,
+        count(case when not t.is_peak_time then 1 end) as off_peak_trips,
 
         -- Time period metrics
         sum(case when t.period_of_day = 'Morning Rush' then f.total_amount else 0 end) as morning_rush_revenue,
@@ -105,7 +105,7 @@ revenue_summary as (
         trip_date,
         day_name,
         period_of_day,
-        is_rush_hour,
+        is_peak_time,
         month_name,
         quarter_number,
         year_number,
@@ -192,8 +192,8 @@ revenue_summary as (
         late_night_revenue / nullif(total_revenue, 0) as late_night_revenue_percent,
 
         -- Surge pricing effectiveness metrics
-        (morning_rush_revenue + evening_rush_revenue) /
-        nullif((midday_revenue + evening_revenue + late_night_revenue), 0) as rush_to_non_rush_revenue_ratio
+        (morning_rush_revenue + evening_rush_revenue)
+        / nullif((midday_revenue + evening_revenue + late_night_revenue), 0) as rush_to_non_rush_revenue_ratio
 
     from revenue_by_day
 )

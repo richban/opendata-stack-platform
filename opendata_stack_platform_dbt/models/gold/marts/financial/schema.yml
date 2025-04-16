@@ -16,8 +16,8 @@ models:
       - name: period_of_day
         description: Period classification (Morning Rush, Midday, Evening Rush, Evening, Late Night/Early Morning)
 
-      - name: is_rush_hour
-        description: Boolean flag indicating if the trip occurred during rush hour
+      - name: is_peak_time
+        description: Boolean flag indicating if the trip occurred during peak hours (7 AM to 8 PM)
 
       - name: month_name
         description: Month name of the trip
