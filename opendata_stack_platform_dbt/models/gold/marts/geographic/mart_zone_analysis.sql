@@ -24,48 +24,40 @@
 
 with zone_metrics as (
     select
-        -- Pickup zone dimensions
+        -- define the granularity
         l_pu.location_id as pickup_location_id,
-        l_pu.location_name as pickup_zone,
-        l_pu.borough_name as pickup_borough,
-
-        -- Dropoff zone dimensions
         l_do.location_id as dropoff_location_id,
-        l_do.location_name as dropoff_zone,
-        l_do.borough_name as dropoff_borough,
-
-        -- Time dimensions
-        d.full_date as trip_date,
-        d.day_name,
-        d.month_name,
-        d.quarter_number,
         d.year_number,
-        t.hour_24 as hour_of_day,
+        d.month_name,
+        d.day_name,
         t.period_of_day,
-        t.is_rush_hour,
-
-        -- Trip characteristics
         f.taxi_type,
 
+        -- Aggregate other descriptive/related fields
+        MIN(l_pu.location_name) as pickup_zone,
+        MIN(l_pu.borough_name) as pickup_borough,
+        MIN(l_do.location_name) as dropoff_zone,
+        MIN(l_do.borough_name) as dropoff_borough,
+
         -- Count of trips
-        count(*) as trip_count,
+        COUNT(*) as trip_count,
 
         -- Distance metrics
-        avg(f.trip_distance) as avg_distance,
-        sum(f.trip_distance) as total_distance,
+        AVG(f.trip_distance) as avg_distance,
+        SUM(f.trip_distance) as total_distance,
 
         -- Duration metrics (in minutes)
-        avg(extract(epoch from (f.dropoff_datetime - f.pickup_datetime)) / 60) as avg_duration_minutes,
+        AVG(EXTRACT(epoch from (f.dropoff_datetime - f.pickup_datetime)) / 60) as avg_duration_minutes,
 
         -- Revenue metrics
-        sum(f.fare_amount) as total_fare,
-        sum(f.total_amount) as total_revenue,
-        avg(f.fare_amount) as avg_fare,
-        avg(f.total_amount) as avg_total,
+        SUM(f.fare_amount) as total_fare,
+        SUM(f.total_amount) as total_revenue,
+        AVG(f.fare_amount) as avg_fare,
+        AVG(f.total_amount) as avg_total,
 
         -- Passenger metrics
-        sum(f.passenger_count) as total_passengers,
-        avg(f.passenger_count) as avg_passengers_per_trip
+        SUM(f.passenger_count) as total_passengers,
+        AVG(f.passenger_count) as avg_passengers_per_trip
 
     from {{ ref('fact_taxi_trip') }} f
     left join {{ ref('dim_location') }} l_pu
@@ -76,7 +68,7 @@ with zone_metrics as (
         on f.date_key_pickup = d.date_key
     left join {{ ref('dim_time') }} t
         on f.time_key_pickup = t.time_key
-    group by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+    group by 1, 2, 3, 4, 5, 6, 7
 ),
 
 -- Pickup zone summary
@@ -90,11 +82,11 @@ pickup_zone_summary as (
         day_name,
         period_of_day,
         taxi_type,
-        sum(trip_count) as total_pickups,
-        sum(total_revenue) as total_pickup_revenue,
-        avg(avg_distance) as avg_pickup_distance,
-        avg(avg_duration_minutes) as avg_pickup_duration,
-        sum(total_passengers) as total_pickup_passengers
+        SUM(trip_count) as total_pickups,
+        SUM(total_revenue) as total_pickup_revenue,
+        AVG(avg_distance) as avg_pickup_distance,
+        AVG(avg_duration_minutes) as avg_pickup_duration,
+        SUM(total_passengers) as total_pickup_passengers
     from zone_metrics
     group by 1, 2, 3, 4, 5, 6, 7, 8
 ),
@@ -110,11 +102,11 @@ dropoff_zone_summary as (
         day_name,
         period_of_day,
         taxi_type,
-        sum(trip_count) as total_dropoffs,
-        sum(total_revenue) as total_dropoff_revenue,
-        avg(avg_distance) as avg_dropoff_distance,
-        avg(avg_duration_minutes) as avg_dropoff_duration,
-        sum(total_passengers) as total_dropoff_passengers
+        SUM(trip_count) as total_dropoffs,
+        SUM(total_revenue) as total_dropoff_revenue,
+        AVG(avg_distance) as avg_dropoff_distance,
+        AVG(avg_duration_minutes) as avg_dropoff_duration,
+        SUM(total_passengers) as total_dropoff_passengers
     from zone_metrics
     group by 1, 2, 3, 4, 5, 6, 7, 8
 ),
@@ -156,11 +148,11 @@ final as (
         zm.total_passengers as pair_total_passengers,
 
         -- Percentage calculation
-        zm.trip_count * 100.0 / sum(zm.trip_count) over () as percentage_of_all_trips,
+        zm.trip_count * 100.0 / SUM(zm.trip_count) over () as percentage_of_all_trips,
 
         -- All calculated metrics
-        z.total_pickups / nullif(d.total_dropoffs, 0) as pickup_to_dropoff_ratio,
-        z.total_pickup_revenue / nullif(z.total_pickups, 0) as revenue_per_pickup,
+        z.total_pickups / NULLIF(d.total_dropoffs, 0) as pickup_to_dropoff_ratio,
+        z.total_pickup_revenue / NULLIF(z.total_pickups, 0) as revenue_per_pickup,
         case
             when z.avg_pickup_duration > 0
                 then z.avg_pickup_distance / (z.avg_pickup_duration / 60)
