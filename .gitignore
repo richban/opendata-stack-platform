@@ -103,4 +103,5 @@ staticfiles/
 media/
 *.duckdb
 .ruff_cache
-/data
+
+!**/data/.gitkeep
