@@ -32,9 +32,29 @@ services:
       until (/usr/bin/mc config host add minio http://minio:9000 minioadmin minioadmin) do echo '...waiting...' && sleep 1; done;
       /usr/bin/mc ls minio/warehouse >/dev/null 2>&1 || /usr/bin/mc mb minio/warehouse;
       /usr/bin/mc ls minio/datalake >/dev/null 2>&1 || /usr/bin/mc mb minio/datalake;
+      /usr/bin/mc ls minio/iceberg >/dev/null 2>&1 || /usr/bin/mc mb minio/iceberg;
       /usr/bin/mc policy set public minio/warehouse;
       tail -f /dev/null
       "
+
+  polaris:
+    image: alexmerced/polaris1126
+    ports:
+      - "8181:8181"
+      - "8182:8182"
+    environment:
+      - AWS_REGION=$AWS_REGION
+      - AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+      - AWS_ENDPOINT_URL=http://minio:9000
+    command: # override the command to specify aws keys as dropwizard config
+      - server
+      - polaris-server.yml
+    depends_on:
+      - minio
+    networks:
+      - minio_network
+
 
 networks:
   minio_network:
