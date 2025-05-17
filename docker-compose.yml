@@ -2,43 +2,46 @@ services:
   minio:
     image: minio/minio
     ports:
-      - "9000:9000"  # API
-      - "9001:9001"  # Console
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      # Credentials for Minio users (to be created by mc)
+      POLARIS_S3_USER: ${POLARIS_S3_USER:-polaris_s3_user}
+      POLARIS_S3_PASSWORD: ${POLARIS_S3_PASSWORD:-polaris_s3_password_val} # Changed default
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live"]
+      interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
     networks:
       - minio_network
 
   mc:
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     image: minio/mc
+    volumes:
+      - ./minio-config:/config
     networks:
       - minio_network
     environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=minioadmin
-    entrypoint: >
-      /bin/sh -c "
-      until (/usr/bin/mc config host add minio http://minio:9000 minioadmin minioadmin) do echo '...waiting...' && sleep 1; done;
-      /usr/bin/mc ls minio/warehouse >/dev/null 2>&1 || /usr/bin/mc mb minio/warehouse;
-      /usr/bin/mc ls minio/datalake >/dev/null 2>&1 || /usr/bin/mc mb minio/datalake;
-      /usr/bin/mc ls minio/iceberg >/dev/null 2>&1 || /usr/bin/mc mb minio/iceberg;
-      /usr/bin/mc policy set public minio/warehouse;
-      tail -f /dev/null
-      "
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      POLARIS_S3_USER: ${POLARIS_S3_USER:-polaris_s3_user}
+      POLARIS_S3_PASSWORD: ${POLARIS_S3_PASSWORD:-polaris_s3_password_val}
+    entrypoint: /bin/sh
+    command: /config/setup-minio.sh
 
   polaris:
     image: alexmerced/polaris1126
+    # platform: linux/arm64/v8
     ports:
       - "8181:8181"
       - "8182:8182"
@@ -47,11 +50,18 @@ services:
       - AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
       - AWS_ENDPOINT_URL=http://minio:9000
-    command: # override the command to specify aws keys as dropwizard config
+      - CATALOG_WAREHOUSE=s3://warehouse/
+      - CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO
+      - CATALOG_S3_ENDPOINT=http://minio:9000
+      - AWS_SDK_S3_FORCE_PATH_STYLE=true
+    volumes:
+      - ./polaris-server.yaml:/app/polaris-server.yml
+    command:
       - server
       - polaris-server.yml
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     networks:
       - minio_network
 
