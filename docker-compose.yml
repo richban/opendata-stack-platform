@@ -36,32 +36,69 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
       POLARIS_S3_USER: ${POLARIS_S3_USER:-polaris_s3_user}
       POLARIS_S3_PASSWORD: ${POLARIS_S3_PASSWORD:-polaris_s3_password_val}
+      PYICEBERG_S3_USER: ${PYICEBERG_S3_USER:-pyiceberg_s3_user}
+      PYICEBERG_S3_PASSWORD: ${PYICEBERG_S3_PASSWORD:-pyiceberg_s3_password_val}
     entrypoint: /bin/sh
     command: /config/setup-minio.sh
 
   polaris:
-    image: alexmerced/polaris1126
-    # platform: linux/arm64/v8
-    ports:
-      - "8181:8181"
-      - "8182:8182"
-    environment:
-      - AWS_REGION=$AWS_REGION
-      - AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-      - AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-      - AWS_ENDPOINT_URL=http://minio:9000
-      - CATALOG_WAREHOUSE=s3://warehouse/
-      - CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO
-      - CATALOG_S3_ENDPOINT=http://minio:9000
-      - AWS_SDK_S3_FORCE_PATH_STYLE=true
-    volumes:
-      - ./polaris-server.yaml:/app/polaris-server.yml
-    command:
-      - server
-      - polaris-server.yml
+    image: apache/polaris:postgres-latest
     depends_on:
-      minio:
+      minio: # Polaris server depends on PostgreSQL being healthy
         condition: service_healthy
+      # polaris-bootstrap-minio is a setup task; polaris server doesn't need to wait for it on every start
+      # after the initial successful bootstrap. Other services that *use* Polaris data
+      # (like polaris-setup-catalog-minio) should depend on polaris: service_healthy.
+    ports:
+      # The host port is defined by POLARIS_MINIO_API_PORT from .env, container port is 8181
+      - "${POLARIS_MINIO_API_PORT:-8183}:${QUARKUS_HTTP_PORT:-8181}" # Or just - "${POLARIS_MINIO_API_PORT:-8183}:8181"
+      # The host port is defined by POLARIS_MINIO_MGMT_PORT from .env, container port is 8182
+      - "${POLARIS_MINIO_MGMT_PORT:-8184}:${QUARKUS_MANAGEMENT_PORT:-8182}" # Or just - "${POLARIS_MINIO_MGMT_PORT:-8184}:8182"
+    environment:
+      # These variables will be sourced from the .env file (or shell environment).
+      # Docker Compose makes them available to the container if they are defined.
+      - POLARIS_PERSISTENCE_TYPE
+      - POLARIS_REALM_CONTEXT_REALMS
+      - POLARIS_BOOTSTRAP_CREDENTIALS
+
+      # Other Quarkus/App settings from .env
+      - QUARKUS_OTEL_SDK_DISABLED
+      - QUARKUS_HTTP_PORT         # Tells Quarkus which port to bind to inside the container
+      - QUARKUS_MANAGEMENT_PORT # Tells Quarkus which management port to bind to inside the container
+
+      # Optional: Debug logging settings (will be sourced from .env if uncommented there)
+      - QUARKUS_LOG_CONSOLE_LEVEL
+      - QUARKUS_LOG_CATEGORY_IO_SMALLRYE_CONFIG_LEVEL
+      - QUARKUS_LOG_CATEGORY_ORG_APACHE_POLARIS_LEVEL
+      - QUARKUS_LOG_CATEGORY_IO_QUARKUS_DATASOURCE_LEVEL
+      - QUARKUS_LOG_CATEGORY_ORG_AGROAL_LEVEL
+    healthcheck:
+      # Uses the management port defined by POLARIS_MINIO_MGMT_PORT (which sets QUARKUS_MANAGEMENT_PORT for inside the container)
+      # The healthcheck runs INSIDE the container network, so it checks localhost:QUARKUS_MANAGEMENT_PORT (e.g. localhost:8182)
+      test: ["CMD-SHELL", "curl -f http://localhost:${QUARKUS_MANAGEMENT_PORT:-8182}/q/health/live || curl -f http://localhost:${QUARKUS_MANAGEMENT_PORT:-8182}/q/health/ready || curl -f http://localhost:${QUARKUS_MANAGEMENT_PORT:-8182}/q/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 12s # Generous start period for app init and DB connection
+    networks:
+      - minio_network
+
+  polaris-setup-catalog:
+    image: alpine/curl:latest
+    depends_on:
+      polaris:
+        condition: service_healthy
+    volumes:
+      - ./polaris-config:/polaris-config
+    entrypoint: /bin/sh
+    command: '-c "apk add --no-cache jq && chmod +x /polaris-config/create-catalog.sh && /polaris-config/create-catalog.sh"'
+    environment:
+      - CATALOG_NAME
+      - DEFAULT_BUCKET_NAME
+      - POLARIS_S3_USER
+      - POLARIS_S3_PASSWORD
+      - QUARKUS_HTTP_PORT
+      - POLARIS_REALM_CONTEXT_REALMS
     networks:
       - minio_network
 
