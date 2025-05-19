@@ -12,4 +12,8 @@ mc admin policy create minio polaris-s3-rw-policy /config/polaris-s3-rw-policy.j
 mc admin user add minio "${POLARIS_S3_USER}" "${POLARIS_S3_PASSWORD}"
 mc admin policy attach minio polaris-s3-rw-policy --user "${POLARIS_S3_USER}"
 
+# Create Minio user for Pyiceberg data access (R/W)
+mc admin user add minio "${PYICEBERG_S3_USER}" "${PYICEBERG_S3_PASSWORD}"
+mc admin policy attach minio polaris-s3-rw-policy --user "${PYICEBERG_S3_USER}"
+
 echo "Minio setup complete: users (polaris_s3_user and policies configured."
