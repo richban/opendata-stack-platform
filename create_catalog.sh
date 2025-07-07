@@ -25,7 +25,15 @@ run_polaris_command ${POLARIS_BIN} \
   catalogs create \
   --storage-type s3 \
   --default-base-location ${DEFAULT_BASE_LOCATION} \
-  --role-arn ${AWS_ROLE_ARN} \
+  --property warehouse=s3://datalake/pyiceberg_catalog \
+  --property s3.endpoint=http://localhost:9000 \
+  --property s3.access-key-id=polaris_s3_user \
+  --property s3.secret-access-key=polaris_s3_password_val \
+  --property s3.path-style-access=true \
+  --property s3.region=us-east-1 \
+  --property s3.allow-http=true \
+  --storage-type S3 \
+  --allowed-location s3://datalake/pyiceberg_catalog \
   ${CATALOG_NAME}
 
 # Create principal
@@ -90,4 +98,3 @@ run_polaris_command ${POLARIS_BIN} \
   CATALOG_MANAGE_CONTENT
 
 echo "All operations completed successfully!"
-

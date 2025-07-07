@@ -17,22 +17,48 @@ S3_ENDPOINT="http://minio:9000"
 echo "Polaris service is live."
 
 echo "Attempting to get Polaris admin token..."
-ADMIN_TOKEN_RESPONSE=$(curl -s -w "%{http_code}" -X POST "${POLARIS_TOKEN_URL}" \
+echo "Polaris admin user: ${POLARIS_ADMIN_USER}"
+echo "Polaris admin password: ${POLARIS_ADMIN_PASS}" # Be careful logging this in production!
+
+# Create a temporary file to store the response body of the token request
+TOKEN_RESPONSE_FILE=$(mktemp)
+
+# Execute curl:
+# -s : Silent mode, suppresses progress and error messages (not verbose info)
+# -w "%{http_code}" : Prints the HTTP status code to stdout (which will be captured by HTTP_CODE variable)
+# -o "$TOKEN_RESPONSE_FILE" : Writes the response body to the temporary file
+# The -v flag is removed to prevent verbose output from contaminating the captured variable.
+HTTP_CODE=$(curl -s -X POST "${POLARIS_TOKEN_URL}" \
   --user "${POLARIS_ADMIN_USER}:${POLARIS_ADMIN_PASS}" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials" -d "scope=PRINCIPAL_ROLE:ALL" -d "realmName=${POLARIS_REALM}")
+  -d "grant_type=client_credentials" -d "scope=PRINCIPAL_ROLE:ALL" -d "realmName=${POLARIS_REALM}" \
+  -o "$TOKEN_RESPONSE_FILE" \
+  -w "%{http_code}") # This writes the code to stdout, which is captured by HTTP_CODE
 
-HTTP_CODE=$(echo "$ADMIN_TOKEN_RESPONSE" | tail -n1)
-TOKEN_BODY=$(echo "$ADMIN_TOKEN_RESPONSE" | sed '$d')
+# Read the JSON body from the temporary file
+TOKEN_BODY=$(cat "$TOKEN_RESPONSE_FILE")
+
+# Clean up the temporary file immediately
+rm "$TOKEN_RESPONSE_FILE"
+
+# Debug: Print the captured HTTP code and the raw body if you want to see them
+echo "DEBUG: Token HTTP Code: $HTTP_CODE"
+echo "DEBUG: Token Body (raw, first 100 chars):"
+echo "$TOKEN_BODY" | head -c 100
+echo "--------------------"
 
 if [ "$HTTP_CODE" -ne 200 ]; then
   echo "Failed to get Polaris admin token. HTTP Code: $HTTP_CODE. Response:"
-  echo "$TOKEN_BODY"
+  echo "$TOKEN_BODY" # This will now correctly print the JSON error body if any
   exit 1
 fi
+
+# Now, TOKEN_BODY should contain pure JSON, so jq can parse it
 ADMIN_TOKEN=$(echo "$TOKEN_BODY" | jq -r .access_token)
+
 if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
-  echo "Failed to parse admin token"
+  echo "Failed to parse admin token. Admin token was empty or null after parsing."
+  echo "Full TOKEN_BODY was: $TOKEN_BODY" # Print the full content for debugging
   exit 1
 fi
 echo "Polaris admin token obtained."
