@@ -51,7 +51,7 @@ services:
       # (like polaris-setup-catalog-minio) should depend on polaris: service_healthy.
     ports:
       # The host port is defined by POLARIS_MINIO_API_PORT from .env, container port is 8181
-      - "${POLARIS_MINIO_API_PORT:-8183}:${QUARKUS_HTTP_PORT:-8181}" # Or just - "${POLARIS_MINIO_API_PORT:-8183}:8181"
+      - "${POLARIS_MINIO_API_PORT:-8181}:${QUARKUS_HTTP_PORT:-8181}" # Or just - "${POLARIS_MINIO_API_PORT:-8183}:8181"
       # The host port is defined by POLARIS_MINIO_MGMT_PORT from .env, container port is 8182
       - "${POLARIS_MINIO_MGMT_PORT:-8184}:${QUARKUS_MANAGEMENT_PORT:-8182}" # Or just - "${POLARIS_MINIO_MGMT_PORT:-8184}:8182"
     environment:
@@ -84,14 +84,16 @@ services:
       - minio_network
 
   polaris-setup-catalog:
-    image: alpine/curl:latest
+    build:
+      context: ./polaris-config
+      dockerfile: Dockerfile
     depends_on:
       polaris:
         condition: service_healthy
     volumes:
       - ./polaris-config:/polaris-config
     entrypoint: /bin/sh
-    command: '-c "apk add --no-cache jq && chmod +x /polaris-config/create-catalog.sh && /polaris-config/create-catalog.sh"'
+    command: '-c "chmod +x /polaris-config/create-catalog.sh && /polaris-config/create-catalog.sh"'
     environment:
       - CATALOG_NAME
       - DEFAULT_BUCKET_NAME

@@ -8,7 +8,7 @@ POLARIS_ADMIN_USER="root"
 POLARIS_ADMIN_PASS="s3cr3t"
 POLARIS_REALM="POLARIS_MINIO_REALM"
 
-CATALOG_WAREHOUSE_PATH="s3a://${DEFAULT_BUCKET_NAME}/${CATALOG_NAME}"
+CATALOG_WAREHOUSE_PATH="s3://${DEFAULT_BUCKET_NAME}/${CATALOG_NAME}"
 
 S3_ACCESS_KEY="${POLARIS_S3_USER}" # Polaris service's S3 user
 S3_SECRET_KEY="${POLARIS_S3_PASSWORD}"
@@ -68,6 +68,7 @@ CREATE_CATALOG_PAYLOAD=$(
 {
   "name": "${CATALOG_NAME}",
   "type": "INTERNAL",
+  "readOnly": false
   "properties": {
     "warehouse": "${CATALOG_WAREHOUSE_PATH}",
     "storage.type": "s3",
@@ -75,31 +76,51 @@ CREATE_CATALOG_PAYLOAD=$(
     "s3.access-key-id": "${S3_ACCESS_KEY}",
     "s3.secret-access-key": "${S3_SECRET_KEY}",
     "s3.path-style-access": "true",
-    "client.region": "us-east-1"
+    "client.region": "${AWS_REGION}"
   },
-  "readOnly": false
+  "storageConfigInfo": {
+    "allowedLocations": [${CATALOG_WAREHOUSE_PATH}],
+  }
 }
 EOF
 )
 
 echo "Attempting to create/verify catalog '${CATALOG_NAME}'..."
-# ... (Rest of the catalog creation/verification logic from previous response, ensuring it uses $ADMIN_TOKEN)
+
+# --- Add this line to print the payload being sent ---
+echo "Payload being sent: ${CREATE_CATALOG_PAYLOAD}"
+echo "--------------------"
+# --------------------------------------------------
+
 STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${ADMIN_TOKEN}" "${POLARIS_MGMT_API_URL}/${CATALOG_NAME}")
 
 if [ "$STATUS_CODE" -eq 200 ]; then
   echo "Catalog '${CATALOG_NAME}' already exists. Skipping creation."
 elif [ "$STATUS_CODE" -eq 404 ]; then
   echo "Catalog '${CATALOG_NAME}' not found. Attempting to create..."
-  CREATE_RESPONSE_CODE=$(curl -s -o /tmp/create_catalog_response.txt -w "%{http_code}" -X POST "${POLARIS_MGMT_API_URL}" \
+  # --- Temporarily remove -s here ---
+  CREATE_RESPONSE_CODE=$(curl -w "%{http_code}" -X POST "${POLARIS_MGMT_API_URL}" \
     -H "Authorization: Bearer ${ADMIN_TOKEN}" \
     -H "Content-Type: application/json" \
-    -d "${CREATE_CATALOG_PAYLOAD}")
+    -d "${CREATE_CATALOG_PAYLOAD}" \
+    -o /tmp/create_catalog_response.txt) # Still try to write to file
 
   if [ "$CREATE_RESPONSE_CODE" -eq 201 ] || [ "$CREATE_RESPONSE_CODE" -eq 200 ]; then
     echo "Catalog '${CATALOG_NAME}' creation request successful (HTTP ${CREATE_RESPONSE_CODE})."
   else
     echo "Failed to create catalog '${CATALOG_NAME}'. HTTP Status: ${CREATE_RESPONSE_CODE}. Response:"
-    cat /tmp/create_catalog_response.txt
+    # --- Try reading from file AND printing directly from curl's stdout if file is empty ---
+    if [ -s /tmp/create_catalog_response.txt ]; then
+      echo "--- Response body from file ---"
+      cat /tmp/create_catalog_response.txt
+      echo "-------------------------------"
+    else
+      echo "Response file /tmp/create_catalog_response.txt is empty or does not exist. Checking direct output..."
+      # Since -s is removed, the body might have been printed to stdout already.
+      # We can't easily re-capture stdout here, but removing -s should make it visible in the logs.
+      echo "Look for response body output above this line in the logs."
+    fi
+    # --------------------------------------------------------------------------------------
     exit 1
   fi
 else
