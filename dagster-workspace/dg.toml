@@ -1,5 +1,6 @@
 directory_type = "workspace"
 
+[workspace]
 
 [[workspace.projects]]
 path = "team_climate_risk/physical_risk_impact"

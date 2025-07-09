@@ -5,30 +5,30 @@ description = "Data platform for NYC taxi data"
 requires-python = ">=3.11"
 dependencies = [
     # Core data engineering dependencies
-    "dagster==1.10.10",
-    "dagster-dlt==0.26.10",
-    "dagster-polars==0.26.10",
-    "dagster-aws==0.26.10",
-    "dagster-duckdb==0.26.10",
-    "dagster-dbt==0.26.10",
-    "dlt[duckdb]>=1.9.0",
+    "dagster==1.11.1",
+    "dagster-dlt==0.27.1",
+    "dagster-polars==0.27.1",
+    "dagster-aws==0.27.1",
+    "dagster-duckdb==0.27.1",
+    "dagster-dbt==0.27.1",
+    "dlt[duckdb]>=1.13.0",
     "connectorx==0.4.2",
     "s3fs==2025.3.0",
     "boto3==1.37.1",
     "aiobotocore==2.21.0",
     "botocore==1.37.1",
-    "duckdb==1.2.1",
-    "dbt-core==1.9.4",
-    "dbt-duckdb==1.9.2",
+    "duckdb==1.3.2",
+    "dbt-core==1.10.3",
+    "dbt-duckdb==1.9.4",
     "pandas==2.2.3",
-    "pyiceberg[s3fs]>=0.9.0"
+    "dagster-dg-cli==1.11.1",
 ]
 
 [project.optional-dependencies]
 # Development dependencies
 dev = [
     # Development tools
-    "dagster-webserver==1.10.10",
+    "dagster-webserver==1.11.1",
     "pre-commit==4.1.0",
     "ruff==0.9.6",
     "streamlit==1.42.0",
@@ -43,11 +43,11 @@ dev = [
 ]
 
 [project.entry-points]
-"dagster_dg.plugin" = { data_platform = "data_platform.lib"}
+"dagster_dg_cli.registry_modules" = { data_platform = "data_platform.lib"}
 
 [dependency-groups]
 dev = [
-    "dagster-webserver==1.10.10",
+    "dagster-webserver==1.11.1",
 ]
 
 [build-system]
@@ -59,7 +59,6 @@ directory_type = "project"
 
 [tool.dg.project]
 root_module = "data_platform"
-python_environment = "persistent_uv"
 
 [tool.ruff]
 line-length = 88
