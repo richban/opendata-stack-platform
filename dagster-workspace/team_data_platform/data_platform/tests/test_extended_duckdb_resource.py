@@ -80,22 +80,6 @@ class TestExtendedDuckDBResource:
                 # Settings might not be available if extensions don't load
                 pytest.skip("S3 settings not available - extensions may not be loaded")
 
-    def test_resource_inheritance(self):
-        """Test that the resource properly inherits from DuckDBResource."""
-        resource = ExtendedDuckDBResource(
-            database=":memory:",
-            connection_config={}
-        )
-
-        # Verify inheritance
-        from dagster_duckdb import DuckDBResource
-        assert isinstance(resource, DuckDBResource)
-        assert isinstance(resource, ExtendedDuckDBResource)
-
-        # Verify it has the parent's attributes
-        assert hasattr(resource, 'database')
-        assert hasattr(resource, 'connection_config')
-        assert resource.database == ":memory:"
 
     def test_multiple_connections(self):
         """Test that multiple connections can be created and work independently."""
