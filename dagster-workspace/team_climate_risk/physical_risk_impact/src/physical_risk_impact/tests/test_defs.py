@@ -1,4 +1,4 @@
-from data_platform.defs import defs
+from physical_risk_impact.definitions import defs
 
 
 def test_def_can_load():

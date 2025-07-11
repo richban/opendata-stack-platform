@@ -4,19 +4,19 @@ from unittest.mock import MagicMock, patch
 import boto3
 import polars as pl
 import pytest
-
 from dagster import (
     MaterializeResult,
     MetadataValue,
     build_op_context,
 )
 from dagster_aws.s3 import S3Resource
+from moto import mock_aws
+
 from data_platform.defs.taxi import constants
 from data_platform.defs.taxi.assets import taxi_zone_lookup_raw, yellow_taxi_trip_raw
 from data_platform.utils.download_and_upload_file import (
     download_and_upload_file,
 )
-from moto import mock_aws
 
 
 @pytest.fixture()
@@ -116,7 +116,7 @@ def test_yellow_taxi_trip_raw():
 
     # Patch the download_and_upload_file function
     with patch(
-        "opendata_stack_platform.assets.taxi.download_and_upload_file"
+        "data_platform.defs.taxi.assets.download_and_upload_file"
     ) as mock_download:
         # Call the asset function
         yellow_taxi_trip_raw(context)
