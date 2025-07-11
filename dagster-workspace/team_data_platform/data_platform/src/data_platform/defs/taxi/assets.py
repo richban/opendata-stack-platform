@@ -2,7 +2,6 @@ from io import BytesIO
 
 import polars as pl
 import requests
-
 from dagster import (
     AssetExecutionContext,
     MaterializeResult,
@@ -20,7 +19,7 @@ from data_platform.utils.download_and_upload_file import (
 
 
 @asset(group_name="raw_files", kinds={"csv"})
-def taxi_zone_lookup_raw(s3: S3Resource) -> None:
+def taxi_zone_lookup_raw(s3: S3Resource) -> MaterializeResult:
     """
     The raw CSV file for the taxi zones dataset. Sourced from the NYC Open Data portal.
     """
@@ -87,10 +86,6 @@ def fhvhv_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
 def taxi_zone_lookup(context: AssetExecutionContext, duckdb_resource: DuckDBResource):
     """The raw taxi zones dataset, loaded into a DuckDB database."""
     query = f"""
-        -- Install and load the spatial extension
-        INSTALL spatial;
-        LOAD spatial;
-
         create or replace table taxi_zone_lookup as (
             WITH ranked_zones AS (
                 SELECT
