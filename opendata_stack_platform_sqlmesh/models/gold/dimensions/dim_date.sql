@@ -1,6 +1,11 @@
 MODEL (
   name taxi.dim_date,
-  kind FULL
+  kind FULL,
+  audits [
+    assert_unique_key(key_column := date_key),
+    assert_not_null(column_name := date_key),
+    assert_not_null(column_name := full_date)
+  ]
 );
 
 -- Generate date dimension for 10 years (2020-2035)

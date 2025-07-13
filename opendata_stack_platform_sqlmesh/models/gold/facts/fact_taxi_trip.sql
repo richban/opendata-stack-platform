@@ -4,7 +4,19 @@ MODEL (
     time_column pickup_datetime
   ),
   partitioned_by [date_trunc('month', pickup_datetime)],
-  grain (trip_id, pickup_datetime)
+  grain (trip_id, pickup_datetime),
+  audits [
+    assert_unique_key(key_column := taxi_trip_key),
+    assert_unique_key(key_column := trip_id),
+    assert_not_null(column_name := taxi_type),
+    assert_not_null(column_name := fare_amount),
+    assert_not_null(column_name := total_amount),
+    assert_not_null(column_name := pickup_datetime),
+    assert_not_null(column_name := dropoff_datetime),
+    assert_valid_trip_duration,
+    assert_fhvhv_total_amount_consistency,
+    assert_non_negative_amount(amount_column := total_amount)
+  ]
 );
 
 WITH validated_trips AS (

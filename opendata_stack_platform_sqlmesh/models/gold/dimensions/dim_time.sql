@@ -1,14 +1,18 @@
 MODEL (
   name taxi.dim_time,
-  kind FULL
+  kind FULL,
+  audits [
+    assert_unique_key(key_column := time_key),
+    assert_not_null(column_name := time_key),
+    assert_not_null(column_name := hour_24),
+    assert_valid_range(column_name := hour_24, min_value := 0, max_value := 23),
+    assert_valid_range(column_name := minute_value, min_value := 0, max_value := 59)
+  ]
 );
 
 WITH time_sequence AS (
-    SELECT * AS seconds_of_day
-    FROM (
-        SELECT *
-        FROM generate_series(0, 86399, 60)  -- Every minute (60 seconds)
-    )
+    SELECT minute_num * 60 AS seconds_of_day
+    FROM (SELECT unnest(generate_series(0, 1439)) AS minute_num)  -- Generate minutes 0-1439 (1440 total minutes, 00:00 to 23:59)
 ),
 
 time_attributes AS (
@@ -23,9 +27,9 @@ time_attributes AS (
             AS INT
         ) AS time_key,
 
-        -- Time components as proper integers
-        CAST(seconds_of_day / 3600 AS INT) AS hour_24,
-        CAST((seconds_of_day % 3600) / 60 AS INT) AS minute_value,
+        -- Time components as proper integers (using floor to ensure truncation)
+        FLOOR(seconds_of_day / 3600) AS hour_24,
+        FLOOR((seconds_of_day % 3600) / 60) AS minute_value,
 
         CAST(seconds_of_day % 60 AS INT) AS second_value,
         CAST(
