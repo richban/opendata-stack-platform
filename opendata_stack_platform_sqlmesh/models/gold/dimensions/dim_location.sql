@@ -15,7 +15,7 @@ WITH final AS (
         COALESCE(area_size, 0.0) AS area_size,
         COALESCE(perimeter_length, 0.0) AS perimeter_length,
         CURRENT_TIMESTAMP AS valid_from
-    FROM "nyc_database"."main"."taxi_zone_lookup"
+    FROM duckdb.main.taxi_zone_lookup
     UNION ALL
     SELECT
         NULL AS geom_data,

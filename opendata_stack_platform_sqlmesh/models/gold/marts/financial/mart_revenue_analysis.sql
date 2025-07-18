@@ -1,5 +1,5 @@
 MODEL (
-  name taxi.mart_revenue_analysis,
+  name ducklake.analytics.mart_revenue_analysis,
   kind FULL
 );
 

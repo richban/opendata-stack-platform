@@ -1,4 +1,4 @@
-- name: '"nyc_database"."bronze_fhvhv"."fhvhv_taxi_trip"'
+- name: '"duckdb"."bronze_fhvhv"."fhvhv_taxi_trip"'
   columns:
     hvfhs_license_num: TEXT
     dispatching_base_num: TEXT
@@ -29,7 +29,7 @@
     _dlt_load_id: TEXT
     _dlt_id: TEXT
   gateway: duckdb
-- name: '"nyc_database"."bronze_green"."green_taxi_trip"'
+- name: '"duckdb"."bronze_green"."green_taxi_trip"'
   columns:
     vendor_id: INT
     lpep_pickup_datetime: TIMESTAMP
@@ -56,7 +56,7 @@
     _dlt_load_id: TEXT
     _dlt_id: TEXT
   gateway: duckdb
-- name: '"nyc_database"."bronze_yellow"."yellow_taxi_trip"'
+- name: '"duckdb"."bronze_yellow"."yellow_taxi_trip"'
   columns:
     vendor_id: INT
     tpep_pickup_datetime: TIMESTAMP
@@ -82,7 +82,7 @@
     _dlt_load_id: TEXT
     _dlt_id: TEXT
   gateway: duckdb
-- name: '"nyc_database"."main"."taxi_zone_lookup"'
+- name: '"duckdb"."main"."taxi_zone_lookup"'
   columns:
     zone_id: BIGINT
     zone_name: TEXT
