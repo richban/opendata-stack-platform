@@ -2,26 +2,26 @@
 gateways:
   duckdb:
     connection:
-      # For more information on configuring the connection to your execution engine, visit:
-      # https://sqlmesh.readthedocs.io/en/stable/reference/configuration/#connection
-      # https://sqlmesh.readthedocs.io/en/stable/integrations/engines/duckdb/#connection-options
       type: duckdb
-      database: "{{ env_var('DUCKDB_DATABASE', '../data/nyc_database.duckdb') }}"
-      # Extensions needed for the data platform
       extensions:
-        - httpfs    # For S3 access
-        - aws       # For AWS credentials
-        - ducklake  # For DuckLake format
-        - spatial   # For spatial functions
-      # concurrent_tasks: 1
-      # register_comments: True
-      # pre_ping: False
-      # pretty_sql: False
-      # catalogs: 
-      # connector_config: 
-      # secrets: 
-      # filesystems: 
-      # token: 
+        - httpfs
+        - aws
+        - ducklake
+        - spatial
+      catalogs:
+        duckdb: "{{ env_var('DUCKDB_DATABASE', '../data/nyc_database.duckdb') }}"
+        ducklake:
+          type: ducklake
+          path: "ducklake:../data/analytics_metadata.ducklake"
+          data_path: s3://warehouse
+      secrets:
+        - type: s3
+          key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
+          secret: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
+          region: "{{ env_var('AWS_REGION', 'us-east-1') }}"
+          endpoint: "127.0.0.1:9000"
+          use_ssl: False
+          url_style: path
 
 default_gateway: duckdb
 
