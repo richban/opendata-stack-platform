@@ -898,7 +898,7 @@ requires-dist = [
     { name = "dagster", specifier = "==1.11.1" },
     { name = "dagster-aws", specifier = "==0.27.1" },
     { name = "dagster-dbt", specifier = "==0.27.1" },
-    { name = "dagster-dg-cli", specifier = ">=1.11.1" },
+    { name = "dagster-dg-cli", specifier = "==1.11.1" },
     { name = "dagster-dlt", specifier = "==0.27.1" },
     { name = "dagster-duckdb", specifier = "==0.27.1" },
     { name = "dagster-polars", specifier = "==0.27.1" },
