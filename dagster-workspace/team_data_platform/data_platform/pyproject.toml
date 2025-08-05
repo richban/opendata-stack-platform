@@ -23,6 +23,7 @@ dependencies = [
     "pandas==2.2.3",
     "dagster-dg-cli==1.11.1",
     "sqlmesh[duckdb]",
+    "dagster-sqlmesh>=0.18.0",
 ]
 
 [project.optional-dependencies]
