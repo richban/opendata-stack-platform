@@ -7,3 +7,6 @@ path = "team_climate_risk/physical_risk_impact"
 
 [[workspace.projects]]
 path = "team_data_platform/data_platform"
+
+[[workspace.projects]]
+path = "team_ml/ml_regression_model"
