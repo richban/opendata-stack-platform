@@ -5,14 +5,14 @@ description = "Data platform for NYC taxi data"
 requires-python = ">=3.11"
 dependencies = [
     # Core data engineering dependencies
-    "dagster==1.11.1",
-    "dagster-dlt==0.27.1",
-    "dagster-polars==0.27.1",
-    "dagster-aws==0.27.1",
-    "dagster-duckdb==0.27.1",
-    "dagster-dbt==0.27.1",
+    "dagster==1.11.6",
+    "dagster-dlt==0.27.6",
+    "dagster-polars==0.27.5",
+    "dagster-aws==0.27.6",
+    "dagster-duckdb==0.27.6",
+    "dagster-dbt==0.27.6",
     "dlt[duckdb]>=1.13.0",
-    "connectorx==0.4.2",
+    # "connectorx==0.4.2",
     "s3fs==2025.3.0",
     "boto3==1.37.1",
     "aiobotocore==2.21.0",
@@ -21,16 +21,16 @@ dependencies = [
     "dbt-core==1.10.3",
     "dbt-duckdb==1.9.4",
     "pandas==2.2.3",
-    "dagster-dg-cli==1.11.1",
-    "sqlmesh[duckdb]",
-    "dagster-sqlmesh>=0.18.0",
+    "dagster-dg-cli==1.11.6",
+    "sqlmesh[duckdb,lsp]>=0.209.0",
+    "dagster-sqlmesh @ file:///Users/melchior/Developer/dagster-sqlmesh",
 ]
 
 [project.optional-dependencies]
 # Development dependencies
 dev = [
     # Development tools
-    "dagster-webserver==1.11.1",
+    "dagster-webserver==1.11.6",
     "pre-commit==4.1.0",
     "ruff==0.9.6",
     "streamlit==1.42.0",
@@ -49,7 +49,7 @@ dev = [
 
 [dependency-groups]
 dev = [
-    "dagster-webserver==1.11.1",
+    "dagster-webserver==1.11.6",
 ]
 
 [build-system]
@@ -80,3 +80,11 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.uv]
+override-dependencies = [
+    "sqlmesh[duckdb]>=0.209.0",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
