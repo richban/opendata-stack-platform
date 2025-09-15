@@ -1,3 +1,11 @@
+- name: '"duckdb"."bronze_fhvhv"."_dlt_loads"'
+  columns:
+    load_id: TEXT
+    schema_name: TEXT
+    status: BIGINT
+    inserted_at: TIMESTAMPTZ
+    schema_version_hash: TEXT
+  gateway: duckdb
 - name: '"duckdb"."bronze_fhvhv"."fhvhv_taxi_trip"'
   columns:
     hvfhs_license_num: TEXT
@@ -29,6 +37,14 @@
     _dlt_load_id: TEXT
     _dlt_id: TEXT
   gateway: duckdb
+- name: '"duckdb"."bronze_green"."_dlt_loads"'
+  columns:
+    load_id: TEXT
+    schema_name: TEXT
+    status: BIGINT
+    inserted_at: TIMESTAMPTZ
+    schema_version_hash: TEXT
+  gateway: duckdb
 - name: '"duckdb"."bronze_green"."green_taxi_trip"'
   columns:
     vendor_id: INT
@@ -55,6 +71,14 @@
     row_hash: TEXT
     _dlt_load_id: TEXT
     _dlt_id: TEXT
+  gateway: duckdb
+- name: '"duckdb"."bronze_yellow"."_dlt_loads"'
+  columns:
+    load_id: TEXT
+    schema_name: TEXT
+    status: BIGINT
+    inserted_at: TIMESTAMPTZ
+    schema_version_hash: TEXT
   gateway: duckdb
 - name: '"duckdb"."bronze_yellow"."yellow_taxi_trip"'
   columns:
