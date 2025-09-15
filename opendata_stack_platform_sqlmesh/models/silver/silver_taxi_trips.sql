@@ -47,7 +47,7 @@ WITH yellow_trips AS (
     DATE_TRUNC('MONTH', tpep_pickup_datetime) AS _date_partition, /* Partition field for delete+insert strategy */
     CURRENT_TIMESTAMP AS _record_loaded_timestamp, /* Metadata */
     tpep_pickup_datetime AS _incremental_timestamp
-  FROM bronze_yellow.yellow_taxi_trip
+  FROM taxi.bronze_yellow_taxi_trip
   WHERE
     tpep_pickup_datetime BETWEEN @start_ds AND @end_ds
 ), green_trips /* Green taxi trips */ AS (
@@ -80,7 +80,7 @@ WITH yellow_trips AS (
     DATE_TRUNC('MONTH', lpep_pickup_datetime) AS _date_partition, /* Partition field for delete+insert strategy */
     CURRENT_TIMESTAMP AS _record_loaded_timestamp, /* Metadata */
     lpep_pickup_datetime AS _incremental_timestamp
-  FROM bronze_green.green_taxi_trip
+  FROM taxi.bronze_green_taxi_trip
   WHERE
     lpep_pickup_datetime BETWEEN @start_ds AND @end_ds
 ), fhvhv_trips /* High-Volume For-Hire Vehicle (HVFHV) trips */ AS (
@@ -115,7 +115,7 @@ WITH yellow_trips AS (
     DATE_TRUNC('MONTH', pickup_datetime) AS _date_partition, /* Partition field for delete+insert strategy */
     CURRENT_TIMESTAMP AS _record_loaded_timestamp, /* Metadata */
     pickup_datetime AS _incremental_timestamp
-  FROM bronze_fhvhv.fhvhv_taxi_trip
+  FROM taxi.bronze_fhvhv_taxi_trip
   WHERE
     pickup_datetime BETWEEN @start_ds AND @end_ds
 ), all_trips /* Combine all taxi trips */ AS (
