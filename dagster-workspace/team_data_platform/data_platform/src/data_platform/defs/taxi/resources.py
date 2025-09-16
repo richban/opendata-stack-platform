@@ -2,6 +2,7 @@ from contextlib import contextmanager
 
 from dagster import EnvVar
 from dagster_duckdb import DuckDBResource
+from dagster_snowflake import SnowflakeResource
 
 
 class ExtendedDuckDBResource(DuckDBResource):
@@ -32,7 +33,7 @@ class ExtendedDuckDBResource(DuckDBResource):
             yield conn
 
 
-# Create resource instance with extension initialization
+# Create resource instances
 duckdb_resource = ExtendedDuckDBResource(
     database=EnvVar("DUCKDB_DATABASE"),
     connection_config={
@@ -43,4 +44,14 @@ duckdb_resource = ExtendedDuckDBResource(
         "s3_use_ssl": False,
         "s3_url_style": "path",
     },
+)
+
+# Snowflake resource for production
+snowflake_resource = SnowflakeResource(
+    account=EnvVar("SNOWFLAKE_ACCOUNT"),
+    user=EnvVar("SNOWFLAKE_USER"),
+    password=EnvVar("SNOWFLAKE_PASSWORD"),
+    database=EnvVar("SNOWFLAKE_DATABASE"),
+    warehouse=EnvVar("SNOWFLAKE_WAREHOUSE"),
+    role=EnvVar("SNOWFLAKE_ROLE"),
 )
