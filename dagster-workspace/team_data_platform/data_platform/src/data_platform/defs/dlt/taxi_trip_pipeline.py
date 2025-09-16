@@ -9,6 +9,8 @@ NOTE:
     .dlt/ has to be present in opendata_stack_platform_project/
 """
 
+import os
+
 import dlt
 
 from data_platform.defs.dlt.sources.taxi_trip import taxi_trip_source
@@ -21,19 +23,28 @@ def create_taxi_trip_pipeline(dataset_type: str):
     Args:
         dataset_type: Type of taxi data (yellow, green, fhvhv)
     """
-    # Get the DuckDB path
-    duckdb_path = str(get_duckdb_path())
+    environment = os.getenv("ENVIRONMENT", "dev")
 
-    # Create pipeline with the correct destination structure
-    pipeline = dlt.pipeline(
-        pipeline_name=f"{dataset_type}_taxi_trip_bronze_pipeline",
-        destination=dlt.destinations.duckdb(
-            duckdb_path,
-            # Define the dataset path to create the proper hierarchy
-            dataset_name=f"bronze/{dataset_type}",
-        ),
-        progress="log",
-    )
+    if environment == "prod":
+        # Production: Use Snowflake with local MinIO staging
+        pipeline = dlt.pipeline(
+            pipeline_name=f"{dataset_type}_taxi_trip_bronze_pipeline",
+            destination="snowflake",
+            # staging="filesystem",  # FIX: Needs to stagge files on S3; Connection Issues;
+            dataset_name=f"BRONZE_{dataset_type.upper()}",
+            progress="log",
+        )
+    else:
+        # Development: Use DuckDB
+        duckdb_path = str(get_duckdb_path())
+        pipeline = dlt.pipeline(
+            pipeline_name=f"{dataset_type}_taxi_trip_bronze_pipeline",
+            destination=dlt.destinations.duckdb(
+                duckdb_path,
+                dataset_name=f"bronze_{dataset_type}",
+            ),
+            progress="log",
+        )
 
     return pipeline
 
