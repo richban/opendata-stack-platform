@@ -2,13 +2,11 @@ import os
 
 
 def get_environment() -> str:
-    if os.getenv("DAGSTER_ORGANIZATION", "") == "dev":
-        return "DEV"
-    if os.getenv("DAGSTER_CLOUD_IS_BRANCH_DEPLOYMENT", "") == "1":
-        return "BRANCH"
-    if os.getenv("DAGSTER_CLOUD_DEPLOYMENT_NAME", "") == "prod":
-        return "PROD"
-    return "LOCAL"
+    if os.getenv("ENVIRONMENT", "") == "dev":
+        return "dev"
+    if os.getenv("ENVIRONMENT", "") == "prod":
+        return "prod"
+    return "dev"
 
 
 def get_dbt_target() -> str:
@@ -22,10 +20,26 @@ def get_dbt_target() -> str:
             - Value of DBT_TARGET env var (defaults to 'personal') for local development
     """
     env = get_environment()
-    if env == "DEV":
+    if env == "dev":
         return "dev"
-    if env == "BRANCH":
-        return "branch_deployment"
-    if env == "PROD":
+    if env == "prod":
         return "prod"
     return os.getenv("DBT_TARGET", "personal")
+
+
+def get_compute_kind() -> str:
+    env = get_environment()
+    if env == "dev":
+        return "DuckDB"
+    if env == "prod":
+        return "Snowflake"
+    return "DuckDB"
+
+
+def get_sqlmesh_gateway() -> str:
+    env = get_environment()
+    if env == "dev":
+        return "duckdb"
+    if env == "prod":
+        return "snowflake"
+    return "duckdb"
