@@ -29,6 +29,7 @@ dependencies = [
     "snowflake-connector-python>=3.12.0",
     "dlt[snowflake]>=1.13.0",
     "streamlit>=1.42.0",
+    "dagster-snowflake>=0.27.6",
 ]
 
 [project.optional-dependencies]

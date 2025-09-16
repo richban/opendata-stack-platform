@@ -846,6 +846,20 @@ wheels = [
 ]
 
 [[package]]
+name = "dagster-snowflake"
+version = "0.27.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dagster" },
+    { name = "pyopenssl" },
+    { name = "snowflake-connector-python" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9d/4b/66d8531e8d5d72fe9841a850b605f647fe52ff4a4c4f73cc9c1e3086dbd0/dagster_snowflake-0.27.6.tar.gz", hash = "sha256:1072dc06ffcf003f6ff411435a955e6d74fccbf2522f1998e5950a95624c2f57", size = 19878, upload-time = "2025-08-14T21:17:26.432Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/79/b2/218bda261f6afb16dbc9d2dd3ab56e95efb9dae7a47203c4a387a4cd32c7/dagster_snowflake-0.27.6-py3-none-any.whl", hash = "sha256:ed56add98962f4eeabe97ebe884f0705253d011c09df7f65019548a21dfc9430", size = 21895, upload-time = "2025-08-14T21:17:25.141Z" },
+]
+
+[[package]]
 name = "dagster-sqlmesh"
 version = "0.20.0"
 source = { directory = "../../../../dagster-sqlmesh" }
@@ -909,6 +923,7 @@ dependencies = [
     { name = "dagster-dlt" },
     { name = "dagster-duckdb" },
     { name = "dagster-polars" },
+    { name = "dagster-snowflake" },
     { name = "dagster-sqlmesh" },
     { name = "dbt-core" },
     { name = "dbt-duckdb" },
@@ -956,6 +971,7 @@ requires-dist = [
     { name = "dagster-dlt", specifier = "==0.27.6" },
     { name = "dagster-duckdb", specifier = "==0.27.6" },
     { name = "dagster-polars", specifier = "==0.27.5" },
+    { name = "dagster-snowflake", specifier = ">=0.27.6" },
     { name = "dagster-sqlmesh", directory = "../../../../dagster-sqlmesh" },
     { name = "dagster-webserver", marker = "extra == 'dev'", specifier = "==1.11.6" },
     { name = "dbt-core", specifier = "==1.10.3" },
