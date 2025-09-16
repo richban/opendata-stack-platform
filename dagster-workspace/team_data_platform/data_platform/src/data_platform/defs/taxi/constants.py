@@ -1,6 +1,6 @@
 import os
 
-BUCKET = "datalake"
+BUCKET = os.getenv("S3_BUCKET", "datalake")
 S3_BUCKET_PREFIX = os.getenv("S3_BUCKET_PREFIX", "s3://datalake")
 
 
