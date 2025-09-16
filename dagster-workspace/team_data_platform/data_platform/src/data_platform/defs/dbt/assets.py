@@ -283,7 +283,10 @@ def dbt_partitioned_models(
         args = ["build", "--full-refresh"]
 
     yield from (
-        dbt.cli(args, context=context).stream().fetch_row_counts().fetch_column_metadata()
+        dbt.cli(args, context=context)
+        .stream()
+        .fetch_row_counts()
+        .fetch_column_metadata()
     )
 
 
@@ -342,5 +345,8 @@ def dbt_gold_models(
         args.append("--full-refresh")
 
     yield from (
-        dbt.cli(args, context=context).stream().fetch_row_counts().fetch_column_metadata()
+        dbt.cli(args, context=context)
+        .stream()
+        .fetch_row_counts()
+        .fetch_column_metadata()
     )

@@ -1,7 +1,7 @@
 opendata_stack_platform_dbt:
   target: "{{ env_var('DBT_TARGET', 'personal') }}"
   outputs:
-    local:
+    prod:
       type: duckdb
       path: "{{ env_var('DUCKDB_DATABASE', '../data/nyc_database.duckdb') }}"
       threads: 4
