@@ -52,7 +52,9 @@ def create_taxi_trip_bronze_asset(dataset_type: str, deps_asset_key: str):
         dlt_pipeline=create_taxi_trip_pipeline(dataset_type),
         name=f"{dataset_type}_taxi_trip_bronze",
         group_name="ingested_taxi_trip_bronze",
-        dagster_dlt_translator=TaxiTripDagsterDltTranslator(dataset_type, deps_asset_key),
+        dagster_dlt_translator=TaxiTripDagsterDltTranslator(
+            dataset_type, deps_asset_key
+        ),
         partitions_def=monthly_partition,
         backfill_policy=BackfillPolicy.single_run(),
         # This pool will need to be configured in the Definitions object

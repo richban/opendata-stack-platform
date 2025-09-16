@@ -28,7 +28,9 @@ def get_key_columns_for_dataset(dataset_type: str) -> list[str]:
 
     if dataset_type in ["yellow", "green"]:
         pickup_datetime = (
-            "tpep_pickup_datetime" if dataset_type == "yellow" else "lpep_pickup_datetime"
+            "tpep_pickup_datetime"
+            if dataset_type == "yellow"
+            else "lpep_pickup_datetime"
         )
         return [
             pickup_datetime,

@@ -9,11 +9,10 @@ NOTE:
     .dlt/ has to be present in opendata_stack_platform_project/
 """
 
-import os
-
 import dlt
 
 from data_platform.defs.dlt.sources.taxi_trip import taxi_trip_source
+from data_platform.utils.environment_helpers import get_environment
 from data_platform.utils.paths import get_duckdb_path
 
 
@@ -23,14 +22,14 @@ def create_taxi_trip_pipeline(dataset_type: str):
     Args:
         dataset_type: Type of taxi data (yellow, green, fhvhv)
     """
-    environment = os.getenv("ENVIRONMENT", "dev")
+    environment = get_environment()
 
     if environment == "prod":
         # Production: Use Snowflake with local MinIO staging
         pipeline = dlt.pipeline(
             pipeline_name=f"{dataset_type}_taxi_trip_bronze_pipeline",
             destination="snowflake",
-            # staging="filesystem",  # FIX: Needs to stagge files on S3; Connection Issues;
+            staging="filesystem",
             dataset_name=f"BRONZE_{dataset_type.upper()}",
             progress="log",
         )
