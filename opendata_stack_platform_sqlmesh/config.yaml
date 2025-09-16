@@ -23,20 +23,30 @@ gateways:
           use_ssl: False
           url_style: path
 
+  snowflake:
+    connection:
+      type: snowflake
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      authenticator: "externalbrowser"
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'nyc_database') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'compute_wh') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE_SQLMESH', 'sqlmesh') }}"
+    state_connection:
+      type: duckdb
+      database: "../data/sqlmesh_snowflake_state.db"
+
+# Default gateway based on environment
 default_gateway: duckdb
 
 # --- Model Defaults ---
-# https://sqlmesh.readthedocs.io/en/stable/reference/model_configuration/#model-defaults
-
 model_defaults:
   dialect: duckdb
-  start: 2024-01-01 # Start date for backfill history
-  cron: '@daily'    # Run models daily at 12am UTC (can override per model)
+  start: 2024-01-01
+  cron: '@daily'
+  owner: "data-platform-team"
 
 # --- Linting Rules ---
-# Enforce standards for your team
-# https://sqlmesh.readthedocs.io/en/stable/guides/linter/
-
 linter:
   enabled: true
   rules:
