@@ -22,10 +22,13 @@ dependencies = [
     "dbt-duckdb==1.9.4",
     "pandas==2.2.3",
     "dagster-dg-cli==1.11.6",
-    "sqlmesh[duckdb,lsp]>=0.217.0",
+    "sqlmesh[duckdb,snowflake,lsp]>=0.217.0",
     "dagster-sqlmesh @ file:///Users/melchior/Developer/dagster-sqlmesh",
     "enlighten>=1.14.1",
     "fastapi>=0.116.1",
+    "snowflake-connector-python>=3.12.0",
+    "dlt[snowflake]>=1.13.0",
+    "streamlit>=1.42.0",
 ]
 
 [project.optional-dependencies]
