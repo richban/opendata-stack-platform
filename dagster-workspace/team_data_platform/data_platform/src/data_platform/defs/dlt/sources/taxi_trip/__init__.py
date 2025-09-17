@@ -1,16 +1,13 @@
 import logging
-
 from typing import Optional
 
 import dlt
-
+from dlt.extract.resource import DltResource
 from dlt.extract.source import DltSource
 from dlt.sources.filesystem import filesystem
 
 from data_platform.defs.dlt.sources.taxi_trip.utils import read_parquet_custom
 from data_platform.defs.taxi import constants
-
-BUCKET_URL = "s3://datalake"
 
 
 def get_key_columns_for_dataset(dataset_type: str) -> list[str]:
@@ -47,12 +44,12 @@ def get_key_columns_for_dataset(dataset_type: str) -> list[str]:
         ]
 
 
-@dlt.source(name="taxi_trip_source")
-def taxi_trip_source(
+@dlt.resource
+def taxi_trip_resource(
     dataset_type: str,
     partition_key: Optional[str] = None,
     partition_range: Optional[tuple[str, str]] = None,
-) -> DltSource:
+) -> DltResource:
     """Source for taxi trips data (yellow, green, or FHV) based on file path.
 
     Args:
@@ -78,7 +75,7 @@ def taxi_trip_source(
     )
 
     # Initialize the filesystem connector
-    raw_files = filesystem(bucket_url=BUCKET_URL, file_glob=file_glob)
+    raw_files = filesystem(file_glob=file_glob)
 
     # Apply partition filter
     if partition_range:
@@ -97,8 +94,8 @@ def taxi_trip_source(
         partition_ym = partition_key[:-3]
         raw_files.add_filter(lambda item: partition_ym in item["file_name"])
 
-    # Create source with transformations
-    source = (
+    # Create resource with transformations
+    resource = (
         raw_files
         | read_parquet_custom(
             key_columns=key_columns,
@@ -106,11 +103,21 @@ def taxi_trip_source(
     ).with_name(f"{dataset_type}_taxi_trip")
 
     # Apply write configuration hints
-    source.apply_hints(
+    resource.apply_hints(
         write_disposition="merge", primary_key=natural_key, merge_key=natural_key
     )
 
-    return source
+    return resource
+
+
+@dlt.source
+def taxi_trip_source(
+    dataset_type: str,
+    partition_key: Optional[str] = None,
+    partition_range: Optional[tuple[str, str]] = None,
+) -> DltSource:
+    """Source wrapper for taxi trip resource to work with Dagster."""
+    return taxi_trip_resource(dataset_type, partition_key, partition_range)
 
 
 if __name__ == "__main__":
