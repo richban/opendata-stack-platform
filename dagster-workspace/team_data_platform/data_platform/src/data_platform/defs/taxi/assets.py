@@ -90,7 +90,7 @@ def fhvhv_trip_raw(context: AssetExecutionContext, s3: S3Resource) -> None:
     deps=["taxi_zone_lookup_raw"],
     group_name="ingested_taxi_trip_bronze",
     compute_kind=get_compute_kind(),
-    key_prefix=["nyc_database", "bronze"],
+    key_prefix=["main"],
 )
 def taxi_zone_lookup(
     context: AssetExecutionContext,
