@@ -21,7 +21,7 @@ class TaxiTripDagsterDltTranslator(DagsterDltTranslator):
 
     def get_asset_key(self, resource: DagsterDltResource) -> AssetKey:
         """Overrides asset key to be the dlt resource name."""
-        return AssetKey(["nyc_database", "bronze", f"{self.dataset_type}_taxi_trip"])
+        return AssetKey([f"bronze_{self.dataset_type}", f"{self.dataset_type}_taxi_trip"])
 
     def get_deps_asset_keys(self, resource: DagsterDltResource) -> Iterable[AssetKey]:
         """Get the dependent asset keys for this DLT pipeline.
