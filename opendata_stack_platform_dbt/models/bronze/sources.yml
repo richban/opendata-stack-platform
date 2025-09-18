@@ -10,7 +10,7 @@ sources:
         description: "Yellow taxi trip data at bronze layer"
         meta:
           dagster:
-            asset_key: ["nyc_database", "bronze", "yellow_taxi_trip"]
+            asset_key: ["nyc_database", "bronze_yellow", "yellow_taxi_trip"]
         columns:
           - name: vendor_id
             description: "A code indicating the TPEP provider that provided the record"
@@ -68,7 +68,7 @@ sources:
         description: "Green taxi trip data at bronze layer"
         meta:
           dagster:
-            asset_key: ["nyc_database", "bronze", "green_taxi_trip"]
+            asset_key: ["nyc_database", "bronze_green", "green_taxi_trip"]
         columns:
           - name: vendor_id
             description: "A code indicating the LPEP provider that provided the record"
@@ -128,7 +128,7 @@ sources:
         description: "High-Volume For-Hire Vehicle (HVFHV) trip data at bronze layer"
         meta:
           dagster:
-            asset_key: ["nyc_database", "bronze", "fhvhv_taxi_trip"]
+            asset_key: ["nyc_database", "bronze_fhvhv", "fhvhv_taxi_trip"]
         columns:
           - name: hvfhs_license_num
             description: "The TLC license number of the HVFHS base or business"

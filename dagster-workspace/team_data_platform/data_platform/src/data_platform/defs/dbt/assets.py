@@ -1,10 +1,8 @@
 import json
-
 from collections.abc import Generator, Mapping
 from typing import Any, Optional
 
 import dagster as dg
-
 from dagster_dbt import (
     DagsterDbtTranslator,
     DagsterDbtTranslatorSettings,
@@ -133,7 +131,7 @@ class CustomDagsterDbtTranslator(DagsterDbtTranslator):
         if resource_type == "source" and resource_schema.startswith("bronze_"):
             # Extract taxi type (yellow, green, fhvhv) from schema name
             taxi_type = resource_schema.replace("bronze_", "")
-            return dg.AssetKey(["nyc_database", "bronze", f"{taxi_type}_taxi_trip"])
+            return dg.AssetKey(["nyc_database", f"bronze_{taxi_type}", f"{taxi_type}_taxi_trip"])
 
         # For models in the gold or silver layer
         if resource_type == "model" and "fqn" in dbt_resource_props:
