@@ -12,8 +12,8 @@ SQLMESH_PROJECT_PATH = REPO_ROOT / "opendata_stack_platform_sqlmesh"
 
 
 sqlmesh_config = SQLMeshContextConfig(
-    path=str(SQLMESH_PROJECT_PATH), 
+    path=str(SQLMESH_PROJECT_PATH),
     gateway=get_sqlmesh_gateway(),
-    translator_class_name="data_platform.defs.sqlmesh.assets.CustomSQLMeshTranslator"
+    translator_class_name="data_platform.defs.sqlmesh.assets.CustomSQLMeshTranslator",
 )
 sqlmesh_resource = SQLMeshResource(config=sqlmesh_config)

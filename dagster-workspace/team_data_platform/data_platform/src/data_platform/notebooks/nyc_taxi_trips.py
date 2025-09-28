@@ -85,7 +85,9 @@ def _(Path, requests, tqdm):
 
 @app.cell
 def _(mo):
-    mo.md(r"""Now we'll create the DataFusion `SessionContext`—the primary API for interacting with a Datafusion session—and register our spatial extension onto it.""")
+    mo.md(
+        r"""Now we'll create the DataFusion `SessionContext`—the primary API for interacting with a Datafusion session—and register our spatial extension onto it."""
+    )
     return
 
 
@@ -117,7 +119,9 @@ def _(mo):
 
 @app.cell
 def _(mo):
-    mo.md(r"""Now we'll write and run our SQL command that we use to fetch data. This creates GeoArrow point columns named `pickup` and `dropoff`, then selects rows where the pickup is inside the above bounding box.""")
+    mo.md(
+        r"""Now we'll write and run our SQL command that we use to fetch data. This creates GeoArrow point columns named `pickup` and `dropoff`, then selects rows where the pickup is inside the above bounding box."""
+    )
     return
 
 
@@ -150,7 +154,9 @@ def _(ctx, get_bbox):
 
 @app.cell
 def _(mo):
-    mo.md(r"""Now that we have our query, we can work to visualize this data on the map. We'll materialize this to an Arrow [`Table`](https://kylebarron.dev/arro3/latest/api/core/table/) so that we can apply transformations on the columns in Python. You could probably also do these transformations in SQL, but my Python skills are better than my SQL skills.""")
+    mo.md(
+        r"""Now that we have our query, we can work to visualize this data on the map. We'll materialize this to an Arrow [`Table`](https://kylebarron.dev/arro3/latest/api/core/table/) so that we can apply transformations on the columns in Python. You could probably also do these transformations in SQL, but my Python skills are better than my SQL skills."""
+    )
     return
 
 
@@ -168,7 +174,9 @@ def _(table):
 
 @app.cell
 def _(mo):
-    mo.md(r"""Now let's create colors for each row of the data. We'll use the [brown-blue-green](https://jiffyclub.github.io/palettable/colorbrewer/diverging/#brbg_10) colormap from `palettable`:""")
+    mo.md(
+        r"""Now let's create colors for each row of the data. We'll use the [brown-blue-green](https://jiffyclub.github.io/palettable/colorbrewer/diverging/#brbg_10) colormap from `palettable`:"""
+    )
     return
 
 
