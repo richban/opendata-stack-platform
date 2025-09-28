@@ -31,7 +31,6 @@ class CustomSQLMeshTranslator(SQLMeshDagsterTranslator):
     environment=get_environment(),
     config=sqlmesh_config,
     enabled_subsetting=True,
-    dagster_sqlmesh_translator=CustomSQLMeshTranslator()
 )
 def sqlmesh_project(
     context: AssetExecutionContext, sqlmesh: SQLMeshResource
