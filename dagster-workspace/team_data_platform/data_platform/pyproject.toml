@@ -30,6 +30,13 @@ dependencies = [
     "dlt[snowflake]>=1.13.0",
     "streamlit>=1.42.0",
     "dagster-snowflake>=0.27.6",
+    "marimo>=0.16.1",
+    "datafusion>=50.0.0",
+    "geodatafusion>=0.1.1",
+    "lonboard>=0.12.1",
+    "matplotlib>=3.10.6",
+    "palettable>=3.3.3",
+    "pyarrow>=18.1.0",
 ]
 
 [project.optional-dependencies]
