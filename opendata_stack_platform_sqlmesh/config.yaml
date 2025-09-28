@@ -27,26 +27,21 @@ gateways:
     connection:
       type: snowflake
       user: "{{ env_var('SNOWFLAKE_USER') }}"
-      authenticator: "externalbrowser"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
       account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
       database: "{{ env_var('SNOWFLAKE_DATABASE', 'nyc_database') }}"
       warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'compute_wh') }}"
       role: "{{ env_var('SNOWFLAKE_ROLE_SQLMESH', 'sqlmesh') }}"
     state_connection:
       type: duckdb
-      database: "../data/sqlmesh_snowflake_state.db"
+      database: "{{ env_var('DUCKDB_DATABASE') }}"
 
-# Default gateway based on environment
-default_gateway: duckdb
-
-# --- Model Defaults ---
 model_defaults:
-  dialect: duckdb
+  dialect: "{{ 'snowflake' if env_var('ENVIRONMENT') == 'prod' else 'duckdb' }}"
   start: 2024-01-01
   cron: '@daily'
   owner: "data-platform-team"
 
-# --- Linting Rules ---
 linter:
   enabled: true
   rules:
