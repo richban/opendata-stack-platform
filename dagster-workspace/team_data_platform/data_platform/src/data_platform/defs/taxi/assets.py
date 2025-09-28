@@ -1,10 +1,10 @@
-import os
 from io import BytesIO
 
 import polars as pl
 import requests
 from dagster import (
     AssetExecutionContext,
+    EnvVar,
     MaterializeResult,
     MetadataValue,
     asset,
@@ -104,19 +104,20 @@ def taxi_zone_lookup(
         # Production: Use Snowflake
         context.log.info("Loading taxi zone lookup into Snowflake")
 
-        query = """
-            CREATE OR REPLACE TABLE taxi_zone_lookup AS (
+        db = EnvVar("SNOWFLAKE_DATABASE").get_value()
+
+        query = f"""
+            CREATE OR REPLACE TABLE {db}.MAIN.taxi_zone_lookup AS (
                 WITH ranked_zones AS (
                     SELECT
-                        $1::INT as zone_id,
-                        $2::VARCHAR as zone_name,
-                        $3::VARCHAR as borough_name,
-                        TO_GEOMETRY($4) as geom_data,
-                        ST_AREA(TO_GEOMETRY($4)) as area_size,
-                        ST_PERIMETER(TO_GEOMETRY($4)) as perimeter_length,
+                        $6::INT as zone_id,           -- LocationID is column 6
+                        $5::VARCHAR as zone_name,     -- zone is column 5  
+                        $7::VARCHAR as borough_name,  -- borough is column 7
+                        TO_GEOMETRY($3) as geom_data, -- the_geom is column 3
+                        ST_AREA(TO_GEOMETRY($3)) as area_size,
+                        ST_PERIMETER(TO_GEOMETRY($3)) as perimeter_length,
                         ROW_NUMBER() OVER (PARTITION BY $1 ORDER BY $1) as row_num
-                    FROM @dlt_s3_stage/taxi_zones.csv
-                    (file_format => 'CSV')
+                    FROM @RAW_STAGE/taxi_zones.csv
                 )
                 SELECT
                     zone_id,
@@ -132,6 +133,15 @@ def taxi_zone_lookup(
 
         with snowflake_resource.get_connection() as conn:
             with conn.cursor() as cur:
+                # Set schema context to PUBLIC (where RAW_STAGE exists)
+                cur.execute(f"USE SCHEMA {db}.PUBLIC;")
+                context.log.info("Using PUBLIC schema for stage access")
+
+                # Create MAIN schema
+                cur.execute("CREATE SCHEMA IF NOT EXISTS MAIN;")
+                context.log.info("Schema MAIN created or already exists")
+
+                # Create table in MAIN schema
                 cur.execute(query)
                 context.log.info("Taxi zone lookup successfully loaded into Snowflake")
 

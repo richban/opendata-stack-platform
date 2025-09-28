@@ -88,9 +88,9 @@ duckdb_resource = ExtendedDuckDBResource(
 # Snowflake resource for production
 snowflake_resource = SnowflakeResource(
     account=EnvVar("SNOWFLAKE_ACCOUNT"),
-    user=EnvVar("SNOWFLAKE_USER"),
-    password=EnvVar("SNOWFLAKE_PASSWORD"),
+    user=EnvVar("DESTINATION__SNOWFLAKE__CREDENTIALS__USERNAME"),
+    password=EnvVar("DESTINATION__SNOWFLAKE__CREDENTIALS__PASSWORD"),
     database=EnvVar("SNOWFLAKE_DATABASE"),
     warehouse=EnvVar("SNOWFLAKE_WAREHOUSE"),
-    role=EnvVar("SNOWFLAKE_ROLE"),
+    role=EnvVar("DESTINATION__SNOWFLAKE__CREDENTIALS__ROLE"),
 )
