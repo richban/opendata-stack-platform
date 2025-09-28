@@ -178,4 +178,35 @@ final AS (
             AND zm.taxi_type = d.taxi_type
 )
 
-SELECT * FROM final
+SELECT
+    pickup_location_id,
+    pickup_zone,
+    pickup_borough,
+    dropoff_location_id,
+    dropoff_zone,
+    dropoff_borough,
+    year_number,
+    month_name,
+    day_name,
+    period_of_day,
+    taxi_type,
+    total_pickups,
+    total_pickup_revenue,
+    avg_pickup_distance,
+    avg_pickup_duration,
+    total_pickup_passengers,
+    total_dropoffs,
+    total_dropoff_revenue,
+    avg_dropoff_distance,
+    avg_dropoff_duration,
+    total_dropoff_passengers,
+    pair_trip_count,
+    pair_revenue,
+    pair_avg_distance,
+    pair_avg_duration,
+    pair_total_passengers,
+    percentage_of_all_trips,
+    pickup_to_dropoff_ratio,
+    revenue_per_pickup,
+    avg_pickup_speed_mph
+FROM final

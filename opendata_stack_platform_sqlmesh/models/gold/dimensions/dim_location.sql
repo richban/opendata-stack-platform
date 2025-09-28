@@ -30,4 +30,15 @@ WITH final AS (
         CURRENT_TIMESTAMP AS valid_from
 )
 
-SELECT * FROM final
+SELECT
+    location_key,
+    location_id,
+    location_name,
+    borough_name,
+    area_size,
+    perimeter_length,
+    geom_data,
+    valid_from,
+    valid_to,
+    is_current
+FROM final
