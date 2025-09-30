@@ -6,6 +6,10 @@ venv/
 
 # Ignore everything inside any "dagster_home" folder
 **/dagster_home/**
+**/dagster_home_prod/**
+*.db
+*.ducklake
+*.parquet
 
 # Do not ignore specific files in "dagster_home" for setup purposes
 !**/dagster_home/.gitkeep
@@ -84,6 +88,14 @@ dmypy.json
 # dotenv files (environment variables)
 .env.*
 .env
+
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/terraform.tfvars
+**/.terraform.tfstate.lock.info
 
 # Local SQLite database files
 *.sqlite3
