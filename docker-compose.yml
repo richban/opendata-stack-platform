@@ -21,6 +21,9 @@ services:
       minio_network:
         aliases:
           - warehouse.minio
+      lakehouse_network:
+        aliases:
+          - minio
 
   mc:
     depends_on:
@@ -31,6 +34,7 @@ services:
       - ./minio-config:/config
     networks:
       - minio_network
+      - lakehouse_network
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -38,6 +42,54 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-miniouser}
     entrypoint: /bin/sh
     command: /config/setup-minio.sh
+
+  polaris:
+    image: apache/polaris:latest
+    platform: linux/amd64
+    ports:
+      - "8181:8181"
+      - "8182:8182"
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - lakehouse_network
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-miniouser}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-miniouser}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ENDPOINT_URL_S3: http://minio:9000
+      AWS_ENDPOINT_URL_STS: http://minio:9000
+      POLARIS_BOOTSTRAP_CREDENTIALS: default,admin,password
+      polaris.realm-context.realms: default
+      polaris.features.DROP_WITH_PURGE_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8181/healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  polaris-init:
+    image: python:3.11-slim
+    depends_on:
+      polaris:
+        condition: service_healthy
+      mc:
+        condition: service_completed_successfully
+    volumes:
+      - ./polaris-config:/config
+    networks:
+      - lakehouse_network
+    environment:
+      POLARIS_HOST: polaris
+      MINIO_HOST: minio
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        pip install requests > /dev/null 2>&1
+        python /config/setup_polaris.py
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -81,14 +133,20 @@ services:
     command: /opt/spark/sbin/start-master.sh -h spark-master
     environment:
       SPARK_NO_DAEMONIZE: "true"
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-miniouser}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-miniouser}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ENDPOINT_URL: http://minio:9000
     ports:
       - "8080:8080"
       - "7077:7077"
     networks:
       - streaming_network
+      - lakehouse_network
     volumes:
       - ./data:/data
       - ./dagster-workspace/team_ops:/opt/team_ops
+      - spark_ivy_cache:/root/.ivy2
 
   spark-worker:
     image: apache/spark:3.5.3
@@ -99,11 +157,17 @@ services:
       SPARK_NO_DAEMONIZE: "true"
       SPARK_WORKER_MEMORY: 2G
       SPARK_WORKER_CORES: 2
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-miniouser}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-miniouser}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ENDPOINT_URL: http://minio:9000
     networks:
       - streaming_network
+      - lakehouse_network
     volumes:
       - ./data:/data
       - ./dagster-workspace/team_ops:/opt/team_ops
+      - spark_ivy_cache:/root/.ivy2
 
   eventsim:
     build:
@@ -138,9 +202,12 @@ networks:
     driver: bridge
   streaming_network:
     driver: bridge
+  lakehouse_network:
+    driver: bridge
 
 volumes:
   minio_data:
   zookeeper_data:
   zookeeper_logs:
   kafka_data:
+  spark_ivy_cache:
