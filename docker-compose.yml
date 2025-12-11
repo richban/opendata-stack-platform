@@ -39,9 +39,108 @@ services:
     entrypoint: /bin/sh
     command: /config/setup-minio.sh
 
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - streaming_network
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - streaming_network
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  spark-master:
+    image: apache/spark:3.5.3
+    command: /opt/spark/sbin/start-master.sh -h spark-master
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    networks:
+      - streaming_network
+    volumes:
+      - ./data:/data
+      - ./dagster-workspace/team_ops:/opt/team_ops
+
+  spark-worker:
+    image: apache/spark:3.5.3
+    command: /opt/spark/sbin/start-worker.sh spark://spark-master:7077
+    depends_on:
+      - spark-master
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      SPARK_WORKER_MEMORY: 2G
+      SPARK_WORKER_CORES: 2
+    networks:
+      - streaming_network
+    volumes:
+      - ./data:/data
+      - ./dagster-workspace/team_ops:/opt/team_ops
+
+  eventsim:
+    build:
+      context: ./eventsim
+      dockerfile: Dockerfile
+    container_name: eventsim
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - streaming_network
+    environment:
+      - JAVA_OPTS=-Xmx4G
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        /opt/eventsim/eventsim.sh \
+          -c /opt/eventsim/examples/example-config.json \
+          --from 30 \
+          --nusers 1000 \
+          --growth-rate 0.10 \
+          --userid 1 \
+          --kafkaBrokerList kafka:9092 \
+          --randomseed $$(shuf -i 1-10000 -n 1) \
+          --continuous
+    restart: unless-stopped
+    mem_limit: 6g
+    memswap_limit: 8g
+
 networks:
   minio_network:
+    driver: bridge
+  streaming_network:
     driver: bridge
 
 volumes:
   minio_data:
+  zookeeper_data:
+  zookeeper_logs:
+  kafka_data:
