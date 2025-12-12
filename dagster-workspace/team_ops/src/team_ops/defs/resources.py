@@ -12,6 +12,7 @@ class SparkConnectResource(dg.ConfigurableResource):
     """Spark Connect resource for lazy SparkSession creation.
 
     Only creates the SparkSession when first accessed during asset execution.
+    Can also be used to create regular SparkSessions for Pipes scripts.
     """
 
     spark_remote: str = "sc://spark-master"
@@ -25,35 +26,50 @@ class SparkConnectResource(dg.ConfigurableResource):
     def get_session(self) -> SparkSession:
         """Get or create SparkSession via Spark Connect."""
         if self._session is None:
-            polaris_credential = f"{self.polaris_client_id}:{self.polaris_client_secret}"
-
-            self._session = (
-                SparkSession.builder.remote(self.spark_remote)
-                .config(
-                    "spark.sql.extensions",
-                    "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
-                )
-                .config(
-                    f"spark.sql.catalog.{self.catalog}",
-                    "org.apache.iceberg.spark.SparkCatalog",
-                )
-                .config(f"spark.sql.catalog.{self.catalog}.type", "rest")
-                .config(f"spark.sql.catalog.{self.catalog}.uri", self.polaris_uri)
-                .config(f"spark.sql.catalog.{self.catalog}.warehouse", self.catalog)
-                .config(
-                    f"spark.sql.catalog.{self.catalog}.credential", polaris_credential
-                )
-                .config(f"spark.sql.catalog.{self.catalog}.scope", "PRINCIPAL_ROLE:ALL")
-                .config(
-                    f"spark.sql.catalog.{self.catalog}.header.X-Iceberg-Access-Delegation",
-                    "vended-credentials",
-                )
-                .config(f"spark.sql.catalog.{self.catalog}.token-refresh-enabled", "true")
-                .config("spark.sql.defaultCatalog", self.catalog)
-                .getOrCreate()
-            )
-
+            self._session = self._create_session(self.spark_remote)
         return self._session
+
+    def create_regular_session(self, app_name: str = "StreamToIceberg") -> SparkSession:
+        """Create a regular (non-Connect) SparkSession for Pipes scripts.
+
+        This is used by streaming scripts that need a full Spark driver,
+        not just Spark Connect.
+        """
+        return self._create_session(None, app_name)
+
+    def _create_session(
+        self, spark_remote: str = None, app_name: str = "DagsterSparkJob"
+    ) -> SparkSession:
+        """Internal method to create SparkSession with common Iceberg config."""
+        polaris_credential = f"{self.polaris_client_id}:{self.polaris_client_secret}"
+
+        builder = SparkSession.builder.appName(app_name)
+
+        if spark_remote:
+            builder = builder.remote(spark_remote)
+
+        return (
+            builder.config(
+                "spark.sql.extensions",
+                "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
+            )
+            .config(
+                f"spark.sql.catalog.{self.catalog}",
+                "org.apache.iceberg.spark.SparkCatalog",
+            )
+            .config(f"spark.sql.catalog.{self.catalog}.type", "rest")
+            .config(f"spark.sql.catalog.{self.catalog}.uri", self.polaris_uri)
+            .config(f"spark.sql.catalog.{self.catalog}.warehouse", self.catalog)
+            .config(f"spark.sql.catalog.{self.catalog}.credential", polaris_credential)
+            .config(f"spark.sql.catalog.{self.catalog}.scope", "PRINCIPAL_ROLE:ALL")
+            .config(
+                f"spark.sql.catalog.{self.catalog}.header.X-Iceberg-Access-Delegation",
+                "vended-credentials",
+            )
+            .config(f"spark.sql.catalog.{self.catalog}.token-refresh-enabled", "true")
+            .config("spark.sql.defaultCatalog", self.catalog)
+            .getOrCreate()
+        )
 
 
 class StreamingJobConfig(dg.ConfigurableResource):

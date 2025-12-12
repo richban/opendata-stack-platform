@@ -39,8 +39,9 @@ def bronze_streaming_job(
 
     The streaming job runs continuously and this asset represents its lifecycle.
 
-    Configuration is provided via StreamingJobConfig resource and passed to
-    the streaming script via Pipes extras (no argparse in the script!).
+    Configuration is provided via StreamingJobConfig resource which is instantiated
+    from environment variables in both orchestration and external processes.
+    No need to pass config via Pipes extras - both processes read the same env vars!
 
     Note: This is a long-running streaming job. In production, consider:
     - Running with a timeout or max duration
@@ -70,14 +71,6 @@ def bronze_streaming_job(
         context=context,
         message_reader=message_reader,
         context_injector=context_injector,
-        extras={
-            "kafka_bootstrap_servers": streaming_config.kafka_bootstrap_servers,
-            "checkpoint_path": streaming_config.checkpoint_path,
-            "polaris_uri": streaming_config.polaris_uri,
-            "polaris_credential": streaming_config.get_polaris_credential(),
-            "catalog": streaming_config.catalog,
-            "namespace": streaming_config.namespace,
-        },
     ) as session:
         bootstrap_env_vars = session.get_bootstrap_env_vars()
 
