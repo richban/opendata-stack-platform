@@ -6,6 +6,7 @@ The streaming job runs via spark-submit and communicates back to Dagster via S3.
 
 import os
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import boto3
@@ -30,6 +31,11 @@ def bronze_streaming_job(context: dg.AssetExecutionContext):
     4. Collect logs and metadata from the Spark driver
 
     The streaming job runs continuously and this asset represents its lifecycle.
+
+    Note: This is a long-running streaming job. In production, consider:
+    - Running with a timeout or max duration
+    - Using a separate scheduler/cron to restart if needed
+    - Monitoring with sensors for health checks
     """
     s3_client = boto3.client(
         "s3",
@@ -63,13 +69,12 @@ def bronze_streaming_job(context: dg.AssetExecutionContext):
         context=context,
         message_reader=message_reader,
         context_injector=context_injector,
+        extras={
+            "kafka_bootstrap_servers": "kafka:9092",
+            "checkpoint_path": "s3a://checkpoints/streaming",
+        },
     ) as session:
-        dagster_pipes_args = " ".join(
-            [
-                f"{key} {value}"
-                for key, value in session.get_bootstrap_cli_arguments().items()
-            ]
-        )
+        bootstrap_env_vars = session.get_bootstrap_env_vars()
 
         cmd = [
             "spark-submit",
@@ -100,13 +105,31 @@ def bronze_streaming_job(context: dg.AssetExecutionContext):
             "s3a://checkpoints/streaming",
         ]
 
-        cmd_with_pipes = cmd + dagster_pipes_args.split()
+        context.log.info(f"Launching spark-submit with {len(cmd)} arguments")
+        context.log.info(f"Bootstrap env vars: {list(bootstrap_env_vars.keys())}")
 
-        context.log.info(f"Launching spark-submit: {' '.join(cmd[:5])}...")
-
-        subprocess.run(
-            cmd_with_pipes,
-            check=True,
+        process = subprocess.Popen(
+            cmd,
+            env={**os.environ.copy(), **bootstrap_env_vars},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
 
-    return session.get_results()
+        try:
+            while process.poll() is None:
+                yield from session.get_results()
+
+            if process.returncode != 0:
+                stdout, stderr = process.communicate()
+                raise RuntimeError(
+                    f"Spark job failed with return code {process.returncode}\n"
+                    f"STDOUT: {stdout.decode() if stdout else '<empty>'}\n"
+                    f"STDERR: {stderr.decode() if stderr else '<empty>'}"
+                )
+
+        except Exception:
+            context.log.error("Terminating Spark job due to error")
+            process.terminate()
+            raise
+
+    yield from session.get_results()
