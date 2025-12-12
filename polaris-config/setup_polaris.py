@@ -289,7 +289,7 @@ def print_spark_config(credentials: dict) -> None:
     print(spark_config)
 
     # Write credentials to a file for other services to use
-    creds_file = "/config/polaris_credentials.env"
+    creds_file = "/config/.env.polaris"
     try:
         with open(creds_file, "w") as f:
             f.write(f"POLARIS_CLIENT_ID={client_id}\n")

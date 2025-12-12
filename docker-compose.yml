@@ -79,6 +79,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./polaris-config:/config
+      - ./dagster-workspace/team_ops:/opt/team_ops
     networks:
       - lakehouse_network
     environment:
