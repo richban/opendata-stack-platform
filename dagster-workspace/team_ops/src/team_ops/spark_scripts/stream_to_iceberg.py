@@ -7,6 +7,8 @@ and writing them to Iceberg tables in the lakehouse catalog.
 This script is orchestrated via Dagster Pipes - Dagster launches it via spark-submit
 and monitors its progress via S3-based message passing.
 
+Configuration is passed via Dagster Pipes extras (no argparse needed!).
+
 Events:
 - listen_events: Song play events
 - page_view_events: Page navigation events
@@ -18,18 +20,9 @@ Each event gets:
 - _processing_time: When the event was processed
 - _kafka_partition: Source Kafka partition
 - _kafka_offset: Source Kafka offset
-
-Usage (via Dagster Pipes):
-    This script is launched by Dagster using spark-submit. Dagster will:
-    1. Upload this script to S3
-    2. Pass Pipes bootstrap params via CLI args
-    3. Launch spark-submit with proper configs
-    4. Monitor progress via S3 message passing
 """
 
 import time
-
-import boto3
 
 from dagster_pipes import (
     PipesCliArgsParamsLoader,
@@ -47,34 +40,14 @@ from pyspark.sql.functions import (
     sha2,
     to_date,
 )
-from pyspark.sql.types import (
-    StructType,
-)
+from pyspark.sql.types import StructType
 
+from team_ops.defs.resources import (
+    SparkConnectResource,
+    StreamingJobConfig,
+    create_s3_resource,
+)
 from team_ops.schemas import SCHEMAS as TOPIC_SCHEMAS
-from team_ops.spark_scripts.common import (
-    create_spark_session,
-    get_common_arg_parser,
-)
-
-
-def parse_args():
-    """Parse command line arguments."""
-    parser = get_common_arg_parser("Stream Kafka events to Iceberg Bronze tables")
-
-    parser.add_argument(
-        "--kafka-bootstrap-servers",
-        default="kafka:9092",
-        help="Kafka bootstrap servers",
-    )
-
-    parser.add_argument(
-        "--checkpoint-path",
-        default="s3a://checkpoints/streaming",
-        help="Checkpoint location for streaming",
-    )
-
-    return parser.parse_known_args()
 
 
 def create_namespace_if_not_exists(spark: SparkSession, catalog: str, namespace: str):
@@ -119,17 +92,21 @@ def create_table_if_not_exists(
 
 
 def process_stream(
-    spark: SparkSession, args, topic: str, schema: StructType, pipes_context
+    spark: SparkSession,
+    streaming_config: StreamingJobConfig,
+    topic: str,
+    schema: StructType,
+    pipes,
 ):
     """Create and start a streaming query for a topic."""
-    table_name = f"{args.catalog}.{args.namespace}.bronze_{topic}"
-    checkpoint_location = f"{args.checkpoint_path}/{topic}"
+    table_name = f"{streaming_config.catalog}.{streaming_config.namespace}.bronze_{topic}"
+    checkpoint_location = f"{streaming_config.checkpoint_path}/{topic}"
 
-    pipes_context.log.info(f"Starting stream: {topic} -> {table_name}")
+    pipes.log.info(f"Starting stream: {topic} -> {table_name}")
 
     kafka_df = (
         spark.readStream.format("kafka")
-        .option("kafka.bootstrap.servers", args.kafka_bootstrap_servers)
+        .option("kafka.bootstrap.servers", streaming_config.kafka_bootstrap_servers)
         .option("subscribe", topic)
         .option("startingOffsets", "earliest")
         .option("failOnDataLoss", "false")
@@ -175,32 +152,47 @@ def process_stream(
 
 
 def main():
-    """Main entry point with Dagster Pipes integration."""
-    args, _ = parse_args()
+    """Main entry point with Dagster Pipes integration.
+
+    Configuration comes from StreamingJobConfig resource (instantiated from env vars).
+    No need for Pipes extras - both orchestrator and external process read same env vars!
+    Reuses SparkConnectResource and S3Resource to avoid duplication.
+    """
+    s3_resource = create_s3_resource()
+    s3_client = s3_resource.get_client()
 
     with open_dagster_pipes(
-        message_writer=PipesS3MessageWriter(client=boto3.client("s3")),
-        context_loader=PipesS3ContextLoader(client=boto3.client("s3")),
+        message_writer=PipesS3MessageWriter(client=s3_client),
+        context_loader=PipesS3ContextLoader(client=s3_client),
         params_loader=PipesCliArgsParamsLoader(),
     ) as pipes:
         pipes.log.info("=" * 70)
         pipes.log.info("STREAMIFY - Kafka to Iceberg Streaming (Dagster Pipes)")
         pipes.log.info("=" * 70)
-        pipes.log.info(f"Kafka:       {args.kafka_bootstrap_servers}")
-        pipes.log.info(f"Polaris:     {args.polaris_uri}")
-        pipes.log.info(f"Catalog:     {args.catalog}.{args.namespace}")
-        pipes.log.info(f"Checkpoints: {args.checkpoint_path}")
+
+        streaming_config = StreamingJobConfig()
+
+        pipes.log.info(f"Kafka:       {streaming_config.kafka_bootstrap_servers}")
+        pipes.log.info(
+            f"Catalog:     {streaming_config.catalog}.{streaming_config.namespace}"
+        )
+        pipes.log.info(f"Checkpoints: {streaming_config.checkpoint_path}")
         pipes.log.info("=" * 70)
 
-        spark = create_spark_session("StreamToIceberg", args)
+        spark_resource = SparkConnectResource()
+        spark = spark_resource.create_regular_session("StreamToIceberg")
         spark.sparkContext.setLogLevel("WARN")
 
-        create_namespace_if_not_exists(spark, args.catalog, args.namespace)
+        create_namespace_if_not_exists(
+            spark, streaming_config.catalog, streaming_config.namespace
+        )
 
         queries = []
         for topic, schema in TOPIC_SCHEMAS.items():
-            create_table_if_not_exists(spark, args.catalog, args.namespace, topic, schema)
-            query = process_stream(spark, args, topic, schema, pipes)
+            create_table_if_not_exists(
+                spark, streaming_config.catalog, streaming_config.namespace, topic, schema
+            )
+            query = process_stream(spark, streaming_config, topic, schema, pipes)
             queries.append(query)
             pipes.log.info(f"✓ Stream started for {topic}")
 
@@ -211,8 +203,9 @@ def main():
         pipes.report_asset_materialization(
             metadata={
                 "topics": {"raw_value": list(TOPIC_SCHEMAS.keys()), "type": "json"},
-                "catalog": args.catalog,
-                "namespace": args.namespace,
+                "catalog": streaming_config.catalog,
+                "namespace": streaming_config.namespace,
+                "kafka_servers": streaming_config.kafka_bootstrap_servers,
             },
             data_version=str(int(time.time())),
         )
