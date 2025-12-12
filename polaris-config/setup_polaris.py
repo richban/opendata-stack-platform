@@ -271,20 +271,20 @@ def print_spark_config(credentials: dict) -> None:
                     "org.apache.iceberg:iceberg-aws-bundle:1.7.1")
             .config("spark.sql.extensions",
                     "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
-            .config("spark.sql.catalog.lakehouse", "org.apache.iceberg.spark.SparkCatalog")
-            .config("spark.sql.catalog.lakehouse.type", "rest")
-            .config("spark.sql.catalog.lakehouse.uri", "http://polaris:8181/api/catalog")
-            .config("spark.sql.catalog.lakehouse.warehouse", "{CATALOG_NAME}")
-            .config("spark.sql.catalog.lakehouse.credential", "{client_id}:{client_secret}")
-            .config("spark.sql.catalog.lakehouse.scope", "PRINCIPAL_ROLE:ALL")
-            .config("spark.sql.catalog.lakehouse.header.X-Iceberg-Access-Delegation",
+            .config("spark.sql.catalog.{CATALOG_NAME}", "org.apache.iceberg.spark.SparkCatalog")
+            .config("spark.sql.catalog.{CATALOG_NAME}.type", "rest")
+            .config("spark.sql.catalog.{CATALOG_NAME}.uri", "http://{POLARIS_HOST}:8181/api/catalog")
+            .config("spark.sql.catalog.{CATALOG_NAME}.warehouse", "{CATALOG_NAME}")
+            .config("spark.sql.catalog.{CATALOG_NAME}.credential", "{client_id}:{client_secret}")
+            .config("spark.sql.catalog.{CATALOG_NAME}.scope", "PRINCIPAL_ROLE:ALL")
+            .config("spark.sql.catalog.{CATALOG_NAME}.header.X-Iceberg-Access-Delegation",
                     "vended-credentials")
-            .config("spark.sql.catalog.lakehouse.token-refresh-enabled", "true")
-            .config("spark.sql.defaultCatalog", "lakehouse")
+            .config("spark.sql.catalog.{CATALOG_NAME}.token-refresh-enabled", "true")
+            .config("spark.sql.defaultCatalog", "")
             .getOrCreate())
 
         # Create namespace:
-        spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.{NAMESPACE_NAME}")
+        spark.sql("CREATE NAMESPACE IF NOT EXISTS {CATALOG_NAME}.{NAMESPACE_NAME}")
     """
     print(spark_config)
 
@@ -296,7 +296,7 @@ def print_spark_config(credentials: dict) -> None:
             f.write(f"POLARIS_CLIENT_SECRET={client_secret}\n")
             f.write(f"POLARIS_CATALOG={CATALOG_NAME}\n")
             f.write(f"POLARIS_NAMESPACE={NAMESPACE_NAME}\n")
-            f.write("POLARIS_URI=http://polaris:8181/api/catalog\n")
+            f.write(f"POLARIS_URI=http://localhost:8181/api/catalog\n")
         print(f"\n[OK] Credentials written to {creds_file}")
     except Exception as e:
         print(f"\n[WARN] Could not write credentials file: {e}")
