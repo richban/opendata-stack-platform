@@ -19,25 +19,16 @@ org.apache.iceberg:iceberg-aws-bundle:1.7.1 \\
         --polaris-credential <client_id>:<client_secret>
 """
 
-import argparse
-import os
-
-import boto3
-from pyspark.sql import SparkSession
-
-# Dagster Pipes integration (optional)
 try:
-    from dagster_pipes import (
-        PipesCliArgsParamsLoader,
-        PipesS3ContextLoader,
-        PipesS3MessageWriter,
-        open_dagster_pipes,
+    from team_ops.spark_scripts.common import (
+        create_spark_session,
+        get_common_arg_parser,
+        open_pipes,
     )
-
-    PIPES_AVAILABLE = True
 except ImportError:
-    PIPES_AVAILABLE = False
-    print("[WARN] dagster_pipes not installed, running without Pipes integration")
+    from common import create_spark_session, get_common_arg_parser, open_pipes
+
+from pyspark.sql import SparkSession
 
 # Tables to compact
 TABLES = [
@@ -56,62 +47,12 @@ TARGET_FILE_SIZE_BYTES = 128 * 1024 * 1024
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Compact Iceberg tables")
-    parser.add_argument(
-        "--polaris-uri",
-        default="http://polaris:8181/api/catalog",
-        help="Polaris catalog URI",
-    )
-    parser.add_argument(
-        "--polaris-credential",
-        required=True,
-        help="Polaris credential in format client_id:client_secret",
-    )
-    parser.add_argument(
-        "--catalog",
-        default="lakehouse",
-        help="Iceberg catalog name",
-    )
-    parser.add_argument(
-        "--namespace",
-        default="streamify",
-        help="Iceberg namespace (database)",
-    )
+    parser = get_common_arg_parser("Compact Iceberg tables")
     parser.add_argument(
         "--table",
         help="Specific table to compact (optional, compacts all if not specified)",
     )
-    # Dagster Pipes args
-    parser.add_argument("--dagster-pipes-context", help="Pipes context (auto)")
-    parser.add_argument("--dagster-pipes-messages", help="Pipes messages (auto)")
-
     return parser.parse_args()
-
-
-def create_spark_session(args) -> SparkSession:
-    """Create SparkSession configured for Iceberg and Polaris."""
-    return (
-        SparkSession.builder.appName("CompactTables")
-        .config(
-            "spark.sql.extensions",
-            "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
-        )
-        .config(
-            f"spark.sql.catalog.{args.catalog}", "org.apache.iceberg.spark.SparkCatalog"
-        )
-        .config(f"spark.sql.catalog.{args.catalog}.type", "rest")
-        .config(f"spark.sql.catalog.{args.catalog}.uri", args.polaris_uri)
-        .config(f"spark.sql.catalog.{args.catalog}.warehouse", args.catalog)
-        .config(f"spark.sql.catalog.{args.catalog}.credential", args.polaris_credential)
-        .config(f"spark.sql.catalog.{args.catalog}.scope", "PRINCIPAL_ROLE:ALL")
-        .config(
-            f"spark.sql.catalog.{args.catalog}.header.X-Iceberg-Access-Delegation",
-            "vended-credentials",
-        )
-        .config(f"spark.sql.catalog.{args.catalog}.token-refresh-enabled", "true")
-        .config("spark.sql.defaultCatalog", args.catalog)
-        .getOrCreate()
-    )
 
 
 def compact_table(spark: SparkSession, catalog: str, namespace: str, table: str) -> dict:
@@ -204,51 +145,35 @@ def main():
     print("=" * 70)
 
     # Create Spark session
-    spark = create_spark_session(args)
+    spark = create_spark_session("CompactTables", args)
     spark.sparkContext.setLogLevel("WARN")
 
-    # Run with or without Pipes
-    if PIPES_AVAILABLE and args.dagster_pipes_context:
-        # Running under Dagster Pipes
-        s3_client = boto3.client(
-            "s3",
-            endpoint_url=os.getenv("AWS_ENDPOINT_URL", "http://minio:9000"),
-            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+    with open_pipes(args) as pipes:
+        pipes.log.info("Starting table compaction")
+
+        result = compact_all_tables(spark, args)
+
+        pipes.report_asset_materialization(
+            metadata={
+                "tables_processed": {
+                    "raw_value": result["tables_processed"],
+                    "type": "int",
+                },
+                "total_rewritten_files": {
+                    "raw_value": result["total_rewritten_files"],
+                    "type": "int",
+                },
+                "total_added_files": {
+                    "raw_value": result["total_added_files"],
+                    "type": "int",
+                },
+                "errors": {"raw_value": result["errors"], "type": "int"},
+            },
         )
 
-        with open_dagster_pipes(
-            message_writer=PipesS3MessageWriter(client=s3_client),
-            context_loader=PipesS3ContextLoader(client=s3_client),
-            params_loader=PipesCliArgsParamsLoader(),
-        ) as pipes:
-            pipes.log.info("Starting table compaction")
-
-            result = compact_all_tables(spark, args)
-
-            pipes.report_asset_materialization(
-                metadata={
-                    "tables_processed": {
-                        "raw_value": result["tables_processed"],
-                        "type": "int",
-                    },
-                    "total_rewritten_files": {
-                        "raw_value": result["total_rewritten_files"],
-                        "type": "int",
-                    },
-                    "total_added_files": {
-                        "raw_value": result["total_added_files"],
-                        "type": "int",
-                    },
-                    "errors": {"raw_value": result["errors"], "type": "int"},
-                },
-            )
-
-            pipes.log.info(f"Compaction complete: {result['tables_processed']} tables")
-    else:
-        # Running standalone
-        result = compact_all_tables(spark, args)
-        print(f"\nResult: {result}")
+        pipes.log.info(f"Compaction complete: {result['tables_processed']} tables")
+        if not args.dagster_pipes_context:
+             print(f"\nResult: {result}")
 
     spark.stop()
     print("\n[DONE] Compaction complete")

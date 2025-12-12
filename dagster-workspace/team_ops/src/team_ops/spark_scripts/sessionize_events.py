@@ -26,10 +26,14 @@ org.apache.iceberg:iceberg-aws-bundle:1.7.1 \\
         --event-date 2025-01-15
 """
 
-import argparse
-import os
-
-import boto3
+try:
+    from team_ops.spark_scripts.common import (
+        create_spark_session,
+        get_common_arg_parser,
+        open_pipes,
+    )
+except ImportError:
+    from common import create_spark_session, get_common_arg_parser, open_pipes
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
@@ -47,85 +51,19 @@ from pyspark.sql.functions import (
     when,
 )
 
-# Dagster Pipes integration (optional)
-try:
-    from dagster_pipes import (
-        PipesCliArgsParamsLoader,
-        PipesS3ContextLoader,
-        PipesS3MessageWriter,
-        open_dagster_pipes,
-    )
-
-    PIPES_AVAILABLE = True
-except ImportError:
-    PIPES_AVAILABLE = False
-    print("[WARN] dagster_pipes not installed, running without Pipes integration")
-
 # Session timeout in seconds (30 minutes)
 SESSION_TIMEOUT_SEC = 30 * 60
 
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Sessionize user events from Silver tables"
-    )
-    parser.add_argument(
-        "--polaris-uri",
-        default="http://polaris:8181/api/catalog",
-        help="Polaris catalog URI",
-    )
-    parser.add_argument(
-        "--polaris-credential",
-        required=True,
-        help="Polaris credential in format client_id:client_secret",
-    )
-    parser.add_argument(
-        "--catalog",
-        default="lakehouse",
-        help="Iceberg catalog name",
-    )
-    parser.add_argument(
-        "--namespace",
-        default="streamify",
-        help="Iceberg namespace (database)",
-    )
+    parser = get_common_arg_parser("Sessionize user events from Silver tables")
     parser.add_argument(
         "--event-date",
         required=True,
         help="Date to process (YYYY-MM-DD)",
     )
-    # Dagster Pipes args
-    parser.add_argument("--dagster-pipes-context", help="Pipes context (auto)")
-    parser.add_argument("--dagster-pipes-messages", help="Pipes messages (auto)")
-
     return parser.parse_args()
-
-
-def create_spark_session(args) -> SparkSession:
-    """Create SparkSession configured for Iceberg and Polaris."""
-    return (
-        SparkSession.builder.appName(f"Sessionize-{args.event_date}")
-        .config(
-            "spark.sql.extensions",
-            "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
-        )
-        .config(
-            f"spark.sql.catalog.{args.catalog}", "org.apache.iceberg.spark.SparkCatalog"
-        )
-        .config(f"spark.sql.catalog.{args.catalog}.type", "rest")
-        .config(f"spark.sql.catalog.{args.catalog}.uri", args.polaris_uri)
-        .config(f"spark.sql.catalog.{args.catalog}.warehouse", args.catalog)
-        .config(f"spark.sql.catalog.{args.catalog}.credential", args.polaris_credential)
-        .config(f"spark.sql.catalog.{args.catalog}.scope", "PRINCIPAL_ROLE:ALL")
-        .config(
-            f"spark.sql.catalog.{args.catalog}.header.X-Iceberg-Access-Delegation",
-            "vended-credentials",
-        )
-        .config(f"spark.sql.catalog.{args.catalog}.token-refresh-enabled", "true")
-        .config("spark.sql.defaultCatalog", args.catalog)
-        .getOrCreate()
-    )
 
 
 def create_sessions_table_if_not_exists(spark: SparkSession, args):
@@ -350,55 +288,40 @@ def main():
     print("=" * 70)
 
     # Create Spark session
-    spark = create_spark_session(args)
+    app_name = f"Sessionize-{args.event_date}"
+    spark = create_spark_session(app_name, args)
     spark.sparkContext.setLogLevel("WARN")
 
     # Ensure sessions table exists
     create_sessions_table_if_not_exists(spark, args)
 
-    # Run with or without Pipes
-    if PIPES_AVAILABLE and args.dagster_pipes_context:
-        # Running under Dagster Pipes
-        s3_client = boto3.client(
-            "s3",
-            endpoint_url=os.getenv("AWS_ENDPOINT_URL", "http://minio:9000"),
-            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+    with open_pipes(args) as pipes:
+        pipes.log.info(f"Starting sessionization for {args.event_date}")
+
+        result = sessionize(spark, args)
+
+        pipes.report_asset_materialization(
+            metadata={
+                "event_date": args.event_date,
+                "total_events": {"raw_value": result["total_events"], "type": "int"},
+                "sessions_created": {
+                    "raw_value": result["sessions_created"],
+                    "type": "int",
+                },
+                "level_changes_detected": {
+                    "raw_value": result["level_changes_detected"],
+                    "type": "int",
+                },
+                "avg_session_duration_sec": {
+                    "raw_value": result["avg_session_duration_sec"],
+                    "type": "float",
+                },
+            },
         )
 
-        with open_dagster_pipes(
-            message_writer=PipesS3MessageWriter(client=s3_client),
-            context_loader=PipesS3ContextLoader(client=s3_client),
-            params_loader=PipesCliArgsParamsLoader(),
-        ) as pipes:
-            pipes.log.info(f"Starting sessionization for {args.event_date}")
-
-            result = sessionize(spark, args)
-
-            pipes.report_asset_materialization(
-                metadata={
-                    "event_date": args.event_date,
-                    "total_events": {"raw_value": result["total_events"], "type": "int"},
-                    "sessions_created": {
-                        "raw_value": result["sessions_created"],
-                        "type": "int",
-                    },
-                    "level_changes_detected": {
-                        "raw_value": result["level_changes_detected"],
-                        "type": "int",
-                    },
-                    "avg_session_duration_sec": {
-                        "raw_value": result["avg_session_duration_sec"],
-                        "type": "float",
-                    },
-                },
-            )
-
-            pipes.log.info(f"Sessionization complete: {result}")
-    else:
-        # Running standalone
-        result = sessionize(spark, args)
-        print(f"\nResult: {result}")
+        pipes.log.info(f"Sessionization complete: {result}")
+        if not args.dagster_pipes_context:
+            print(f"\nResult: {result}")
 
     spark.stop()
     print("\n[DONE] Sessionization complete")
