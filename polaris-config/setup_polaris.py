@@ -22,21 +22,22 @@ import requests
 POLARIS_HOST = os.getenv("POLARIS_HOST", "polaris")
 MINIO_HOST = os.getenv("MINIO_HOST", "minio")
 
+# Admin bootstrap credentials (from POLARIS_BOOTSTRAP_CREDENTIALS env var)
+ADMIN_CLIENT_ID = os.getenv("POLARIS_BOOTSTRAP_CREDENTIALS_CLIENT_ID", "admin")
+ADMIN_CLIENT_SECRET = os.getenv("POLARIS_BOOTSTRAP_CREDENTIALS_CLIENT_SECRET", "password")
+
+# Catalog configuration
+CATALOG_NAME = os.getenv("POLARIS_CATALOG", "lakehouse")
+NAMESPACE_NAME = os.getenv("POLARIS_NAMESPACE", "streamify")
+
+# Principal to create
+PRINCIPAL_NAME = os.getenv("POLARIS_PRINCIPAL_NAME", "streamify_user")
+
 # Polaris endpoints
 POLARIS_MANAGEMENT = f"http://{POLARIS_HOST}:8181/api/management/v1"
 POLARIS_CATALOG_URI = f"http://{POLARIS_HOST}:8181/api/catalog"
 AUTH_URL = f"http://{POLARIS_HOST}:8181/api/catalog/v1/oauth/tokens"
 
-# Admin bootstrap credentials (from POLARIS_BOOTSTRAP_CREDENTIALS env var)
-ADMIN_CLIENT_ID = "admin"
-ADMIN_CLIENT_SECRET = "password"
-
-# Catalog configuration
-CATALOG_NAME = "lakehouse"
-NAMESPACE_NAME = "streamify"
-
-# Principal to create
-PRINCIPAL_NAME = "streamify_user"
 
 
 def authenticate(max_retries: int = 30, retry_interval: int = 3) -> str:
