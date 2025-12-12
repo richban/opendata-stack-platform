@@ -118,3 +118,4 @@ media/
 .ruff_cache
 
 !**/data/.gitkeep
+data/nyc_db_schema.xml
