@@ -2,16 +2,19 @@
 
 This module uses Dagster Pipes to launch and monitor long-running Spark streaming jobs.
 The streaming job runs via spark-submit and communicates back to Dagster via S3.
+
+Configuration is passed via StreamingJobConfig resource and Pipes extras.
 """
 
 import os
 import subprocess
-from collections.abc import Iterator
 from pathlib import Path
 
-import boto3
 import dagster as dg
 from dagster_aws.pipes import PipesS3ContextInjector, PipesS3MessageReader
+from dagster_aws.s3 import S3Resource
+
+from team_ops.defs.resources import StreamingJobConfig
 
 SCRIPT_PATH = Path(__file__).parent.parent / "spark_scripts" / "stream_to_iceberg.py"
 
@@ -21,7 +24,11 @@ SCRIPT_PATH = Path(__file__).parent.parent / "spark_scripts" / "stream_to_iceber
     compute_kind="spark-streaming",
     description="Kafka to Iceberg Bronze streaming job (via Dagster Pipes)",
 )
-def bronze_streaming_job(context: dg.AssetExecutionContext):
+def bronze_streaming_job(
+    context: dg.AssetExecutionContext,
+    s3: S3Resource,
+    streaming_config: StreamingJobConfig,
+):
     """Launch Spark Structured Streaming job to ingest Kafka events to Iceberg Bronze.
 
     This asset uses Dagster Pipes to:
@@ -32,19 +39,17 @@ def bronze_streaming_job(context: dg.AssetExecutionContext):
 
     The streaming job runs continuously and this asset represents its lifecycle.
 
+    Configuration is provided via StreamingJobConfig resource and passed to
+    the streaming script via Pipes extras (no argparse in the script!).
+
     Note: This is a long-running streaming job. In production, consider:
     - Running with a timeout or max duration
     - Using a separate scheduler/cron to restart if needed
     - Monitoring with sensors for health checks
     """
-    s3_client = boto3.client(
-        "s3",
-        endpoint_url=os.environ.get("AWS_ENDPOINT_URL"),
-        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
-    )
+    s3_client = s3.get_client()
 
-    bucket = os.environ["DAGSTER_PIPES_BUCKET"]
+    bucket = streaming_config.dagster_pipes_bucket
     s3_script_path = f"{context.dagster_run.run_id}/stream_to_iceberg.py"
 
     context.log.info(f"Uploading streaming script to s3://{bucket}/{s3_script_path}")
@@ -61,17 +66,17 @@ def bronze_streaming_job(context: dg.AssetExecutionContext):
         include_stdio_in_messages=True,
     )
 
-    polaris_client_id = os.environ["POLARIS_CLIENT_ID"]
-    polaris_client_secret = os.environ["POLARIS_CLIENT_SECRET"]
-    polaris_credential = f"{polaris_client_id}:{polaris_client_secret}"
-
     with dg.open_pipes_session(
         context=context,
         message_reader=message_reader,
         context_injector=context_injector,
         extras={
-            "kafka_bootstrap_servers": "kafka:9092",
-            "checkpoint_path": "s3a://checkpoints/streaming",
+            "kafka_bootstrap_servers": streaming_config.kafka_bootstrap_servers,
+            "checkpoint_path": streaming_config.checkpoint_path,
+            "polaris_uri": streaming_config.polaris_uri,
+            "polaris_credential": streaming_config.get_polaris_credential(),
+            "catalog": streaming_config.catalog,
+            "namespace": streaming_config.namespace,
         },
     ) as session:
         bootstrap_env_vars = session.get_bootstrap_env_vars()
@@ -89,24 +94,21 @@ def bronze_streaming_job(context: dg.AssetExecutionContext):
             "--conf",
             "spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem",
             "--conf",
-            f"spark.hadoop.fs.s3a.endpoint={os.environ.get('AWS_ENDPOINT_URL', 'http://minio:9000')}",
+            f"spark.hadoop.fs.s3a.endpoint={s3.endpoint_url}",
             "--conf",
             "spark.hadoop.fs.s3a.path.style.access=true",
             "--conf",
-            f"spark.hadoop.fs.s3a.access.key={os.environ.get('AWS_ACCESS_KEY_ID', 'minio')}",
+            f"spark.hadoop.fs.s3a.access.key={s3.aws_access_key_id}",
             "--conf",
-            f"spark.hadoop.fs.s3a.secret.key={os.environ.get('AWS_SECRET_ACCESS_KEY', 'minio123')}",
+            f"spark.hadoop.fs.s3a.secret.key={s3.aws_secret_access_key}",
             f"s3a://{bucket}/{s3_script_path}",
-            "--kafka-bootstrap-servers",
-            "kafka:9092",
-            "--polaris-credential",
-            polaris_credential,
-            "--checkpoint-path",
-            "s3a://checkpoints/streaming",
         ]
 
         context.log.info(f"Launching spark-submit with {len(cmd)} arguments")
         context.log.info(f"Bootstrap env vars: {list(bootstrap_env_vars.keys())}")
+        context.log.info(
+            f"Configuration: catalog={streaming_config.catalog}.{streaming_config.namespace}"
+        )
 
         process = subprocess.Popen(
             cmd,

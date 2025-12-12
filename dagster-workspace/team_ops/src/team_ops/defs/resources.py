@@ -70,6 +70,7 @@ class StreamingJobConfig(dg.ConfigurableResource):
     polaris_client_secret: str = EnvVar("POLARIS_CLIENT_SECRET")
     catalog: str = EnvVar("POLARIS_CATALOG")
     namespace: str = EnvVar("POLARIS_NAMESPACE")
+    dagster_pipes_bucket: str = EnvVar("DAGSTER_PIPES_BUCKET")
 
     def get_polaris_credential(self) -> str:
         """Get formatted Polaris credential string."""
