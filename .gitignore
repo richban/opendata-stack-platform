@@ -119,3 +119,7 @@ media/
 
 !**/data/.gitkeep
 data/nyc_db_schema.xml
+.claude/settings.local.json
+.claude/docs/production-architecture.md
+.claude/prompts/001-pii-pipeline-marimo-notebook.md
+.claude/tasks/prd-streaming.md
