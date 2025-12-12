@@ -1,68 +1,60 @@
-"""Dagster resources for Spark and Kafka connectivity."""
+"""Dagster resources for Streamify using Spark Connect."""
 
-from dagster import ConfigurableResource
-from pydantic import Field
+import os
 
-
-class SparkResource(ConfigurableResource):
-    """Resource for Spark session configuration."""
-
-    master_url: str = Field(
-        default="spark://spark-master:7077",
-        description="Spark master URL",
-    )
-    app_name: str = Field(
-        default="DagsterSparkJob",
-        description="Spark application name",
-    )
-    executor_memory: str = Field(
-        default="2g",
-        description="Executor memory allocation",
-    )
-    executor_cores: int = Field(
-        default=2,
-        description="Number of cores per executor",
-    )
+import dagster as dg
+from pyspark.sql import SparkSession
 
 
-class KafkaResource(ConfigurableResource):
-    """Resource for Kafka connection configuration."""
+class SparkConnectResource(dg.ConfigurableResource):
+    """Spark Connect resource for lazy SparkSession creation.
 
-    bootstrap_servers: str = Field(
-        default="kafka:9092",
-        description="Kafka bootstrap servers",
-    )
-    consumer_group: str = Field(
-        default="dagster-streaming-pipeline",
-        description="Kafka consumer group ID",
-    )
+    Only creates the SparkSession when first accessed during asset execution.
+    """
+
+    spark_remote: str = "sc://spark-master"
+    polaris_client_id: str = ""
+    polaris_client_secret: str = ""
+
+    _session: SparkSession = None
+
+    def get_session(self) -> SparkSession:
+        """Get or create SparkSession via Spark Connect."""
+        if self._session is None:
+            polaris_credential = f"{self.polaris_client_id}:{self.polaris_client_secret}"
+
+            self._session = (
+                SparkSession.builder.remote(self.spark_remote)
+                .config(
+                    "spark.sql.extensions",
+                    "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
+                )
+                .config(
+                    "spark.sql.catalog.lakehouse", "org.apache.iceberg.spark.SparkCatalog"
+                )
+                .config("spark.sql.catalog.lakehouse.type", "rest")
+                .config(
+                    "spark.sql.catalog.lakehouse.uri", "http://polaris:8181/api/catalog"
+                )
+                .config("spark.sql.catalog.lakehouse.warehouse", "lakehouse")
+                .config("spark.sql.catalog.lakehouse.credential", polaris_credential)
+                .config("spark.sql.catalog.lakehouse.scope", "PRINCIPAL_ROLE:ALL")
+                .config(
+                    "spark.sql.catalog.lakehouse.header.X-Iceberg-Access-Delegation",
+                    "vended-credentials",
+                )
+                .config("spark.sql.catalog.lakehouse.token-refresh-enabled", "true")
+                .config("spark.sql.defaultCatalog", "lakehouse")
+                .getOrCreate()
+            )
+
+        return self._session
 
 
-class DataLakeResource(ConfigurableResource):
-    """Resource for data lake storage configuration."""
-
-    base_path: str = Field(
-        default="/data/lake",
-        description="Base path for data lake storage",
-    )
-    checkpoint_path: str = Field(
-        default="/data/checkpoints",
-        description="Base path for streaming checkpoints",
-    )
-
-
-class IcebergCatalogResource(ConfigurableResource):
-    """Resource for Iceberg catalog configuration."""
-
-    catalog_name: str = Field(
-        default="local",
-        description="Iceberg catalog name",
-    )
-    warehouse_path: str = Field(
-        default="/data/warehouse",
-        description="Iceberg warehouse path",
-    )
-    database: str = Field(
-        default="streamify",
-        description="Default database name",
+def create_spark_resource():
+    """Create SparkConnectResource from environment variables."""
+    return SparkConnectResource(
+        spark_remote=os.getenv("SPARK_REMOTE", "sc://spark-master"),
+        polaris_client_id=os.getenv("POLARIS_CLIENT_ID", ""),
+        polaris_client_secret=os.getenv("POLARIS_CLIENT_SECRET", ""),
     )
