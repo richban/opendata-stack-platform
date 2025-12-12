@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Spark Structured Streaming: Kafka -> Iceberg Bronze Tables.
+"""Spark Structured Streaming: Kafka -> Iceberg Bronze Tables with Dagster Pipes.
 
 This script runs continuously, consuming events from Kafka topics
 and writing them to Iceberg tables in the lakehouse catalog.
+
+This script is orchestrated via Dagster Pipes - Dagster launches it via spark-submit
+and monitors its progress via S3-based message passing.
 
 Events:
 - listen_events: Song play events
@@ -10,192 +13,74 @@ Events:
 - auth_events: Authentication events
 
 Each event gets:
-- event_id: SHA256 hash for deduplication (userId + sessionId + ts + topic)
+- event_id: SHA256 hash for deduplication (userId + sessionId + ts)
 - event_date: Derived from ts for partitioning
 - _processing_time: When the event was processed
 - _kafka_partition: Source Kafka partition
 - _kafka_offset: Source Kafka offset
 
-Usage:
-    spark-submit \\
-        --master spark://spark-master:7077 \\
-        --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,\\
-org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1,\\
-org.apache.iceberg:iceberg-aws-bundle:1.7.1 \\
-        stream_to_iceberg.py \\
-        --kafka-bootstrap-servers kafka:9092 \\
-        --polaris-uri http://polaris:8181/api/catalog \\
-        --polaris-credential <client_id>:<client_secret> \\
-        --checkpoint-path s3a://checkpoints/streaming
+Usage (via Dagster Pipes):
+    This script is launched by Dagster using spark-submit. Dagster will:
+    1. Upload this script to S3
+    2. Pass Pipes bootstrap params via CLI args
+    3. Launch spark-submit with proper configs
+    4. Monitor progress via S3 message passing
 """
 
-import argparse
-import hashlib
-from datetime import datetime
+import time
 
+import boto3
+
+from dagster_pipes import (
+    PipesCliArgsParamsLoader,
+    PipesS3ContextLoader,
+    PipesS3MessageWriter,
+    open_dagster_pipes,
+)
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col,
     concat_ws,
     current_timestamp,
     from_json,
+    from_unixtime,
     sha2,
     to_date,
-    from_unixtime,
 )
 from pyspark.sql.types import (
-    DoubleType,
-    IntegerType,
-    LongType,
-    StringType,
-    StructField,
     StructType,
 )
 
-
-# Schema definitions (same as schemas.py but self-contained for spark-submit)
-LISTEN_EVENTS_SCHEMA = StructType(
-    [
-        StructField("artist", StringType(), True),
-        StructField("song", StringType(), True),
-        StructField("duration", DoubleType(), True),
-        StructField("ts", LongType(), True),
-        StructField("auth", StringType(), True),
-        StructField("level", StringType(), True),
-        StructField("city", StringType(), True),
-        StructField("zip", StringType(), True),
-        StructField("state", StringType(), True),
-        StructField("userAgent", StringType(), True),
-        StructField("lon", DoubleType(), True),
-        StructField("lat", DoubleType(), True),
-        StructField("userId", LongType(), True),
-        StructField("lastName", StringType(), True),
-        StructField("firstName", StringType(), True),
-        StructField("gender", StringType(), True),
-        StructField("registration", LongType(), True),
-        StructField("sessionId", IntegerType(), True),
-        StructField("itemInSession", IntegerType(), True),
-    ]
+from team_ops.schemas import SCHEMAS as TOPIC_SCHEMAS
+from team_ops.spark_scripts.common import (
+    create_spark_session,
+    get_common_arg_parser,
 )
-
-PAGE_VIEW_EVENTS_SCHEMA = StructType(
-    [
-        StructField("ts", LongType(), True),
-        StructField("sessionId", IntegerType(), True),
-        StructField("auth", StringType(), True),
-        StructField("level", StringType(), True),
-        StructField("itemInSession", IntegerType(), True),
-        StructField("city", StringType(), True),
-        StructField("zip", StringType(), True),
-        StructField("state", StringType(), True),
-        StructField("userAgent", StringType(), True),
-        StructField("lon", DoubleType(), True),
-        StructField("lat", DoubleType(), True),
-        StructField("userId", LongType(), True),
-        StructField("lastName", StringType(), True),
-        StructField("firstName", StringType(), True),
-        StructField("gender", StringType(), True),
-        StructField("registration", LongType(), True),
-        StructField("page", StringType(), True),
-    ]
-)
-
-AUTH_EVENTS_SCHEMA = StructType(
-    [
-        StructField("ts", LongType(), True),
-        StructField("sessionId", IntegerType(), True),
-        StructField("level", StringType(), True),
-        StructField("itemInSession", IntegerType(), True),
-        StructField("city", StringType(), True),
-        StructField("zip", StringType(), True),
-        StructField("state", StringType(), True),
-        StructField("userAgent", StringType(), True),
-        StructField("lon", DoubleType(), True),
-        StructField("lat", DoubleType(), True),
-        StructField("userId", LongType(), True),
-        StructField("lastName", StringType(), True),
-        StructField("firstName", StringType(), True),
-        StructField("gender", StringType(), True),
-        StructField("registration", LongType(), True),
-        StructField("success", StringType(), True),
-    ]
-)
-
-TOPIC_SCHEMAS = {
-    "listen_events": LISTEN_EVENTS_SCHEMA,
-    "page_view_events": PAGE_VIEW_EVENTS_SCHEMA,
-    "auth_events": AUTH_EVENTS_SCHEMA,
-}
 
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Stream Kafka events to Iceberg Bronze tables"
-    )
+    parser = get_common_arg_parser("Stream Kafka events to Iceberg Bronze tables")
+
     parser.add_argument(
         "--kafka-bootstrap-servers",
         default="kafka:9092",
         help="Kafka bootstrap servers",
     )
-    parser.add_argument(
-        "--polaris-uri",
-        default="http://polaris:8181/api/catalog",
-        help="Polaris catalog URI",
-    )
-    parser.add_argument(
-        "--polaris-credential",
-        required=True,
-        help="Polaris credential in format client_id:client_secret",
-    )
+
     parser.add_argument(
         "--checkpoint-path",
         default="s3a://checkpoints/streaming",
         help="Checkpoint location for streaming",
     )
-    parser.add_argument(
-        "--catalog",
-        default="lakehouse",
-        help="Iceberg catalog name",
-    )
-    parser.add_argument(
-        "--namespace",
-        default="streamify",
-        help="Iceberg namespace (database)",
-    )
-    return parser.parse_args()
 
-
-def create_spark_session(args) -> SparkSession:
-    """Create SparkSession configured for Iceberg and Polaris."""
-    return (
-        SparkSession.builder.appName("StreamToIceberg")
-        .config(
-            "spark.sql.extensions",
-            "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
-        )
-        .config(
-            f"spark.sql.catalog.{args.catalog}", "org.apache.iceberg.spark.SparkCatalog"
-        )
-        .config(f"spark.sql.catalog.{args.catalog}.type", "rest")
-        .config(f"spark.sql.catalog.{args.catalog}.uri", args.polaris_uri)
-        .config(f"spark.sql.catalog.{args.catalog}.warehouse", args.catalog)
-        .config(f"spark.sql.catalog.{args.catalog}.credential", args.polaris_credential)
-        .config(f"spark.sql.catalog.{args.catalog}.scope", "PRINCIPAL_ROLE:ALL")
-        .config(
-            f"spark.sql.catalog.{args.catalog}.header.X-Iceberg-Access-Delegation",
-            "vended-credentials",
-        )
-        .config(f"spark.sql.catalog.{args.catalog}.token-refresh-enabled", "true")
-        .config("spark.sql.defaultCatalog", args.catalog)
-        .getOrCreate()
-    )
+    return parser.parse_known_args()
 
 
 def create_namespace_if_not_exists(spark: SparkSession, catalog: str, namespace: str):
     """Create the namespace if it doesn't exist."""
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.{namespace}")
-    print(f"Namespace {catalog}.{namespace} ready")
+    print(f"✓ Namespace {catalog}.{namespace} ready")
 
 
 def create_table_if_not_exists(
@@ -204,13 +89,11 @@ def create_table_if_not_exists(
     """Create Iceberg table if it doesn't exist."""
     table_name = f"{catalog}.{namespace}.bronze_{topic}"
 
-    # Build column definitions from schema
     columns = []
     for field in schema.fields:
         spark_type = field.dataType.simpleString()
         columns.append(f"{field.name} {spark_type}")
 
-    # Add metadata columns
     columns.extend(
         [
             "event_id STRING",
@@ -232,17 +115,18 @@ def create_table_if_not_exists(
     """
 
     spark.sql(create_sql)
-    print(f"Table {table_name} ready")
+    print(f"✓ Table {table_name} ready")
 
 
-def process_stream(spark: SparkSession, args, topic: str, schema: StructType):
+def process_stream(
+    spark: SparkSession, args, topic: str, schema: StructType, pipes_context
+):
     """Create and start a streaming query for a topic."""
     table_name = f"{args.catalog}.{args.namespace}.bronze_{topic}"
     checkpoint_location = f"{args.checkpoint_path}/{topic}"
 
-    print(f"Starting stream for {topic} -> {table_name}")
+    pipes_context.log.info(f"Starting stream: {topic} -> {table_name}")
 
-    # Read from Kafka
     kafka_df = (
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", args.kafka_bootstrap_servers)
@@ -252,7 +136,6 @@ def process_stream(spark: SparkSession, args, topic: str, schema: StructType):
         .load()
     )
 
-    # Parse JSON and add metadata columns
     parsed_df = (
         kafka_df.select(
             from_json(col("value").cast("string"), schema).alias("data"),
@@ -264,7 +147,6 @@ def process_stream(spark: SparkSession, args, topic: str, schema: StructType):
             "_kafka_partition",
             "_kafka_offset",
         )
-        # Add event_id for deduplication
         .withColumn(
             "event_id",
             sha2(
@@ -277,13 +159,10 @@ def process_stream(spark: SparkSession, args, topic: str, schema: StructType):
                 256,
             ),
         )
-        # Add event_date for partitioning (ts is in milliseconds)
         .withColumn("event_date", to_date(from_unixtime(col("ts") / 1000)))
-        # Add processing timestamp
         .withColumn("_processing_time", current_timestamp())
     )
 
-    # Write to Iceberg
     query = (
         parsed_df.writeStream.format("iceberg")
         .outputMode("append")
@@ -296,43 +175,49 @@ def process_stream(spark: SparkSession, args, topic: str, schema: StructType):
 
 
 def main():
-    """Main entry point."""
-    args = parse_args()
+    """Main entry point with Dagster Pipes integration."""
+    args, _ = parse_args()
 
-    print("=" * 70)
-    print("STREAMIFY - Kafka to Iceberg Streaming")
-    print("=" * 70)
-    print(f"Kafka: {args.kafka_bootstrap_servers}")
-    print(f"Polaris: {args.polaris_uri}")
-    print(f"Catalog: {args.catalog}.{args.namespace}")
-    print(f"Checkpoints: {args.checkpoint_path}")
-    print("=" * 70)
+    with open_dagster_pipes(
+        message_writer=PipesS3MessageWriter(client=boto3.client("s3")),
+        context_loader=PipesS3ContextLoader(client=boto3.client("s3")),
+        params_loader=PipesCliArgsParamsLoader(),
+    ) as pipes:
+        pipes.log.info("=" * 70)
+        pipes.log.info("STREAMIFY - Kafka to Iceberg Streaming (Dagster Pipes)")
+        pipes.log.info("=" * 70)
+        pipes.log.info(f"Kafka:       {args.kafka_bootstrap_servers}")
+        pipes.log.info(f"Polaris:     {args.polaris_uri}")
+        pipes.log.info(f"Catalog:     {args.catalog}.{args.namespace}")
+        pipes.log.info(f"Checkpoints: {args.checkpoint_path}")
+        pipes.log.info("=" * 70)
 
-    # Create Spark session
-    spark = create_spark_session(args)
-    spark.sparkContext.setLogLevel("WARN")
+        spark = create_spark_session("StreamToIceberg", args)
+        spark.sparkContext.setLogLevel("WARN")
 
-    # Create namespace
-    create_namespace_if_not_exists(spark, args.catalog, args.namespace)
+        create_namespace_if_not_exists(spark, args.catalog, args.namespace)
 
-    # Create tables and start streams
-    queries = []
-    for topic, schema in TOPIC_SCHEMAS.items():
-        # Create table
-        create_table_if_not_exists(spark, args.catalog, args.namespace, topic, schema)
+        queries = []
+        for topic, schema in TOPIC_SCHEMAS.items():
+            create_table_if_not_exists(spark, args.catalog, args.namespace, topic, schema)
+            query = process_stream(spark, args, topic, schema, pipes)
+            queries.append(query)
+            pipes.log.info(f"✓ Stream started for {topic}")
 
-        # Start streaming query
-        query = process_stream(spark, args, topic, schema)
-        queries.append(query)
-        print(f"Stream started for {topic}")
+        pipes.log.info("\n" + "=" * 70)
+        pipes.log.info("All streams running. Monitoring...")
+        pipes.log.info("=" * 70 + "\n")
 
-    print("\n" + "=" * 70)
-    print("All streams started. Waiting for termination...")
-    print("Press Ctrl+C to stop.")
-    print("=" * 70 + "\n")
+        pipes.report_asset_materialization(
+            metadata={
+                "topics": {"raw_value": list(TOPIC_SCHEMAS.keys()), "type": "json"},
+                "catalog": args.catalog,
+                "namespace": args.namespace,
+            },
+            data_version=str(int(time.time())),
+        )
 
-    # Wait for any stream to terminate
-    spark.streams.awaitAnyTermination()
+        spark.streams.awaitAnyTermination()
 
 
 if __name__ == "__main__":
