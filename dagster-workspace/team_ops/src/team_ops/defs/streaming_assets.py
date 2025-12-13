@@ -2,13 +2,27 @@
 
 This module uses Spark Connect to launch long-running streaming jobs directly from Dagster.
 No subprocess, no Pipes, no jar transfer - just clean remote Spark execution.
+
+Streaming Configuration:
+- Write interval: 30 seconds (processingTime trigger)
+- Output mode: append
+- Fanout enabled: true (for better parallelism)
+- Checkpoint location: DuckDB-based for fault tolerance
 """
 
-import time
-
 import dagster as dg
+
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, current_timestamp, from_json
+from pyspark.sql.functions import (
+    col,
+    current_timestamp,
+    from_json,
+    sha2,
+    concat_ws,
+    to_date,
+    from_unixtime,
+)
+from pyspark.sql.types import StructType
 
 from team_ops.defs.resources import SparkConnectResource, StreamingJobConfig
 from team_ops.schemas import SCHEMAS as TOPIC_SCHEMAS
@@ -20,7 +34,7 @@ def create_namespace_if_not_exists(
     """Create Iceberg namespace if it doesn't exist."""
     try:
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.{namespace}")
-    except Exception as e:
+    except Exception:
         # Namespace might already exist, that's fine
         pass
 
@@ -75,48 +89,78 @@ def create_table_if_not_exists(
 
 def process_stream(
     spark: SparkSession,
-    config: StreamingJobConfig,
+    streaming_config: StreamingJobConfig,
     topic: str,
-    schema,
-    context: dg.AssetExecutionContext,
+    schema: StructType,
 ):
-    """Process a single Kafka stream and write to Iceberg."""
-    table_name = f"{config.catalog}.{config.namespace}.bronze_{topic}"
-    checkpoint_location = f"{config.checkpoint_path}/{topic}"
+    """Transform Kafka stream: parse JSON, add event_id, extract event_date."""
 
-    # Read from Kafka
-    df = (
+    kafka_df = (
         spark.readStream.format("kafka")
-        .option("kafka.bootstrap.servers", config.kafka_bootstrap_servers)
+        .option("kafka.bootstrap.servers", streaming_config.kafka_bootstrap_servers)
         .option("subscribe", topic)
-        .option("startingOffsets", "latest")
+        .option("startingOffsets", "earliest")
         .option("failOnDataLoss", "false")
         .load()
     )
 
-    # Parse JSON and add metadata
     parsed_df = (
-        df.select(
+        kafka_df.select(
             from_json(col("value").cast("string"), schema).alias("data"),
-            col("partition").alias("kafka_partition"),
-            col("offset").alias("kafka_offset"),
-            col("timestamp").alias("kafka_timestamp"),
+            col("partition").alias("_kafka_partition"),
+            col("offset").alias("_kafka_offset"),
         )
-        .select("data.*", "kafka_partition", "kafka_offset", "kafka_timestamp")
-        .withColumn("ingestion_time", current_timestamp())
+        .select(
+            "data.*",
+            "_kafka_partition",
+            "_kafka_offset",
+        )
+        .withColumn(
+            "event_id",
+            sha2(
+                concat_ws(
+                    "_",
+                    col("userId").cast("string"),
+                    col("sessionId").cast("string"),
+                    col("ts").cast("string"),
+                ),
+                256,
+            ),
+        )
+        .withColumn("event_date", to_date(from_unixtime(col("ts") / 1000)))
+        .withColumn("_processing_time", current_timestamp())
     )
 
-    # Write to Iceberg
-    query = (
-        parsed_df.writeStream.format("iceberg")
+    return parsed_df
+
+
+def write_stream(
+    df_stream,
+    streaming_config: StreamingJobConfig,
+    topic: str,
+    context: dg.AssetExecutionContext,
+):
+    """Write streaming DataFrame to Iceberg table with 30-second micro-batches.
+
+    Uses processingTime trigger to write every 30 seconds, avoiding small file problems.
+    """
+    table_name = f"{streaming_config.catalog}.{streaming_config.namespace}.bronze_{topic}"
+    checkpoint_location = f"{streaming_config.checkpoint_path}/{topic}"
+
+    df_out = (
+        df_stream.writeStream.format("iceberg")
         .outputMode("append")
+        .trigger(processingTime="30 seconds")
         .option("checkpointLocation", checkpoint_location)
         .option("fanout-enabled", "true")
         .toTable(table_name)
     )
 
     context.log.info(f"✓ Started stream for {topic} -> {table_name}")
-    return query
+    context.log.info(f"  Write interval: 30 seconds (processingTime trigger)")
+    context.log.info(f"  Checkpoint: {checkpoint_location}")
+
+    return df_out
 
 
 @dg.asset(
@@ -181,8 +225,9 @@ def bronze_streaming_job(
         )
 
         context.log.info(f"Starting stream for {topic}...")
-        query = process_stream(session, streaming_config, topic, schema, context)
-        queries.append(query)
+        df_stream = process_stream(session, streaming_config, topic, schema)
+        df_out = write_stream(df_stream, streaming_config, topic, context)
+        queries.append(df_out)
 
     context.log.info(f"All {len(queries)} streams running. Monitoring...")
 
