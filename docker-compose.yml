@@ -240,9 +240,9 @@ services:
     ports:
       - "3001:80"
     environment:
-      VITE_POLARIS_API_URL: http://localhost:8181
+      VITE_POLARIS_API_URL: http://polaris:8181
       VITE_POLARIS_REALM: default
-      VITE_OAUTH_TOKEN_URL: http://localhost:8181/api/catalog/v1/oauth/tokens
+      VITE_OAUTH_TOKEN_URL: http://polaris:8181/api/catalog/v1/oauth/tokens
       VITE_POLARIS_REALM_HEADER_NAME: realm
     networks:
       - opendata_network
