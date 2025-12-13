@@ -9,7 +9,7 @@ All configuration is managed via ConfigurableResources loaded from environment v
 
 import dagster as dg
 
-from team_ops.defs import assets, streaming_assets
+from team_ops.defs import assets
 from team_ops.defs.resources import (
     create_s3_resource,
     create_spark_resource,
@@ -17,10 +17,7 @@ from team_ops.defs.resources import (
 )
 
 defs = dg.Definitions(
-    assets=[
-        streaming_assets.bronze_streaming_job,
-        assets.silver_listen_events,
-    ],
+    assets=dg.load_assets_from_modules([assets]),
     resources={
         "spark": create_spark_resource(),
         "s3": create_s3_resource(),
