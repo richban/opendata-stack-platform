@@ -38,10 +38,16 @@ class SparkConnectResource(dg.ConfigurableResource):
         return self._create_session(None, app_name)
 
     def _create_session(
-        self, spark_remote: str = None, app_name: str = "DagsterSparkJob"
+        self, spark_remote: str | None = None, app_name: str = "DagsterSparkJob"
     ) -> SparkSession:
         """Internal method to create SparkSession with common Iceberg config."""
         polaris_credential = f"{self.polaris_client_id}:{self.polaris_client_secret}"
+
+        # Ensure Spark Connect (Docker) can reach Polaris (Docker)
+        # Use Docker network hostname 'polaris' instead of localhost
+        config_polaris_uri = self.polaris_uri.replace("localhost", "polaris").replace(
+            "192.168.1.47", "polaris"
+        )
 
         builder = SparkSession.builder.appName(app_name)
 
@@ -58,14 +64,27 @@ class SparkConnectResource(dg.ConfigurableResource):
                 "org.apache.iceberg.spark.SparkCatalog",
             )
             .config(f"spark.sql.catalog.{self.catalog}.type", "rest")
-            .config(f"spark.sql.catalog.{self.catalog}.uri", self.polaris_uri)
+            .config(f"spark.sql.catalog.{self.catalog}.uri", config_polaris_uri)
             .config(f"spark.sql.catalog.{self.catalog}.warehouse", self.catalog)
             .config(f"spark.sql.catalog.{self.catalog}.credential", polaris_credential)
+            .config(
+                f"spark.sql.catalog.{self.catalog}.oauth2-server-uri",
+                f"{config_polaris_uri}/v1/oauth/tokens",
+            )
             .config(f"spark.sql.catalog.{self.catalog}.scope", "PRINCIPAL_ROLE:ALL")
             .config(
-                f"spark.sql.catalog.{self.catalog}.header.X-Iceberg-Access-Delegation",
-                "vended-credentials",
+                f"spark.sql.catalog.{self.catalog}.s3.endpoint",
+                "http://minio:9000",
             )
+            .config(
+                f"spark.sql.catalog.{self.catalog}.s3.access-key-id",
+                os.getenv("AWS_ACCESS_KEY_ID", "minioadmin"),
+            )
+            .config(
+                f"spark.sql.catalog.{self.catalog}.s3.secret-access-key",
+                os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
+            )
+            .config(f"spark.sql.catalog.{self.catalog}.s3.path-style-access", "true")
             .config(f"spark.sql.catalog.{self.catalog}.token-refresh-enabled", "true")
             .config("spark.sql.defaultCatalog", self.catalog)
             .getOrCreate()
@@ -96,31 +115,34 @@ class StreamingJobConfig(dg.ConfigurableResource):
 def create_spark_resource():
     """Create SparkConnectResource from environment variables."""
     return SparkConnectResource(
-        spark_remote=EnvVar("SPARK_REMOTE"),
-        polaris_client_id=EnvVar("POLARIS_CLIENT_ID"),
-        polaris_client_secret=EnvVar("POLARIS_CLIENT_SECRET"),
-        polaris_uri=EnvVar("POLARIS_URI"),
-        catalog=EnvVar("POLARIS_CATALOG"),
+        spark_remote=os.getenv("SPARK_REMOTE", "sc://localhost:15002"),
+        polaris_client_id=os.getenv("POLARIS_CLIENT_ID", ""),
+        polaris_client_secret=os.getenv("POLARIS_CLIENT_SECRET", ""),
+        polaris_uri=os.getenv("POLARIS_URI", ""),
+        catalog=os.getenv("POLARIS_CATALOG", ""),
     )
 
 
 def create_streaming_config():
     """Create StreamingJobConfig from environment variables."""
     return StreamingJobConfig(
-        kafka_bootstrap_servers=EnvVar("KAFKA_BOOTSTRAP_SERVERS"),
-        checkpoint_path=EnvVar("CHECKPOINT_PATH"),
-        polaris_uri=EnvVar("POLARIS_URI"),
-        polaris_client_id=EnvVar("POLARIS_CLIENT_ID"),
-        polaris_client_secret=EnvVar("POLARIS_CLIENT_SECRET"),
-        catalog=EnvVar("POLARIS_CATALOG"),
-        namespace=EnvVar("POLARIS_NAMESPACE"),
+        kafka_bootstrap_servers=EnvVar("KAFKA_BOOTSTRAP_SERVERS")
+        .get_value()
+        .replace("localhost", "kafka")
+        .replace("192.168.1.47", "kafka"),
+        checkpoint_path=EnvVar("CHECKPOINT_PATH").get_value(),
+        polaris_uri=EnvVar("POLARIS_URI").get_value(),
+        polaris_client_id=EnvVar("POLARIS_CLIENT_ID").get_value(),
+        polaris_client_secret=EnvVar("POLARIS_CLIENT_SECRET").get_value(),
+        catalog=EnvVar("POLARIS_CATALOG").get_value(),
+        namespace=EnvVar("POLARIS_NAMESPACE").get_value(),
     )
 
 
 def create_s3_resource():
     """Create S3 resource with environment-aware endpoint configuration."""
     return S3Resource(
-        aws_access_key_id=EnvVar("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=EnvVar("AWS_SECRET_ACCESS_KEY"),
-        endpoint_url=EnvVar("AWS_ENDPOINT_URL"),
+        aws_access_key_id=EnvVar("AWS_ACCESS_KEY_ID").get_value(),
+        aws_secret_access_key=EnvVar("AWS_SECRET_ACCESS_KEY").get_value(),
+        endpoint_url=EnvVar("AWS_ENDPOINT_URL").get_value(),
     )

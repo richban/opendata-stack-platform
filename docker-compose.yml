@@ -18,11 +18,9 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      minio_network:
+      opendata_network:
         aliases:
           - warehouse.minio
-      lakehouse_network:
-        aliases:
           - minio
 
   mc:
@@ -33,8 +31,7 @@ services:
     volumes:
       - ./minio-config:/config
     networks:
-      - minio_network
-      - lakehouse_network
+      - opendata_network
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -53,10 +50,10 @@ services:
       minio:
         condition: service_healthy
     networks:
-      - lakehouse_network
+      - opendata_network
     environment:
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-miniouser}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-miniouser}
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ENDPOINT_URL_S3: http://minio:9000
       AWS_ENDPOINT_URL_STS: http://minio:9000
@@ -64,11 +61,11 @@ services:
       polaris.realm-context.realms: default
       polaris.features.DROP_WITH_PURGE_ENABLED: "true"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8181/healthcheck"]
-      interval: 5s
+      test: ["CMD", "curl", "-f", "http://localhost:8182/q/health"]
+      interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 30s
+      retries: 20
+      start_period: 60s
 
   polaris-init:
     image: python:3.11-slim
@@ -81,7 +78,7 @@ services:
       - ./polaris-config:/config
       - ./dagster-workspace/team_ops:/opt/team_ops
     networks:
-      - lakehouse_network
+      - opendata_network
     environment:
       POLARIS_HOST: polaris
       MINIO_HOST: minio
@@ -98,7 +95,7 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     networks:
-      - streaming_network
+      - opendata_network
     volumes:
       - zookeeper_data:/var/lib/zookeeper/data
       - zookeeper_logs:/var/lib/zookeeper/log
@@ -119,7 +116,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     networks:
-      - streaming_network
+      - opendata_network
     volumes:
       - kafka_data:/var/lib/kafka/data
     healthcheck:
@@ -142,8 +139,7 @@ services:
       - "8080:8080"
       - "7077:7077"
     networks:
-      - streaming_network
-      - lakehouse_network
+      - opendata_network
     volumes:
       - ./data:/data
       - ./dagster-workspace/team_ops:/opt/team_ops
@@ -151,6 +147,7 @@ services:
 
   spark-worker:
     image: apache/spark:3.5.3
+    user: root
     command: /opt/spark/sbin/start-worker.sh spark://spark-master:7077
     depends_on:
       - spark-master
@@ -158,13 +155,51 @@ services:
       SPARK_NO_DAEMONIZE: "true"
       SPARK_WORKER_MEMORY: 2G
       SPARK_WORKER_CORES: 2
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-miniouser}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-miniouser}
+      SPARK_EXECUTOR_EXTRACLASSPATH: "/root/.ivy2/jars/*"
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ENDPOINT_URL: http://minio:9000
     networks:
-      - streaming_network
-      - lakehouse_network
+      - opendata_network
+    volumes:
+      - ./data:/data
+      - ./dagster-workspace/team_ops:/opt/team_ops
+      - spark_ivy_cache:/root/.ivy2
+
+  spark-connect:
+    image: apache/spark:3.5.3
+    user: root
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        mkdir -p /root/.ivy2/cache /root/.ivy2/jars
+        chmod -R 777 /root/.ivy2
+        /opt/spark/sbin/start-connect-server.sh \
+          --packages org.apache.spark:spark-connect_2.12:3.5.3,org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1,org.apache.iceberg:iceberg-aws-bundle:1.7.1,org.apache.hadoop:hadoop-aws:3.3.4,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 \
+          --conf spark.driver.host=spark-connect \
+          --conf spark.jars.ivy=/root/.ivy2 \
+          --conf spark.hadoop.fs.s3a.access.key=minioadmin \
+          --conf spark.hadoop.fs.s3a.secret.key=minioadmin \
+          --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 \
+          --conf spark.hadoop.fs.s3a.path.style.access=true \
+          --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false \
+          --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
+          --master spark://spark-master:7077
+    depends_on:
+      - spark-master
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ENDPOINT_URL: http://minio:9000
+    ports:
+      - "15002:15002"
+      - "4041:4040"
+    networks:
+      - opendata_network
     volumes:
       - ./data:/data
       - ./dagster-workspace/team_ops:/opt/team_ops
@@ -179,7 +214,7 @@ services:
       kafka:
         condition: service_healthy
     networks:
-      - streaming_network
+      - opendata_network
     environment:
       - JAVA_OPTS=-Xmx4G
     entrypoint: ["/bin/bash", "-c"]
@@ -198,12 +233,26 @@ services:
     mem_limit: 6g
     memswap_limit: 8g
 
+  polaris-console:
+    build:
+      context: ./polaris-console/console
+      dockerfile: docker/Dockerfile
+    ports:
+      - "3001:80"
+    environment:
+      VITE_POLARIS_API_URL: http://localhost:8181
+      VITE_POLARIS_REALM: default
+      VITE_OAUTH_TOKEN_URL: http://localhost:8181/api/catalog/v1/oauth/tokens
+      VITE_POLARIS_REALM_HEADER_NAME: realm
+    networks:
+      - opendata_network
+    depends_on:
+      polaris:
+        condition: service_healthy
+    restart: unless-stopped
+
 networks:
-  minio_network:
-    driver: bridge
-  streaming_network:
-    driver: bridge
-  lakehouse_network:
+  opendata_network:
     driver: bridge
 
 volumes:

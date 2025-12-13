@@ -70,3 +70,69 @@ The primary goal of this project is to develop a **modern data stack pipeline** 
 - **Extract & Load**: [**dlt**](https://github.com/dlt-hub/dlt) To extract raw data from NYC’s Open Data portal (Yellow, Green, and HVFHV taxi trips) and load it into the data warehouse.
 - **Transform**: [**dbt**](https://github.com/dbt-labs/dbt-core) For building modular, reusable, and version-controlled transformations in SQL, enabling robust data modeling of NYC Taxi data.
 - **Business Intelligence (BI)**: [**Evidence**](https://github.com/evidence-dev/evidence) A modern, lightweight BI tool for creating visually appealing and shareable reports about taxi trips and trends.
+
+---
+
+## 🚀 Quick Start
+
+### Infrastructure Services
+
+Start all services with Docker Compose:
+
+```bash
+docker-compose up -d
+```
+
+This starts:
+- **MinIO** (S3-compatible storage): Ports 9000 (API), 9001 (Console)
+- **Apache Polaris** (Iceberg catalog): Ports 8181 (API), 8182 (Management)
+- **Polaris Console** (Web UI): Port 3001
+- **Kafka + Zookeeper**: Port 9092 (broker)
+- **Spark** (Master + Worker + Connect): Ports 8080 (UI), 7077 (Master), 15002 (Connect)
+- **Eventsim** (Event generator): Generates streaming events to Kafka
+
+### Access Points
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| Polaris Console | http://localhost:3001 | Web UI for Apache Polaris catalog management |
+| Polaris API | http://localhost:8181 | REST API for Iceberg catalog operations |
+| MinIO Console | http://localhost:9001 | S3 storage web interface (minioadmin/minioadmin) |
+| Spark Master UI | http://localhost:8080 | Monitor Spark cluster and jobs |
+| Dagster UI | http://localhost:3000 | Orchestration and pipeline monitoring |
+
+### Polaris Console
+
+The Polaris Console provides a modern web interface for managing Apache Polaris:
+- Browse catalogs, namespaces, and tables
+- View table schemas and metadata
+- Manage access policies and principals
+- Monitor catalog operations
+
+**Login Credentials**: Use the OAuth credentials from `dagster-workspace/team_ops/.env.polaris`
+
+---
+
+## Architecture
+
+### Streaming Data Flow
+
+```
+Eventsim → Kafka → Spark Streaming → Iceberg (via Polaris) → MinIO
+                        ↓
+                   Dagster (Orchestration)
+```
+
+### Key Components
+
+- **Eventsim**: Generates realistic user activity events
+- **Kafka**: Event streaming platform
+- **Spark Connect**: Remote Spark execution without subprocess overhead
+- **Apache Polaris**: Open-source Iceberg REST catalog with governance
+- **MinIO**: S3-compatible object storage for Iceberg data files
+- **Dagster**: Data orchestration and monitoring
+
+For detailed architecture diagrams, see:
+- [Streaming Architecture](./docs/streamify-architecture.md)
+- [Kafka Architecture](./docs/kafka-architecture.md)
+- [Implementation Guide](./docs/STREAMIFY_IMPLEMENTATION.md)

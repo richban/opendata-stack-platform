@@ -1,0 +1,4 @@
+[submodule "polaris-console"]
+	path = polaris-console
+	url = https://github.com/jbonofre/polaris-tools.git
+	branch = ui

@@ -9,6 +9,12 @@ dependencies = [
     "pyspark==3.5.3",
     "kafka-python==2.0.2",
     "pyiceberg[pyarrow]==0.8.1",
+    "pandas>=1.0.5",
+    "pyarrow>=10.0.0",
+    "grpcio>=1.48.1",
+    "grpcio-status>=1.48.1",
+    "googleapis-common-protos>=1.56.4",
+    "dagster-pipes>=1.12.3",
 ]
 
 [dependency-groups]

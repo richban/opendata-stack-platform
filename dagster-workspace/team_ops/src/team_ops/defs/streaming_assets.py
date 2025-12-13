@@ -1,130 +1,202 @@
-"""Dagster assets for managing Spark Structured Streaming jobs via Pipes.
+"""Dagster assets for managing Spark Structured Streaming jobs via Spark Connect.
 
-This module uses Dagster Pipes to launch and monitor long-running Spark streaming jobs.
-The streaming job runs via spark-submit and communicates back to Dagster via S3.
-
-Configuration is passed via StreamingJobConfig resource and Pipes extras.
+This module uses Spark Connect to launch long-running streaming jobs directly from Dagster.
+No subprocess, no Pipes, no jar transfer - just clean remote Spark execution.
 """
 
-import os
-import subprocess
-from pathlib import Path
+import time
 
 import dagster as dg
-from dagster_aws.pipes import PipesS3ContextInjector, PipesS3MessageReader
-from dagster_aws.s3 import S3Resource
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, current_timestamp, from_json
 
-from team_ops.defs.resources import StreamingJobConfig
+from team_ops.defs.resources import SparkConnectResource, StreamingJobConfig
+from team_ops.schemas import SCHEMAS as TOPIC_SCHEMAS
 
-SCRIPT_PATH = Path(__file__).parent.parent / "spark_scripts" / "stream_to_iceberg.py"
+
+def create_namespace_if_not_exists(
+    spark: SparkSession, catalog: str, namespace: str
+) -> None:
+    """Create Iceberg namespace if it doesn't exist."""
+    try:
+        spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.{namespace}")
+    except Exception as e:
+        # Namespace might already exist, that's fine
+        pass
+
+
+def create_table_if_not_exists(
+    spark: SparkSession,
+    catalog: str,
+    namespace: str,
+    topic: str,
+    schema,
+) -> None:
+    """Create Iceberg table if it doesn't exist."""
+    table_name = f"{catalog}.{namespace}.bronze_{topic}"
+
+    # Check if table exists
+    try:
+        spark.sql(f"DESCRIBE TABLE {table_name}")
+        return  # Table exists
+    except Exception:
+        pass  # Table doesn't exist, create it
+
+    # Build schema DDL from the provided schema
+    fields = []
+    for field in schema.fields:
+        field_type = field.dataType.simpleString()
+        # Iceberg/Spark SQL doesn't use NULL keyword, only NOT NULL for non-nullable fields
+        nullable = "" if field.nullable else "NOT NULL"
+        fields.append(f"{field.name} {field_type} {nullable}".strip())
+
+    # Add metadata columns
+    fields.extend(
+        [
+            "kafka_partition INT",
+            "kafka_offset BIGINT",
+            "kafka_timestamp TIMESTAMP",
+            "ingestion_time TIMESTAMP NOT NULL",
+        ]
+    )
+
+    schema_ddl = ",\n    ".join(fields)
+
+    create_sql = f"""
+    CREATE TABLE IF NOT EXISTS {table_name} (
+        {schema_ddl}
+    )
+    USING iceberg
+    PARTITIONED BY (days(ingestion_time))
+    """
+
+    spark.sql(create_sql)
+
+
+def process_stream(
+    spark: SparkSession,
+    config: StreamingJobConfig,
+    topic: str,
+    schema,
+    context: dg.AssetExecutionContext,
+):
+    """Process a single Kafka stream and write to Iceberg."""
+    table_name = f"{config.catalog}.{config.namespace}.bronze_{topic}"
+    checkpoint_location = f"{config.checkpoint_path}/{topic}"
+
+    # Read from Kafka
+    df = (
+        spark.readStream.format("kafka")
+        .option("kafka.bootstrap.servers", config.kafka_bootstrap_servers)
+        .option("subscribe", topic)
+        .option("startingOffsets", "latest")
+        .option("failOnDataLoss", "false")
+        .load()
+    )
+
+    # Parse JSON and add metadata
+    parsed_df = (
+        df.select(
+            from_json(col("value").cast("string"), schema).alias("data"),
+            col("partition").alias("kafka_partition"),
+            col("offset").alias("kafka_offset"),
+            col("timestamp").alias("kafka_timestamp"),
+        )
+        .select("data.*", "kafka_partition", "kafka_offset", "kafka_timestamp")
+        .withColumn("ingestion_time", current_timestamp())
+    )
+
+    # Write to Iceberg
+    query = (
+        parsed_df.writeStream.format("iceberg")
+        .outputMode("append")
+        .option("checkpointLocation", checkpoint_location)
+        .option("fanout-enabled", "true")
+        .toTable(table_name)
+    )
+
+    context.log.info(f"✓ Started stream for {topic} -> {table_name}")
+    return query
 
 
 @dg.asset(
     group_name="streaming",
     compute_kind="spark-streaming",
-    description="Kafka to Iceberg Bronze streaming job (via Dagster Pipes)",
+    description="Kafka to Iceberg Bronze streaming job (via Spark Connect)",
 )
 def bronze_streaming_job(
     context: dg.AssetExecutionContext,
-    s3: S3Resource,
+    spark: SparkConnectResource,
     streaming_config: StreamingJobConfig,
 ):
     """Launch Spark Structured Streaming job to ingest Kafka events to Iceberg Bronze.
 
-    This asset uses Dagster Pipes to:
-    1. Upload the PySpark script to S3
-    2. Launch spark-submit with the script
-    3. Monitor the streaming job via S3 message passing
-    4. Collect logs and metadata from the Spark driver
+    This asset uses Spark Connect to:
+    1. Connect to the remote Spark cluster (no jar transfer needed)
+    2. Create Iceberg namespace and tables
+    3. Start streaming queries for each Kafka topic
+    4. Monitor the streams
 
-    The streaming job runs continuously and this asset represents its lifecycle.
+    The streaming job runs continuously. This is a long-running asset.
 
-    Configuration is provided via StreamingJobConfig resource which is instantiated
-    from environment variables in both orchestration and external processes.
-    No need to pass config via Pipes extras - both processes read the same env vars!
-
-    Note: This is a long-running streaming job. In production, consider:
+    Note: In production, consider:
     - Running with a timeout or max duration
     - Using a separate scheduler/cron to restart if needed
     - Monitoring with sensors for health checks
     """
-    s3_client = s3.get_client()
-
-    bucket = streaming_config.dagster_pipes_bucket
-    s3_script_path = f"{context.dagster_run.run_id}/stream_to_iceberg.py"
-
-    context.log.info(f"Uploading streaming script to s3://{bucket}/{s3_script_path}")
-    s3_client.upload_file(str(SCRIPT_PATH), bucket, s3_script_path)
-
-    context_injector = PipesS3ContextInjector(
-        client=s3_client,
-        bucket=bucket,
-    )
-
-    message_reader = PipesS3MessageReader(
-        client=s3_client,
-        bucket=bucket,
-        include_stdio_in_messages=True,
-    )
-
-    with dg.open_pipes_session(
-        context=context,
-        message_reader=message_reader,
-        context_injector=context_injector,
-    ) as session:
-        bootstrap_env_vars = session.get_bootstrap_env_vars()
-
-        cmd = [
-            "spark-submit",
-            "--master",
-            "spark://spark-master:7077",
-            "--deploy-mode",
-            "client",
-            "--packages",
-            "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3,"
-            "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1,"
-            "org.apache.iceberg:iceberg-aws-bundle:1.7.1",
-            "--conf",
-            "spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem",
-            "--conf",
-            f"spark.hadoop.fs.s3a.endpoint={s3.endpoint_url}",
-            "--conf",
-            "spark.hadoop.fs.s3a.path.style.access=true",
-            "--conf",
-            f"spark.hadoop.fs.s3a.access.key={s3.aws_access_key_id}",
-            "--conf",
-            f"spark.hadoop.fs.s3a.secret.key={s3.aws_secret_access_key}",
-            f"s3a://{bucket}/{s3_script_path}",
-        ]
-
-        context.log.info(f"Launching spark-submit with {len(cmd)} arguments")
-        context.log.info(f"Bootstrap env vars: {list(bootstrap_env_vars.keys())}")
+    try:
+        context.log.info("STREAMIFY - Kafka to Iceberg Streaming (Spark Connect)")
+        context.log.info(f"Kafka:       {streaming_config.kafka_bootstrap_servers}")
         context.log.info(
-            f"Configuration: catalog={streaming_config.catalog}.{streaming_config.namespace}"
+            f"Catalog:     {streaming_config.catalog}.{streaming_config.namespace}"
+        )
+        context.log.info(f"Checkpoints: {streaming_config.checkpoint_path}")
+
+        # Get Spark session via Connect
+        context.log.info("Connecting to Spark Connect...")
+        session = spark.get_session()
+        context.log.info("✓ Connected to Spark Connect")
+    except Exception as e:
+        context.log.error(f"Failed to connect to Spark: {e}")
+        import traceback
+
+        context.log.error(traceback.format_exc())
+        raise
+
+    # Create namespace
+    context.log.info(
+        f"Creating namespace {streaming_config.catalog}.{streaming_config.namespace}..."
+    )
+    create_namespace_if_not_exists(
+        session, streaming_config.catalog, streaming_config.namespace
+    )
+    context.log.info("✓ Namespace ready")
+
+    # Start streams for each topic
+    queries = []
+    for topic, schema in TOPIC_SCHEMAS.items():
+        context.log.info(f"Creating table for {topic}...")
+        create_table_if_not_exists(
+            session, streaming_config.catalog, streaming_config.namespace, topic, schema
         )
 
-        process = subprocess.Popen(
-            cmd,
-            env={**os.environ.copy(), **bootstrap_env_vars},
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        context.log.info(f"Starting stream for {topic}...")
+        query = process_stream(session, streaming_config, topic, schema, context)
+        queries.append(query)
 
-        try:
-            while process.poll() is None:
-                yield from session.get_results()
+    context.log.info(f"All {len(queries)} streams running. Monitoring...")
 
-            if process.returncode != 0:
-                stdout, stderr = process.communicate()
-                raise RuntimeError(
-                    f"Spark job failed with return code {process.returncode}\n"
-                    f"STDOUT: {stdout.decode() if stdout else '<empty>'}\n"
-                    f"STDERR: {stderr.decode() if stderr else '<empty>'}"
-                )
+    # Report materialization
+    yield dg.MaterializeResult(
+        metadata={
+            "topics": dg.MetadataValue.json(list(TOPIC_SCHEMAS.keys())),
+            "catalog": streaming_config.catalog,
+            "namespace": streaming_config.namespace,
+            "kafka_servers": streaming_config.kafka_bootstrap_servers,
+            "num_streams": len(queries),
+        }
+    )
 
-        except Exception:
-            context.log.error("Terminating Spark job due to error")
-            process.terminate()
-            raise
-
-    yield from session.get_results()
+    # Keep streams alive (this will run indefinitely)
+    context.log.info("Streams are running. Waiting for termination...")
+    session.streams.awaitAnyTermination()
