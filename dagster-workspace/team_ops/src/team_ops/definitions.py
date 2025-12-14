@@ -1,9 +1,7 @@
-"""Main Dagster definitions for team_ops.
+import dagster as dg
 
-This module loads definitions from the defs folder and exposes them
-to the Dagster workspace.
-"""
+import team_ops.defs
 
-from team_ops.defs.definitions import defs
-
-__all__ = ["defs"]
+defs = dg.Definitions.merge(
+    dg.components.load_defs(team_ops.defs),
+)

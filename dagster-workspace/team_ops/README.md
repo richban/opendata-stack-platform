@@ -394,6 +394,26 @@ docker exec minio mc admin info local
 docker exec minio mc ls local/
 ```
 
+# Architecture Flow
+Eventsim (generates events)
+    ↓
+Kafka (kafka:9092) - Event streaming
+    ↓
+Dagster (Mac:3000) - Orchestration
+    ↓ gRPC (Spark Connect Protocol)
+Spark Connect (Docker:15002)
+    ↓ submits to
+Spark Master/Workers (Docker)
+    ↓ writes Iceberg tables via
+Apache Polaris (polaris:8181) - REST catalog
+    ↓ stores metadata
+    ↓ stores data files
+MinIO (minio:9000) - S3-compatible storage
+Polaris Console (localhost:3001) - Web UI
+    ↓ HTTP API
+Apache Polaris (localhost:8181)
+All services communicate on: opendata_network (single Docker bridge network)
+
 ## Future Work
 
 ### Streaming Layer
