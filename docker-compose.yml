@@ -227,11 +227,26 @@ services:
           --growth-rate 0.10 \
           --userid 1 \
           --kafkaBrokerList kafka:9092 \
-          --randomseed $$(shuf -i 1-10000 -n 1) \
-          --continuous
+           --randomseed $$(shuf -i 1-10000 -n 1) \
+           --continuous
     restart: unless-stopped
     mem_limit: 6g
     memswap_limit: 8g
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: kafka:9092
+      JVM_OPTS: "-Xms32M -Xmx64M"
+      SERVER_SERVLET_CONTEXTPATH: "/"
+    networks:
+      - opendata_network
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
 
   polaris-console:
     build:
