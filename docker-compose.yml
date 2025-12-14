@@ -222,13 +222,13 @@ services:
       - |
         /opt/eventsim/eventsim.sh \
           -c /opt/eventsim/examples/example-config.json \
-          --from 30 \
-          --nusers 1000 \
-          --growth-rate 0.10 \
+          --from 0 \
+          --nusers 10 \
+          --growth-rate 0.001 \
           --userid 1 \
           --kafkaBrokerList kafka:9092 \
-           --randomseed $$(shuf -i 1-10000 -n 1) \
-           --continuous
+          --randomseed $$(shuf -i 1-10000 -n 1) \
+          --continuous
     restart: unless-stopped
     mem_limit: 6g
     memswap_limit: 8g
