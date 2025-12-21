@@ -176,10 +176,24 @@ services:
       - |
         mkdir -p /root/.ivy2/cache /root/.ivy2/jars
         chmod -R 777 /root/.ivy2
+        
+        # Define packages
+        PACKAGES="org.apache.spark:spark-connect_2.12:3.5.3,org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1,org.apache.iceberg:iceberg-aws-bundle:1.7.1,org.apache.hadoop:hadoop-aws:3.3.4,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3"
+        
+        # 1. Trigger download of packages into local ivy cache
+        echo "Downloading packages..."
+        /opt/spark/bin/spark-submit --packages $$PACKAGES --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples_*.jar 1
+        
+        # 2. Flatten jars into the shared volume so workers can find them
+        echo "Copying jars to shared volume..."
+        find /root/.ivy2/cache -name "*.jar" -exec cp -n {} /root/.ivy2/jars/ \;
+        
+        # 3. Start Connect server
         /opt/spark/sbin/start-connect-server.sh \
-          --packages org.apache.spark:spark-connect_2.12:3.5.3,org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1,org.apache.iceberg:iceberg-aws-bundle:1.7.1,org.apache.hadoop:hadoop-aws:3.3.4,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 \
+          --packages $$PACKAGES \
           --conf spark.driver.host=spark-connect \
           --conf spark.jars.ivy=/root/.ivy2 \
+          --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions \
           --conf spark.hadoop.fs.s3a.access.key=minioadmin \
           --conf spark.hadoop.fs.s3a.secret.key=minioadmin \
           --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 \

@@ -1,10 +1,12 @@
 from pyspark.sql.types import (
+    DateType,
     DoubleType,
     IntegerType,
     LongType,
     StringType,
     StructField,
     StructType,
+    TimestampType,
 )
 
 LISTEN_EVENTS_SCHEMA = StructType(
@@ -73,6 +75,15 @@ AUTH_EVENTS_SCHEMA = StructType(
         StructField("success", StringType(), True),
     ]
 )
+
+meta_schema = [
+    StructField("event_id", StringType(), True),
+    StructField("event_date", DateType(), True),
+    StructField("_kafka_partition", IntegerType(), True),
+    StructField("_kafka_offset", LongType(), True),
+    StructField("_kafka_timestamp", TimestampType(), True),
+    StructField("_processing_time", TimestampType(), True),
+]
 
 SCHEMAS = {
     "listen_events": LISTEN_EVENTS_SCHEMA,
