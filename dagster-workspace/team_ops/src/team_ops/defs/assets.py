@@ -25,7 +25,7 @@ from pyspark.sql.functions import (
 from pyspark.sql.types import StructType
 
 from team_ops.defs.resources import SparkConnectResource, StreamingJobConfig
-from team_ops.schemas import SCHEMAS as TOPIC_SCHEMAS
+from team_ops.schemas import SCHEMAS as TOPIC_SCHEMAS, meta_schema
 
 
 def create_namespace_if_not_exists(
@@ -47,7 +47,6 @@ def create_table_if_not_exists(
     schema: StructType,
 ) -> None:
     """Create Iceberg table if it doesn't exist using Spark Catalog API."""
-    from pyspark.sql.types import IntegerType, LongType, StructField, TimestampType
 
     table_name = f"{catalog}.{namespace}.bronze_{topic}"
 
@@ -58,27 +57,11 @@ def create_table_if_not_exists(
     except Exception:
         pass  # Table doesn't exist, create it
 
-    # Extend schema with computed columns and Kafka metadata
-    from pyspark.sql.types import StringType, DateType
-
-    extended_fields = list(schema.fields) + [
-        StructField("_kafka_partition", IntegerType(), True),
-        StructField("_kafka_offset", LongType(), True),
-        StructField("_kafka_timestamp", TimestampType(), True),
-        StructField("event_id", StringType(), True),
-        StructField("event_date", DateType(), True),
-        StructField("_processing_time", TimestampType(), True),
-    ]
+    extended_fields = list(schema.fields) + meta_schema
     extended_schema = StructType(extended_fields)
 
-    # Use Spark Catalog API to create the table with partitioning
-    spark.catalog.createTable(
-        tableName=table_name,
-        schema=extended_schema,
-        source="iceberg",
-        partitioningColumns=["event_date"],
-        description=f"Bronze streaming table for {topic}",
-    )
+    cols = ", ".join([f"{f.name} {f.dataType.simpleString()}" for f in extended_schema])
+    spark.sql(f"CREATE TABLE IF NOT EXISTS {table_name} ({cols}) USING iceberg PARTITIONED BY (event_date)")
 
 
 def process_stream(
@@ -128,8 +111,11 @@ def process_stream(
         .withColumn("event_date", to_date(from_unixtime(col("ts") / 1000)))
         .withColumn("_processing_time", current_timestamp())
     )
-
-    return parsed_df
+    
+    metadata_cols = [field.name for field in meta_schema]
+    data_cols = [field.name for field in schema.fields]
+    
+    return parsed_df.select(*data_cols, *metadata_cols)
 
 
 def write_stream(
