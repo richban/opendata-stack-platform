@@ -222,7 +222,8 @@ services:
       - |
         /opt/eventsim/eventsim.sh \
           -c /opt/eventsim/examples/example-config.json \
-          --from 0 \
+          --from 730 \
+          --to 0 \
           --nusers 10 \
           --growth-rate 0.001 \
           --userid 1 \
@@ -236,7 +237,7 @@ services:
   kafdrop:
     image: obsidiandynamics/kafdrop:latest
     ports:
-      - "9000:9000"
+      - "9002:9000"
     environment:
       KAFKA_BROKERCONNECT: kafka:9092
       JVM_OPTS: "-Xms32M -Xmx64M"
