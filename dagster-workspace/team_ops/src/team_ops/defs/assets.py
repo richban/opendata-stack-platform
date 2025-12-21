@@ -15,12 +15,12 @@ import dagster as dg
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col,
+    concat_ws,
     current_timestamp,
     from_json,
-    sha2,
-    concat_ws,
-    to_date,
     from_unixtime,
+    sha2,
+    to_date,
 )
 from pyspark.sql.types import StructType
 
@@ -44,9 +44,11 @@ def create_table_if_not_exists(
     catalog: str,
     namespace: str,
     topic: str,
-    schema,
+    schema: StructType,
 ) -> None:
-    """Create Iceberg table if it doesn't exist."""
+    """Create Iceberg table if it doesn't exist using Spark Catalog API."""
+    from pyspark.sql.types import IntegerType, LongType, StructField, TimestampType
+
     table_name = f"{catalog}.{namespace}.bronze_{topic}"
 
     # Check if table exists
@@ -56,35 +58,27 @@ def create_table_if_not_exists(
     except Exception:
         pass  # Table doesn't exist, create it
 
-    # Build schema DDL from the provided schema
-    fields = []
-    for field in schema.fields:
-        field_type = field.dataType.simpleString()
-        # Iceberg/Spark SQL doesn't use NULL keyword, only NOT NULL for non-nullable fields
-        nullable = "" if field.nullable else "NOT NULL"
-        fields.append(f"{field.name} {field_type} {nullable}".strip())
+    # Extend schema with computed columns and Kafka metadata
+    from pyspark.sql.types import StringType, DateType
 
-    # Add metadata columns
-    fields.extend(
-        [
-            "kafka_partition INT",
-            "kafka_offset BIGINT",
-            "kafka_timestamp TIMESTAMP",
-            "ingestion_time TIMESTAMP NOT NULL",
-        ]
+    extended_fields = list(schema.fields) + [
+        StructField("_kafka_partition", IntegerType(), True),
+        StructField("_kafka_offset", LongType(), True),
+        StructField("_kafka_timestamp", TimestampType(), True),
+        StructField("event_id", StringType(), True),
+        StructField("event_date", DateType(), True),
+        StructField("_processing_time", TimestampType(), True),
+    ]
+    extended_schema = StructType(extended_fields)
+
+    # Use Spark Catalog API to create the table with partitioning
+    spark.catalog.createTable(
+        tableName=table_name,
+        schema=extended_schema,
+        source="iceberg",
+        partitioningColumns=["event_date"],
+        description=f"Bronze streaming table for {topic}",
     )
-
-    schema_ddl = ",\n    ".join(fields)
-
-    create_sql = f"""
-    CREATE TABLE IF NOT EXISTS {table_name} (
-        {schema_ddl}
-    )
-    USING iceberg
-    PARTITIONED BY (days(ingestion_time))
-    """
-
-    spark.sql(create_sql)
 
 
 def process_stream(
@@ -92,6 +86,7 @@ def process_stream(
     streaming_config: StreamingJobConfig,
     topic: str,
     schema: StructType,
+    context: dg.AssetExecutionContext,
 ):
     """Transform Kafka stream: parse JSON, add event_id, extract event_date."""
 
@@ -104,16 +99,19 @@ def process_stream(
         .load()
     )
 
+    # Parse JSON, flatten struct, and add metadata - following Spark docs pattern
     parsed_df = (
         kafka_df.select(
             from_json(col("value").cast("string"), schema).alias("data"),
             col("partition").alias("_kafka_partition"),
             col("offset").alias("_kafka_offset"),
+            col("timestamp").alias("_kafka_timestamp"),
         )
         .select(
             "data.*",
             "_kafka_partition",
             "_kafka_offset",
+            "_kafka_timestamp",
         )
         .withColumn(
             "event_id",
@@ -157,7 +155,7 @@ def write_stream(
     )
 
     context.log.info(f"✓ Started stream for {topic} -> {table_name}")
-    context.log.info(f"  Write interval: 30 seconds (processingTime trigger)")
+    context.log.info("  Write interval: 30 seconds (processingTime trigger)")
     context.log.info(f"  Checkpoint: {checkpoint_location}")
 
     return df_out
@@ -221,11 +219,15 @@ def bronze_streaming_job(
     for topic, schema in TOPIC_SCHEMAS.items():
         context.log.info(f"Creating table for {topic}...")
         create_table_if_not_exists(
-            session, streaming_config.catalog, streaming_config.namespace, topic, schema
+            session,
+            streaming_config.catalog,
+            streaming_config.namespace,
+            topic,
+            schema,
         )
 
         context.log.info(f"Starting stream for {topic}...")
-        df_stream = process_stream(session, streaming_config, topic, schema)
+        df_stream = process_stream(session, streaming_config, topic, schema, context)
         df_out = write_stream(df_stream, streaming_config, topic, context)
         queries.append(df_out)
 
