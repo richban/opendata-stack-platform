@@ -11,6 +11,7 @@ from team_ops.defs.silver_assets import (
     silver_auth_events,
     silver_listen_events,
     silver_page_view_events,
+    silver_user_sessions,
 )
 
 
