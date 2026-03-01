@@ -27,6 +27,7 @@ def _():
         to_date,
     )
     from pyspark.sql.types import StructType
+
     return (
         SparkSession,
         StructType,

@@ -1,0 +1,31 @@
+# Ralph Progress Log
+Started: Sun Mar  1 22:14:29 CET 2026
+---
+
+## Sun Mar 1 23:00:00 CET 2026 - US-001
+Session: https://opncd.ai/s/[share-id]
+- Implemented US-001: Verify Bronze Streaming Layer End-to-End
+- Created test infrastructure:
+  - `tests/conftest.py`: Fixtures for mock_spark_resource, mock_streaming_config, mock_spark_session
+  - `tests/test_bronze_assets.py`: 4 tests for bronze_streaming_job asset
+- Tests verify:
+  - dg check defs passes without errors
+  - bronze_streaming_job asset exists and has correct metadata
+  - Asset function can be called with mocked Spark resources
+  - Asset returns MaterializeResult with expected metadata (topics, catalog, namespace, kafka_servers, num_streams)
+- Quality checks:
+  - pytest tests/test_bronze_assets.py -v: 4 passed
+  - dg check defs: All definitions loaded successfully
+  - ruff format applied to codebase
+- Files changed:
+  - Created: tests/conftest.py, tests/test_bronze_assets.py
+  - Modified: src/team_ops/defs/assets.py (formatting), src/team_ops/defs/resources.py (formatting)
+
+**Learnings for future iterations:**
+- Use `build_op_context(resources={...})` to properly test Dagster assets with resources
+- Patch PySpark functions (col, from_json, etc.) in team_ops.defs.assets when testing to avoid SparkContext issues
+- Use real StreamingJobConfig instance with test values, not mocks, to satisfy Dagster resource validation
+- Bronze asset uses generator pattern (yield), so call `next()` to get the MaterializeResult
+- Run `dg check defs` from dagster-workspace/team_ops directory, not root
+- Tests should patch `team_ops.defs.assets.<function>` to intercept PySpark calls
+---

@@ -2,10 +2,11 @@
 
 import os
 
-import dagster as dg
 from dagster import EnvVar
 from dagster_aws.s3 import S3Resource
 from pyspark.sql import SparkSession
+
+import dagster as dg
 
 
 class SparkConnectResource(dg.ConfigurableResource):

@@ -1,4 +1,4 @@
-Welcome to your new dbt project!
+# THIS PROJECT IS CURRENTLY UNMAINTAINED; LEGACY CODE;
 
 ### Using the starter project
 

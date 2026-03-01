@@ -1,7 +1,8 @@
 """Dagster assets for managing Spark Structured Streaming jobs via Spark Connect.
 
-This module uses Spark Connect to launch long-running streaming jobs directly from Dagster.
-No subprocess, no Pipes, no jar transfer - just clean remote Spark execution.
+This module uses Spark Connect to launch long-running streaming jobs directly
+from Dagster. No subprocess, no Pipes, no jar transfer - just clean remote
+Spark execution.
 
 Streaming Configuration:
 - Write interval: 30 seconds (processingTime trigger)
@@ -61,7 +62,10 @@ def create_table_if_not_exists(
     extended_schema = StructType(extended_fields)
 
     cols = ", ".join([f"{f.name} {f.dataType.simpleString()}" for f in extended_schema])
-    spark.sql(f"CREATE TABLE IF NOT EXISTS {table_name} ({cols}) USING iceberg PARTITIONED BY (event_date)")
+    spark.sql(
+        f"CREATE TABLE IF NOT EXISTS {table_name} ({cols}) "
+        f"USING iceberg PARTITIONED BY (event_date)"
+    )
 
 
 def process_stream(
@@ -111,10 +115,10 @@ def process_stream(
         .withColumn("event_date", to_date(from_unixtime(col("ts") / 1000)))
         .withColumn("_processing_time", current_timestamp())
     )
-    
+
     metadata_cols = [field.name for field in meta_schema]
     data_cols = [field.name for field in schema.fields]
-    
+
     return parsed_df.select(*data_cols, *metadata_cols)
 
 
