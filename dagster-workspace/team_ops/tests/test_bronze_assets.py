@@ -208,16 +208,21 @@ def test_bronze_streaming_job_metadata_content(
     result_gen = bronze_streaming_job(context)
     result = next(result_gen)
 
-    # Verify metadata contains expected fields
+    # Verify metadata contains expected fields (new US-002 fields)
     metadata = result.metadata
-    assert "topics" in metadata
+    assert "topics_started" in metadata
+    assert "spark_ui_url" in metadata
     assert "catalog" in metadata
+    assert "checkpoint_base" in metadata
+    # Also check backward-compatible fields
+    assert "topics" in metadata
     assert "namespace" in metadata
     assert "kafka_servers" in metadata
     assert "num_streams" in metadata
 
-    # Verify metadata values
-    assert metadata["catalog"] == "streamify"
+    # Verify metadata values (access .text/.value attributes for MetadataValue objects)
+    assert metadata["catalog"].text == "streamify"
+    assert metadata["checkpoint_base"].text == "s3a://checkpoints/streaming"
     assert metadata["namespace"] == "bronze"
     assert metadata["kafka_servers"] == "kafka:9092"
     assert metadata["num_streams"] == 3  # Three topics

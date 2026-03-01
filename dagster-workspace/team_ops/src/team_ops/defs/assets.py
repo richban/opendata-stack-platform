@@ -152,8 +152,10 @@ def write_stream(
 
 
 @dg.asset(
-    group_name="streaming",
-    compute_kind="spark-streaming",
+    group_name="bronze",
+    kinds={"spark", "iceberg", "kafka"},
+    owners=["team:team-ops"],
+    tags={"layer": "bronze", "schedule": "streaming"},
     description="Kafka to Iceberg Bronze streaming job (via Spark Connect)",
 )
 def bronze_streaming_job(
@@ -223,11 +225,18 @@ def bronze_streaming_job(
 
     context.log.info(f"All {len(queries)} streams running. Monitoring...")
 
-    # Report materialization
+    # Report materialization with rich metadata
+    topics_started = list(TOPIC_SCHEMAS.keys())
+    spark_ui_url = "http://localhost:8080"
+
     yield dg.MaterializeResult(
         metadata={
-            "topics": dg.MetadataValue.json(list(TOPIC_SCHEMAS.keys())),
-            "catalog": streaming_config.catalog,
+            "topics_started": dg.MetadataValue.json(topics_started),
+            "spark_ui_url": dg.MetadataValue.url(spark_ui_url),
+            "catalog": dg.MetadataValue.text(streaming_config.catalog),
+            "checkpoint_base": dg.MetadataValue.text(streaming_config.checkpoint_path),
+            # Keep existing metadata for backward compatibility
+            "topics": dg.MetadataValue.json(topics_started),
             "namespace": streaming_config.namespace,
             "kafka_servers": streaming_config.kafka_bootstrap_servers,
             "num_streams": len(queries),
