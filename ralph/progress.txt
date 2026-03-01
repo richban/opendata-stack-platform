@@ -137,3 +137,39 @@ Session: https://opncd.ai/s/[share-id]
 - Always check for missing environment variables before attempting Kafka connection
 - Tests for sensors that import external libraries need to use `patch.dict("sys.modules", {...})` to mock the modules
 ---
+
+## Sun Mar 1 22:55:00 CET 2026 - US-006
+Session: https://opncd.ai/s/[share-id]
+- Implemented US-006: Silver Layer — Deduplicated Listen Events Asset
+- Created `defs/silver_assets.py` with `silver_listen_events` asset:
+  - Asset decorator with group_name='silver', kinds={'spark', 'iceberg'}, owners=['team:team-ops'], tags={'layer': 'silver', 'topic': 'listen_events'}
+  - DailyPartitionsDefinition(start_date='2024-01-01') for daily processing
+  - Reads from bronze_listen_events using SparkConnectResource
+  - Deduplication using ROW_NUMBER() OVER (PARTITION BY event_id ORDER BY _processing_time DESC) keeping row_num = 1
+  - Writes to silver_listen_events with mode='overwrite' and partitionOverwriteMode='dynamic'
+  - Returns MaterializeResult with metadata: input_rows, output_rows, duplicate_rows_removed, source_table, target_table, partition_date
+- Updated `defs/definitions.py` to load silver_assets module
+- Created `tests/test_silver_assets.py` with 2 comprehensive tests:
+  - test_asset_deduplicates_rows_correctly: Verifies ROW_NUMBER window function and metadata
+  - test_asset_returns_materialize_result: Verifies MaterializeResult structure and content
+- Tests use @patch for PySpark functions (col, row_number, Window) to avoid SparkContext issues
+- Files changed:
+  - Created: `src/team_ops/defs/silver_assets.py`
+  - Created: `tests/test_silver_assets.py`
+  - Modified: `src/team_ops/defs/definitions.py` (added silver_assets to load_assets_from_modules)
+  - Modified: `ralph/prd.json` (marked US-006 as passing)
+- Quality checks:
+  - `dg check defs`: All definitions loaded successfully
+  - `pytest tests/test_silver_assets.py -v`: 2 passed
+  - `pytest tests/ -v`: 19 passed (all tests)
+  - `dg list defs`: Shows silver_listen_events in silver group with correct kinds
+  - `ruff format`: No changes needed
+
+**Learnings for future iterations:**
+- PySpark Window functions (row_number, Window) need SparkContext - must patch them in tests using `@patch("team_ops.defs.silver_assets.Window")`
+- When mocking DataFrame chains with multiple operations (filter -> withColumn -> filter -> drop), use separate mock objects for each step to avoid confusion
+- Silver layer assets follow same pattern as maintenance assets but with deduplication logic using ROW_NUMBER() window function
+- Dynamic partition overwrite mode ('dynamic') only overwrites partitions being written, preserving other partitions
+- Access int metadata values in tests via `.value` attribute (e.g., `result.metadata["input_rows"].value`)
+- Use `context.has_partition_key` to check if running with partition context vs full table mode
+---
