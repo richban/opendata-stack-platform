@@ -1,5 +1,5 @@
 {
-  "project": "Team Ops — Streamify Data Platform",
+  "project": "Team Ops \u2014 Streamify Data Platform",
   "branchName": "ralph/streamify-data-platform",
   "description": "Real-time music streaming analytics pipeline: verify Bronze streaming layer, implement Silver deduplication and sessionization, implement Gold analytics aggregations, add Dagster sensors for streaming health and Kafka lag monitoring, Iceberg compaction, data quality checks with a DQ results table, and a full integration test suite.",
   "userStories": [
@@ -40,7 +40,7 @@
     },
     {
       "id": "US-003",
-      "title": "Streaming Health Sensor — Auto-restart on Failure",
+      "title": "Streaming Health Sensor \u2014 Auto-restart on Failure",
       "description": "As a platform engineer, I want a Dagster @run_failure_sensor that monitors bronze_streaming_job and automatically triggers a new materialisation when the run fails or crashes, so that the streaming pipeline self-heals without manual intervention.",
       "acceptanceCriteria": [
         "bronze_restart_sensor implemented in defs/sensors.py using @dg.run_failure_sensor",
@@ -92,12 +92,12 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented bronze_compaction asset in defs/maintenance_assets.py with group_name=\"bronze_maintenance\", kinds={\"spark\", \"iceberg\"}, owners=[\"team:team-ops\"], deps=[AssetKey(\"bronze_streaming_job\")]. Asset calls CALL {catalog}.system.rewrite_data_files for all 3 Bronze tables (listen_events, page_view_events, auth_events). Created bronze_compaction_schedule with cron \"0 2 * * *\" registered in definitions.py. Asset returns MaterializeResult with metadata including tables_compacted, catalog, and namespace. All tests pass: pytest tests/test_maintenance_assets.py -v (4 passed). dg check defs passes with 0 errors."
     },
     {
       "id": "US-006",
-      "title": "Silver Layer — Deduplicated Listen Events Asset",
+      "title": "Silver Layer \u2014 Deduplicated Listen Events Asset",
       "description": "As a data engineer, I want a silver_listen_events Dagster asset that reads from bronze_listen_events and writes deduplicated records to silver_listen_events in the Polaris catalog, so that downstream analytics work on clean, non-duplicate data.",
       "acceptanceCriteria": [
         "silver_listen_events asset implemented in defs/silver_assets.py",
@@ -118,7 +118,7 @@
     },
     {
       "id": "US-007",
-      "title": "Silver Layer — Deduplicated Page View Events Asset",
+      "title": "Silver Layer \u2014 Deduplicated Page View Events Asset",
       "description": "As a data engineer, I want a silver_page_view_events asset that deduplicates Bronze page-view events by event_id, so that page-level analytics are accurate.",
       "acceptanceCriteria": [
         "silver_page_view_events asset implemented in defs/silver_assets.py following the same pattern as silver_listen_events",
@@ -138,7 +138,7 @@
     },
     {
       "id": "US-008",
-      "title": "Silver Layer — Deduplicated Auth Events Asset",
+      "title": "Silver Layer \u2014 Deduplicated Auth Events Asset",
       "description": "As a data engineer, I want a silver_auth_events asset that deduplicates Bronze auth events by event_id, so that authentication analytics are based on clean data.",
       "acceptanceCriteria": [
         "silver_auth_events asset implemented in defs/silver_assets.py following the same pattern as silver_listen_events",
@@ -158,7 +158,7 @@
     },
     {
       "id": "US-009",
-      "title": "Silver Layer — User Session Reconstruction Asset",
+      "title": "Silver Layer \u2014 User Session Reconstruction Asset",
       "description": "As a data engineer, I want a silver_user_sessions asset that reconstructs user sessions from silver_listen_events and silver_page_view_events using a 30-minute inactivity timeout, so that session-level metrics are available for Gold analytics.",
       "acceptanceCriteria": [
         "silver_user_sessions asset implemented in defs/silver_assets.py",
@@ -199,7 +199,7 @@
       ],
       "priority": 10,
       "passes": false,
-      "notes": "Use sqlite3 stdlib — no extra dependency. DQ results table is append-only. Log file uses Python logging with FileHandler."
+      "notes": "Use sqlite3 stdlib \u2014 no extra dependency. DQ results table is append-only. Log file uses Python logging with FileHandler."
     },
     {
       "id": "US-011",
@@ -219,7 +219,7 @@
     },
     {
       "id": "US-012",
-      "title": "Gold Layer — Top Tracks and Artists Daily Aggregation",
+      "title": "Gold Layer \u2014 Top Tracks and Artists Daily Aggregation",
       "description": "As an analyst, I want gold_top_tracks and gold_top_artists assets that aggregate daily play counts from silver_listen_events, so that I can query the most popular content for any given day.",
       "acceptanceCriteria": [
         "gold_top_tracks and gold_top_artists assets implemented in defs/gold_assets.py",
@@ -240,7 +240,7 @@
     },
     {
       "id": "US-013",
-      "title": "Gold Layer — DAU/MAU Metrics Asset",
+      "title": "Gold Layer \u2014 DAU/MAU Metrics Asset",
       "description": "As an analyst, I want a gold_dau_mau asset that computes Daily Active Users and Monthly Active Users from silver_listen_events, so that I can track user engagement trends over time.",
       "acceptanceCriteria": [
         "gold_dau_mau asset implemented in defs/gold_assets.py",
@@ -261,8 +261,8 @@
     },
     {
       "id": "US-014",
-      "title": "Gold Layer — User Conversion Funnel Asset",
-      "description": "As an analyst, I want a gold_user_conversion_funnel asset that models the conversion funnel (free → paid) from silver_auth_events and silver_listen_events, so that I can measure subscription conversion rates.",
+      "title": "Gold Layer \u2014 User Conversion Funnel Asset",
+      "description": "As an analyst, I want a gold_user_conversion_funnel asset that models the conversion funnel (free \u2192 paid) from silver_auth_events and silver_listen_events, so that I can measure subscription conversion rates.",
       "acceptanceCriteria": [
         "gold_user_conversion_funnel asset implemented in defs/gold_assets.py",
         "Depends on silver_auth_events and silver_listen_events via function parameters",
@@ -282,7 +282,7 @@
     },
     {
       "id": "US-015",
-      "title": "Gold Layer — User Churn Analysis Asset",
+      "title": "Gold Layer \u2014 User Churn Analysis Asset",
       "description": "As an analyst, I want a gold_user_churn asset that identifies churned users from silver_auth_events based on cancellation signals, so that I can monitor churn rate and user retention over time.",
       "acceptanceCriteria": [
         "gold_user_churn asset implemented in defs/gold_assets.py",
@@ -319,7 +319,7 @@
     },
     {
       "id": "US-017",
-      "title": "Integration Test Suite — conftest and Bronze Tests",
+      "title": "Integration Test Suite \u2014 conftest and Bronze Tests",
       "description": "As a developer, I want a test infrastructure with conftest fixtures and Bronze asset tests, so that CI can validate asset definitions load and Bronze assets materialise correctly with mocked resources.",
       "acceptanceCriteria": [
         "tests/conftest.py created with pytest fixtures: mock_spark_resource (MagicMock of SparkConnectResource), mock_s3_resource (MagicMock of S3Resource), mock_streaming_config (StreamingJobConfig with test values)",
@@ -330,11 +330,11 @@
       ],
       "priority": 17,
       "passes": false,
-      "notes": "Mock SparkSession entirely — do not use trigger(once=True) for now."
+      "notes": "Mock SparkSession entirely \u2014 do not use trigger(once=True) for now."
     },
     {
       "id": "US-018",
-      "title": "Integration Test Suite — Silver, Gold, Sensor, and DQ Check Tests",
+      "title": "Integration Test Suite \u2014 Silver, Gold, Sensor, and DQ Check Tests",
       "description": "As a developer, I want tests for Silver assets, Gold assets, sensors, and DQ checks with mocked resources, so that all pipeline layers are covered and regressions are caught in CI.",
       "acceptanceCriteria": [
         "tests/test_silver_assets.py: one test each for silver_listen_events, silver_page_view_events, silver_auth_events, silver_user_sessions using dg.materialize() with mocked SparkConnectResource returning test DataFrames",
@@ -347,7 +347,7 @@
       ],
       "priority": 18,
       "passes": false,
-      "notes": "Keep each test minimal — one assertion per test. Use tmp_path fixture for SQLite DQ store in tests."
+      "notes": "Keep each test minimal \u2014 one assertion per test. Use tmp_path fixture for SQLite DQ store in tests."
     }
   ]
 }
