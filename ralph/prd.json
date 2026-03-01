@@ -73,8 +73,8 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented kafka_lag_sensor in defs/sensors.py with @dg.sensor(minimum_interval_seconds=60). Sensor connects to Kafka via KAFKA_BOOTSTRAP_SERVERS, reads consumer group lag for all three topics (listen_events, page_view_events, auth_events), stores last-checked timestamp in cursor, and logs warning when lag exceeds KAFKA_LAG_WARN_THRESHOLD (default 10000). Registered in definitions.py. All tests pass (9 tests total, including 2 for kafka_lag_sensor)."
     },
     {
       "id": "US-005",

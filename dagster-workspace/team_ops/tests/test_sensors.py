@@ -1,5 +1,6 @@
 """Tests for Dagster sensors."""
 
+import json
 import time
 from unittest.mock import MagicMock, patch
 
@@ -10,9 +11,14 @@ from dagster import (
     DagsterInstance,
     DagsterRun,
     build_run_status_sensor_context,
+    build_sensor_context,
 )
 
-from team_ops.defs.sensors import _last_restart_timestamps, bronze_restart_sensor
+from team_ops.defs.sensors import (
+    _last_restart_timestamps,
+    bronze_restart_sensor,
+    kafka_lag_sensor,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -189,3 +195,126 @@ class TestBronzeRestartSensor:
             assert "bronze_streaming_job" in _last_restart_timestamps
             timestamp = _last_restart_timestamps["bronze_streaming_job"]
             assert before_call <= timestamp <= after_call
+
+
+class TestKafkaLagSensor:
+    """Test cases for kafka_lag_sensor."""
+
+    @pytest.fixture
+    def mock_kafka_admin_client(self):
+        """Create a mock KafkaAdminClient with sample data."""
+        mock_client = MagicMock()
+
+        # Mock consumer groups
+        mock_client.list_consumer_groups.return_value = [
+            ("spark-streaming-group", "consumer"),
+        ]
+
+        # Mock topic description
+        mock_client.describe_topics.return_value = [
+            {
+                "topic": "listen_events",
+                "partitions": [
+                    {"partition": 0},
+                    {"partition": 1},
+                ],
+            }
+        ]
+
+        # Mock committed offsets
+        mock_client.list_consumer_group_offsets.return_value = {
+            MagicMock(): 100,
+            MagicMock(): 200,
+        }
+
+        return mock_client
+
+    @pytest.fixture
+    def mock_kafka_consumer(self):
+        """Create a mock KafkaConsumer with sample end offsets."""
+        mock_consumer = MagicMock()
+        mock_consumer.end_offsets.return_value = {
+            MagicMock(): 500,
+            MagicMock(): 800,
+        }
+        return mock_consumer
+
+    def test_sensor_returns_sensor_result(
+        self, mock_kafka_admin_client, mock_kafka_consumer
+    ):
+        """Test that sensor returns a SensorResult."""
+        mock_kafka_module = MagicMock()
+        mock_kafka_module.KafkaAdminClient = MagicMock(
+            return_value=mock_kafka_admin_client
+        )
+        mock_kafka_module.KafkaConsumer = MagicMock(return_value=mock_kafka_consumer)
+
+        # Also mock kafka.structs submodule
+        mock_structs_module = MagicMock()
+        mock_structs_module.TopicPartition = MagicMock()
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "kafka": mock_kafka_module,
+                "kafka.structs": mock_structs_module,
+            },
+        ):
+            with patch.dict(
+                "os.environ",
+                {
+                    "KAFKA_BOOTSTRAP_SERVERS": "localhost:9092",
+                    "KAFKA_LAG_WARN_THRESHOLD": "10000",
+                },
+            ):
+                context = build_sensor_context(
+                    sensor_name="kafka_lag_sensor",
+                    cursor=json.dumps({"last_checked": time.time() - 120}),
+                )
+
+                result = kafka_lag_sensor(context)
+
+                assert isinstance(result, dg.SensorResult)
+                assert result.cursor is not None
+                cursor_data = json.loads(result.cursor)
+                assert "last_checked" in cursor_data
+                assert "topics_checked" in cursor_data
+
+    def test_sensor_handles_kafka_error(self, mock_kafka_admin_client):
+        """Test that sensor handles Kafka connection errors gracefully."""
+        mock_kafka_admin_client.list_consumer_groups.side_effect = Exception(
+            "Connection refused"
+        )
+
+        mock_kafka_module = MagicMock()
+        mock_kafka_module.KafkaAdminClient = MagicMock(
+            return_value=mock_kafka_admin_client
+        )
+        mock_kafka_module.KafkaConsumer = MagicMock()
+
+        # Also mock kafka.structs submodule
+        mock_structs_module = MagicMock()
+        mock_structs_module.TopicPartition = MagicMock()
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "kafka": mock_kafka_module,
+                "kafka.structs": mock_structs_module,
+            },
+        ):
+            with patch.dict(
+                "os.environ",
+                {
+                    "KAFKA_BOOTSTRAP_SERVERS": "localhost:9092",
+                    "KAFKA_LAG_WARN_THRESHOLD": "10000",
+                },
+            ):
+                context = build_sensor_context(sensor_name="kafka_lag_sensor")
+
+                result = kafka_lag_sensor(context)
+
+                assert isinstance(result, dg.SensorResult)
+                assert result.cursor is not None
+                cursor_data = json.loads(result.cursor)
+                assert "error" in cursor_data

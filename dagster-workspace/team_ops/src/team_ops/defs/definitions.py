@@ -18,7 +18,7 @@ from team_ops.defs.resources import (
 
 defs = dg.Definitions(
     assets=dg.load_assets_from_modules([assets]),
-    sensors=[sensors.bronze_restart_sensor],
+    sensors=[sensors.bronze_restart_sensor, sensors.kafka_lag_sensor],
     resources={
         "spark": create_spark_resource(),
         "s3": create_s3_resource(),

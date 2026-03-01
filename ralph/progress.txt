@@ -61,8 +61,6 @@ Session: https://opncd.ai/s/[share-id]
 - Backward compatibility: kept old metadata fields to not break existing test assertions
 ---
 
-(End of file - total 54 lines)
-
 ## Sun Mar 1 22:35:00 CET 2026 - US-003
 Session: https://opncd.ai/s/[share-id]
 - Implemented US-003: Streaming Health Sensor — Auto-restart on Failure
@@ -98,4 +96,44 @@ Session: https://opncd.ai/s/[share-id]
 - Use `monitored_jobs` parameter selectively - for asset-based jobs, filter by `job_name` in sensor body
 - Sensor return type should be `RunRequest | SkipReason` for clarity
 - Always clear module-level state in test fixtures using `autouse=True` to prevent test interference
+---
+
+## Sun Mar 1 22:45:00 CET 2026 - US-004
+Session: https://opncd.ai/s/[share-id]
+- Implemented US-004: Kafka Consumer-Lag Monitoring Sensor
+- Created `kafka_lag_sensor` in `defs/sensors.py` using `@dg.sensor(minimum_interval_seconds=60)`
+- Sensor features:
+  - Connects to Kafka via `KAFKA_BOOTSTRAP_SERVERS` environment variable using `KafkaAdminClient`
+  - Reads consumer group lag for all three topics: listen_events, page_view_events, auth_events
+  - Uses `KafkaConsumer` to get end offsets (high watermark) for each partition
+  - Calculates lag per partition and aggregates by topic
+  - Stores last-checked timestamp in sensor cursor (JSON format)
+  - Logs warning via `context.log.warning()` when total lag exceeds `KAFKA_LAG_WARN_THRESHOLD` (default: 10000)
+  - Gracefully handles errors and returns partial results on failure
+- Uses lazy imports to avoid kafka-python import issues at definition load time
+- Registered sensor in `defs/definitions.py` sensors list
+- Added tests in `tests/test_sensors.py`:
+  - `test_sensor_returns_sensor_result`: Verifies sensor returns valid SensorResult with cursor
+  - `test_sensor_handles_kafka_error`: Verifies graceful error handling
+- Files changed:
+  - Modified: `src/team_ops/defs/sensors.py` (added kafka_lag_sensor function)
+  - Modified: `src/team_ops/defs/definitions.py` (registered sensor)
+  - Modified: `tests/test_sensors.py` (added tests for kafka_lag_sensor)
+  - Modified: `ralph/prd.json` (marked US-004 as passing)
+- Quality checks:
+  - `dg check defs`: All definitions loaded successfully
+  - `pytest tests/test_sensors.py -v`: 9 passed
+  - `pytest tests/ -v`: 13 passed (all tests)
+  - `dg list defs`: Shows both bronze_restart_sensor and kafka_lag_sensor in Sensors section
+  - `ruff format`: No changes needed
+  - `ruff check`: No new errors in modified files
+
+**Learnings for future iterations:**
+- Use lazy imports (`from kafka import ...` inside function) to avoid kafka-python import issues at definition load time
+- kafka-python has compatibility issues with the `six` module - lazy imports prevent this from blocking Dagster definitions loading
+- When mocking Kafka in tests, need to mock both `kafka` module and `kafka.structs` submodule separately
+- `KafkaAdminClient.list_offsets()` doesn't exist - use `KafkaConsumer.end_offsets()` to get high watermark
+- Sensor cursors should store JSON-serializable data (timestamps, topic lists, etc.)
+- Always check for missing environment variables before attempting Kafka connection
+- Tests for sensors that import external libraries need to use `patch.dict("sys.modules", {...})` to mock the modules
 ---
