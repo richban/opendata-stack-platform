@@ -1,191 +1,232 @@
 # Team Ops - Streamify Data Platform
 
-Real-time music streaming analytics pipeline using Kafka, Spark, Iceberg, and Dagster. Implements a Lambda architecture with streaming (Dagster Pipes) and batch (Spark Connect) layers.
+Real-time music streaming analytics pipeline using Kafka, Spark, Iceberg, Polaris Catalog, and Dagster. Ingests simulated Spotify-like events from Eventsim into Iceberg Bronze tables via Spark Structured Streaming, orchestrated through Dagster via Spark Connect.
 
-> **📖 Quick Start**: See [`/QUICKSTART.md`](../../QUICKSTART.md) for immediate setup
-> **📚 Full Guide**: See [`/SETUP.md`](../../SETUP.md) for detailed documentation
+> **⚠️ Implementation Status**: The Bronze streaming layer is implemented but not verified yet.
+> The Silver/Gold batch layers are planned but not yet implemented.
 
 ## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                   STREAMING LAYER (24/7)                        │
-│                   Orchestration: Dagster Pipes                  │
+│                   STREAMING LAYER                               │
+│                   Orchestration: Dagster → Spark Connect        │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  Kafka Topics  ──spark-submit──>  Spark Streaming  ──────>     │
-│  ├─ listen_events              (Pipes monitors via S3)         │
-│  ├─ page_view_events                    │                      │
-│  └─ auth_events                          ▼                      │
-│                              Iceberg Bronze Tables              │
-│                              (Polaris Catalog)                  │
-│                              ├─ bronze_listen_events            │
-│                              ├─ bronze_page_view_events         │
-│                              └─ bronze_auth_events              │
-│                                                                 │
+│  Eventsim ──▶ Kafka Topics ──▶ Spark Structured Streaming ──▶   │
+│               ├─ listen_events     (via Spark Connect gRPC)     │
+│               ├─ page_view_events  30-second micro-batches      │
+│               └─ auth_events                │                   │
+│                                             ▼                   │
+│                                 Iceberg Bronze Tables           │
+│                                 (Polaris REST Catalog)          │
+│                                 ├─ bronze_listen_events         │
+│                                 ├─ bronze_page_view_events      │
+│                                 └─ bronze_auth_events           │
+│                                             │                   │
+│                                             ▼                   │
+│                                 MinIO (s3a://)                  │
+│                                 ├─ Table data files             │
+│                                 └─ Streaming checkpoints        │
 └─────────────────────────────────────────────────────────────────┘
-                                  │
-                                  ▼
+                                   │
+                                   ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     BATCH LAYER (Hourly)                        │
-│                   Orchestration: Spark Connect                  │
+│                  BATCH LAYER  ⚠️ Planned (not implemented)      │
+│                  Orchestration: Dagster assets + Spark Connect  │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  Dagster Assets (Direct PySpark API)                           │
-│                                                                 │
-│  Bronze Tables ──dedup──> Silver Tables                        │
-│                           ├─ silver_listen_events               │
-│                           ├─ silver_page_view_events            │
-│                           ├─ silver_auth_events                 │
-│                           └─ silver_user_sessions (sessionized) │
+│  Bronze Tables ──dedup──▶ Silver Tables                        │
+│                            ├─ silver_listen_events              │
+│                            ├─ silver_page_view_events           │
+│                            ├─ silver_auth_events                │
+│                            └─ silver_user_sessions (sessionized)│
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Two-Layer Approach
+## How It Actually Works
 
-### 1. Streaming Layer (Dagster Pipes)
+### Streaming Layer (Implemented ✅)
 
-**Purpose**: Real-time ingestion from Kafka to Bronze Iceberg tables
+The **only implemented asset** is `bronze_streaming_job`. It uses **Spark Connect** (not Dagster Pipes) to run Spark Structured Streaming directly from Dagster:
 
-**Asset**: `bronze_streaming_job`
-
-**Technology**:
-- **Orchestration**: Dagster Pipes
-- **Execution**: `spark-submit` subprocess
-- **Monitoring**: S3-based message passing (logs, metrics)
-- **Script**: `spark_scripts/stream_to_iceberg.py`
-
-**Why Dagster Pipes?**
-- Manages long-running streaming jobs (24/7)
-- Non-blocking: Dagster doesn't wait for infinite stream
-- Observable: Logs/metrics flow back via S3
-- Restartable: Can programmatically kill/restart jobs
-
-**Features**:
-- Continuous ingestion with Spark checkpointing
-- Auto-generated deduplication hash (`event_id`)
-- Date partitioning (`event_date`)
-- Metadata enrichment (`_processing_time`, `_kafka_partition`, `_kafka_offset`)
-
-### 2. Batch Layer (Spark Connect)
-
-**Purpose**: Scheduled transformations (dedup, sessionization, quality checks)
-
-**Assets**: `silver_listen_events`, `silver_page_view_events`, etc.
-
-**Technology**:
-- **Orchestration**: Dagster assets
-- **Execution**: Spark Connect (direct PySpark API via gRPC)
-- **Resource**: `SparkConnectResource`
-- **Location**: `defs/assets.py`
-
-**Why Spark Connect?**
-- Native PySpark API from Dagster (no subprocess overhead)
-- Better error handling (stack traces preserved)
-- Resource injection via Dagster
-- Simpler code (no CLI argument passing)
-
-**Features**:
-- Hourly deduplication using window functions
-- Session reconstruction (30-min timeout)
-- Iceberg MERGE/DELETE operations
-- Data quality checks
-
-## Data Flow
-
-### Event Types
-
-1. **Listen Events**: Song plays (artist, song, duration, user, session)
-2. **Page View Events**: Navigation (page, user, timestamp)
-3. **Auth Events**: Authentication (login, logout, success status)
-
-### Bronze Layer (Streaming)
-
-```sql
--- Partitioned by event_date, includes dedup hash
-CREATE TABLE bronze_listen_events (
-    -- Original Kafka event fields
-    artist STRING,
-    song STRING,
-    duration DOUBLE,
-    ts BIGINT,
-    userId BIGINT,
-    sessionId INT,
-    -- ... (other fields)
-
-    -- Added by streaming job
-    event_id STRING,           -- SHA256(userId|sessionId|ts)
-    event_date DATE,           -- PARTITION KEY
-    _processing_time TIMESTAMP,
-    _kafka_partition INT,
-    _kafka_offset BIGINT
-)
-USING iceberg
-PARTITIONED BY (event_date)
+```
+Dagster Asset (bronze_streaming_job)
+   │
+   ├─ Creates SparkSession via Spark Connect (sc://spark-master:15002)
+   │   └─ SparkConnectResource handles OAuth2 auth to Polaris
+   │
+   ├─ For each Kafka topic (listen_events, page_view_events, auth_events):
+   │   ├─ Creates Iceberg table in Polaris if not exists
+   │   ├─ Reads Kafka stream (startingOffsets: earliest)
+   │   ├─ Parses JSON with schema from schemas.py
+   │   ├─ Transforms:
+   │   │   ├─ event_id = SHA-256(userId_sessionId_ts)
+   │   │   ├─ event_date = DATE(FROM_UNIXTIME(ts / 1000))
+   │   │   └─ Preserves _kafka_partition, _kafka_offset, _kafka_timestamp
+   │   └─ Writes to Iceberg:
+   │       ├─ format("iceberg").toTable("{catalog}.streamify.bronze_{topic}")
+   │       ├─ trigger(processingTime="30 seconds")
+   │       ├─ outputMode("append")
+   │       └─ fanout-enabled: true
+   │
+   └─ Calls session.streams.awaitAnyTermination()
+       (runs indefinitely until stopped or crashes)
 ```
 
-### Silver Layer (Batch)
+> **Important**: `bronze_streaming_job` is a **long-running asset**. Once materialised it blocks
+> the Dagster run indefinitely. It must be cancelled explicitly via the Dagster UI to stop streaming.
 
-```sql
--- Deduplicated using event_id
-CREATE TABLE silver_listen_events
-USING iceberg
-PARTITIONED BY (event_date)
-AS SELECT ... FROM bronze_listen_events
+### Batch Layer (Planned ⚠️)
 
--- Sessionized events (30-min timeout)
-CREATE TABLE silver_user_sessions (
-    user_id BIGINT,
-    session_start TIMESTAMP,
-    session_end TIMESTAMP,
-    event_count INT,
-    ...
-)
+No silver or gold assets are implemented yet. The `SparkConnectResource` is already wired up and ready for batch assets to use. See [Future Work](#future-work).
+
+---
+
+## Project Structure
+
 ```
+team_ops/
+├── src/team_ops/
+│   ├── schemas.py                  # PySpark schemas for all 3 Kafka topics + meta_schema
+│   ├── definitions.py              # Entry point → team_ops.defs.definitions
+│   └── defs/
+│       ├── __init__.py             # Package docstring
+│       ├── assets.py               # bronze_streaming_job asset (only asset)
+│       ├── resources.py            # SparkConnectResource, StreamingJobConfig, S3Resource
+│       └── definitions.py          # Dagster Definitions (resources wired up)
+├── notebooks/
+│   ├── test_streaming_simple.py    # Standalone test: Kafka → parse → console output
+│   └── test_streaming.py           # Extended streaming test
+├── pyproject.toml
+└── README.md
+```
+
+**What does NOT exist (yet)**:
+- `spark_scripts/` directory — no external `spark-submit` scripts
+- `defs/streaming_assets.py` — streaming is in `assets.py`
+- Silver layer assets (`silver_listen_events`, etc.)
+- Gold layer assets
+
+---
+
+## Data Schemas
+
+Schemas are defined in `schemas.py` and imported by `assets.py`.
+
+### listen_events (19 payload fields)
+```
+artist, song, duration (double), ts (long ms), auth, level,
+city, zip, state, userAgent, lon, lat (double),
+userId (long), lastName, firstName, gender,
+registration (long ms), sessionId (int), itemInSession (int)
+```
+
+### page_view_events (17 payload fields)
+```
+ts (long ms), sessionId (int), auth, level, itemInSession (int),
+city, zip, state, userAgent, lon, lat (double),
+userId (long), lastName, firstName, gender, registration (long ms),
+page  (Home | About | Settings | Help | Upgrade | Downgrade | Error | …)
+```
+
+### auth_events (16 payload fields)
+```
+ts (long ms), sessionId (int), level, itemInSession (int),
+city, zip, state, userAgent, lon, lat (double),
+userId (long), lastName, firstName, gender, registration (long ms),
+success (string: "true" | "false")
+```
+
+### meta_schema (added by streaming transform to all topics)
+```
+event_id          string     SHA-256(userId_sessionId_ts)
+event_date        date       Partition key — derived from ts
+_kafka_partition  int
+_kafka_offset     long
+_kafka_timestamp  timestamp
+_processing_time  timestamp
+```
+
+---
+
+## Catalog Structure (Polaris)
+
+```
+{POLARIS_CATALOG}            ← catalog name from env
+└── streamify                ← namespace (POLARIS_NAMESPACE)
+    ├── bronze_listen_events      ✅ created by bronze_streaming_job
+    ├── bronze_page_view_events   ✅ created by bronze_streaming_job
+    ├── bronze_auth_events        ✅ created by bronze_streaming_job
+    ├── silver_listen_events      ⚠️ planned
+    ├── silver_page_view_events   ⚠️ planned
+    ├── silver_auth_events        ⚠️ planned
+    └── silver_user_sessions      ⚠️ planned
+```
+
+## Storage (MinIO)
+
+```
+{catalog}/           ← Iceberg table data (Parquet files)
+checkpoints/         ← Spark streaming checkpoints (s3a://checkpoints/streaming/{topic})
+dagster-pipes/       ← Reserved bucket (currently unused)
+```
+
+---
 
 ## Setup
 
 ### 1. Start Infrastructure
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-**Services**:
-- Kafka + Zookeeper (9092, 9093)
-- Spark Master + Workers (8080)
-- Eventsim (event generator)
-- MinIO (S3-compatible storage)
-- Polaris (Iceberg REST catalog)
+**Services started**:
+- Eventsim — event generator (10 simulated users, 2-year backfill + continuous)
+- Kafka + Zookeeper — `9092` (internal), `9093` (host)
+- Spark Master + Worker + Connect — `8080` (UI), `15002` (Connect gRPC)
+- MinIO — `9000` (API), `9001` (console)
+- Polaris REST Catalog — `8181` (API), `8182` (health)
+- Kafdrop — `9002` (Kafka UI)
 
 ### 2. Bootstrap Polaris Catalog
 
 ```bash
-./polaris-config/setup_polaris.sh
+# Run once — creates catalog, namespace, principal, and credentials
+docker compose up polaris-init
 ```
 
-Outputs credentials to `polaris-config/polaris_credentials.env`:
-```bash
-export POLARIS_CLIENT_ID="principal_xxxxx"
-export POLARIS_CLIENT_SECRET="secret_xxxxx"
-```
+Credentials are written to `polaris-config/polaris_credentials.env`.
 
 ### 3. Set Environment Variables
 
 ```bash
-# Spark Connect (batch layer)
-export SPARK_REMOTE="sc://spark-master:15002"
+# Copy the generated credentials
+source polaris-config/polaris_credentials.env
 
-# Polaris credentials
-export POLARIS_CLIENT_ID="..."
-export POLARIS_CLIENT_SECRET="..."
+# Spark Connect
+export SPARK_REMOTE="sc://localhost:15002"
 
-# MinIO (S3 for Pipes)
-export AWS_ACCESS_KEY_ID="minio"
-export AWS_SECRET_ACCESS_KEY="minio123"
-export AWS_ENDPOINT_URL="http://minio:9000"
+# MinIO
+export AWS_ACCESS_KEY_ID="miniouser"
+export AWS_SECRET_ACCESS_KEY="miniouser"
+export AWS_ENDPOINT_URL="http://localhost:9000"
+
+# Polaris
+export POLARIS_URI="http://localhost:8181/api/catalog"
+export POLARIS_CATALOG="lakehouse"
+export POLARIS_NAMESPACE="streamify"
+
+# Dagster Pipes (reserved — currently unused)
 export DAGSTER_PIPES_BUCKET="dagster-pipes"
+
+# Checkpoint path
+export CHECKPOINT_PATH="s3a://checkpoints/streaming"
+
+# Kafka (Dagster runs on host, Spark runs in Docker)
+export KAFKA_BOOTSTRAP_SERVERS="localhost:9093"
 ```
 
 ### 4. Install Dependencies
@@ -196,250 +237,194 @@ uv sync
 source .venv/bin/activate
 ```
 
-## Usage
-
-### Launch Streaming Job (Dagster Pipes)
+### 5. Start Dagster
 
 ```bash
 cd dagster-workspace
+dagster dev -m team_ops.definitions
+```
+
+---
+
+## Usage
+
+### Launch the Bronze Streaming Job
+
+```bash
 dagster asset materialize -m team_ops.definitions -a bronze_streaming_job
 ```
 
-**What happens**:
-1. Dagster uploads `stream_to_iceberg.py` to S3
-2. Launches `spark-submit` with Pipes bootstrap params
-3. Spark job connects to Kafka, starts streaming
-4. Logs/metrics flow back to Dagster via S3 messages
-5. Dagster UI shows real-time progress
+Or materialise via the Dagster UI at `http://localhost:3000`.
 
-**Check logs**:
+**What actually happens**:
+1. Dagster connects to Spark via Spark Connect (gRPC to `sc://spark-master:15002`)
+2. Polaris namespace `streamify` is created (idempotent)
+3. For each topic, an Iceberg table `bronze_{topic}` is created if it doesn't exist
+4. Three streaming queries start (one per topic), writing 30-second micro-batches to Iceberg
+5. The asset run stays **active indefinitely** — cancel it from the Dagster UI to stop streaming
+
+**Check progress**:
+- Dagster UI: `http://localhost:3000` — run logs and materialisation events
+- Spark UI: `http://localhost:8080` — active streaming jobs and batch statistics
+- Polaris Console: `http://localhost:3001` — verify tables and snapshots exist
+- Kafdrop: `http://localhost:9002` — inspect Kafka topics and consumer lag
+- MinIO Console: `http://localhost:9001` — verify data files in `{catalog}/streamify/`
+
+### Test the Pipeline Independently (Without Dagster)
+
 ```bash
-# Dagster UI: http://localhost:3000
-# Spark UI: http://localhost:8080
+cd dagster-workspace/team_ops
+source .venv/bin/activate
+
+# Runs: Kafka read → JSON parse → transform → console output (10 seconds)
+python notebooks/test_streaming_simple.py
 ```
 
-### Run Batch Deduplication (Spark Connect)
-
-```bash
-# Deduplicate yesterday's listen events
-dagster asset materialize -m team_ops.definitions -a silver_listen_events
-```
-
-**What happens**:
-1. Dagster creates SparkSession via Spark Connect (gRPC)
-2. Runs PySpark code directly (no subprocess)
-3. Reads from Bronze, deduplicates by `event_id`
-4. Writes to Silver with Iceberg MERGE operation
-
-### Monitor Kafka Events
+### Monitor Kafka Topics
 
 ```bash
 # List topics
 docker exec kafka kafka-topics --list --bootstrap-server localhost:9092
 
-# Consume listen_events
+# Inspect consumer lag
+docker exec kafka kafka-consumer-groups \
+  --bootstrap-server localhost:9092 \
+  --describe --all-groups
+
+# Consume sample events
 docker exec kafka kafka-console-consumer \
   --bootstrap-server localhost:9092 \
   --topic listen_events \
-  --max-messages 10
+  --max-messages 5
 ```
 
-## Project Structure
-
-```
-team_ops/
-├── src/team_ops/
-│   ├── spark_scripts/
-│   │   └── stream_to_iceberg.py    # Pipes streaming script
-│   ├── defs/
-│   │   ├── streaming_assets.py     # Pipes orchestration
-│   │   ├── assets.py               # Spark Connect batch jobs
-│   │   ├── resources.py            # SparkConnectResource
-│   │   └── definitions.py          # Dagster definitions
-│   └── definitions.py              # Entry point
-├── pyproject.toml
-└── README.md
-```
+---
 
 ## Key Design Decisions
 
-### Why Two Approaches?
+### Why Spark Connect (not Dagster Pipes) for Streaming?
 
-| Layer | Technology | Reason |
-|-------|-----------|--------|
-| **Streaming** | Dagster Pipes | Long-running jobs (24/7), subprocess monitoring |
-| **Batch** | Spark Connect | Scheduled jobs, native PySpark API, better errors |
+| Approach | Status | Rationale |
+|----------|--------|-----------|
+| **Spark Connect** (current) | ✅ In use | Direct PySpark API via gRPC; Dagster manages session lifecycle; native error handling |
+| **Dagster Pipes + spark-submit** | ❌ Not used | Would require external script, S3 message-passing; more moving parts for same outcome |
 
-### Dagster Pipes (Streaming)
+Spark Connect allows the streaming job to be written as native PySpark code inside a Dagster asset, with zero subprocess overhead. The tradeoff is that the asset run blocks indefinitely — which is acceptable for a long-running streaming job managed via the Dagster UI.
 
-**Problem**: Spark Structured Streaming runs indefinitely, but Dagster assets expect bounded execution.
+### Why Iceberg Directly (not Parquet staging)?
 
-**Solution**: Pipes launches `spark-submit` as subprocess and monitors via S3:
-- Dagster doesn't block waiting for stream to end
-- Logs/metrics streamed back via S3 messages
-- Can programmatically restart/kill jobs
-- Works with any Spark cluster (local, EMR, Databricks)
+Writing directly to Iceberg from Spark Structured Streaming gives:
+- **ACID commits** every 30 seconds — data immediately queryable
+- **No duplicate storage** — no intermediate Parquet files to manage
+- **Schema evolution** — `ALTER TABLE` works without rewriting the pipeline
+- **Checkpointing** into MinIO ensures exactly-once semantics on restart
 
-### Spark Connect (Batch)
+### fanout-enabled: true
 
-**Problem**: Batch transformations need direct PySpark API for Dagster semantics (dependencies, partitions).
+Set on the `writeStream` writer. Required for efficient Iceberg writes when partitioning is enabled — allows the writer to open multiple partition files concurrently without a pre-shuffle.
 
-**Solution**: Spark Connect provides native PySpark over gRPC:
-- No subprocess overhead
-- Direct DataFrame operations
-- Dagster manages SparkSession lifecycle
-- Better error handling (full stack traces)
+---
 
 ## Dependencies
 
+From `pyproject.toml`:
+
 ```toml
-dagster==1.12.3           # Orchestration framework
-dagster-aws==0.28.3       # S3 integration for Pipes
-dagster-pipes>=1.12.3     # Pipes protocol
-pyspark==3.5.3            # Spark Connect + streaming scripts
-boto3>=1.35.0             # S3 client
-grpcio>=1.48.1            # Spark Connect gRPC
-grpcio-status>=1.48.1     # gRPC status codes
-pyiceberg[pyarrow]==0.8.1 # Iceberg Python API
-pandas>=1.0.5             # Required by Spark Connect
-pyarrow>=10.0.0           # Arrow format
+dagster==1.12.3
+dagster-aws==0.28.3         # S3Resource (MinIO)
+dagster-pipes>=1.12.3       # Available but not currently used
+pyspark==3.5.3              # Spark Connect client + streaming
+kafka-python==2.0.2
+pyiceberg[pyarrow]==0.8.1   # Iceberg Python API (available for future use)
+pandas>=1.0.5               # Required by Spark Connect
+pyarrow>=10.0.0
+grpcio>=1.48.1              # Spark Connect transport
+grpcio-status>=1.48.1
+googleapis-common-protos>=1.56.4
 ```
 
-## Catalog Structure (Polaris)
-
-```
-lakehouse                    # Catalog
-└── streamify                # Namespace
-    ├── bronze_listen_events      # Streaming writes
-    ├── bronze_page_view_events
-    ├── bronze_auth_events
-    ├── silver_listen_events      # Batch dedup
-    ├── silver_page_view_events
-    ├── silver_auth_events
-    └── silver_user_sessions      # Sessionization
-```
-
-## Storage (MinIO)
-
-```
-lakehouse/           # Iceberg table data
-checkpoints/         # Spark streaming checkpoints
-dagster-pipes/       # Pipes message passing
-```
-
-## Monitoring
-
-### Dagster UI (http://localhost:3000)
-- Asset lineage graph
-- Materialization history
-- Logs and metadata
-- Run timeline
-
-### Spark UI (http://localhost:8080)
-- Active/completed jobs
-- Stage execution details
-- Executor metrics
-
-### Kafka Monitoring
-```bash
-# Consumer lag
-docker exec kafka kafka-consumer-groups \
-  --bootstrap-server localhost:9092 \
-  --describe --group streaming_job
-```
+---
 
 ## Troubleshooting
 
 ### Streaming job won't start
 
 ```bash
-# Check Kafka
+# Is Kafka healthy?
 docker exec kafka kafka-topics --list --bootstrap-server localhost:9092
 
-# Check Spark master
-docker ps | grep spark-master
+# Is Spark Connect listening?
+docker exec spark-connect netstat -tuln | grep 15002
 
-# Check Polaris
-curl http://localhost:8181/healthcheck
+# Is Polaris healthy?
+curl http://localhost:8182/q/health
 ```
 
 ### Polaris authentication fails
 
 ```bash
-# Regenerate credentials
-./polaris-config/setup_polaris.sh
+# Re-run the init container to regenerate credentials
+docker compose run --rm polaris-init
 
-# Verify credentials
-echo $POLARIS_CLIENT_ID
-echo $POLARIS_CLIENT_SECRET
+# Check the generated credentials
+cat polaris-config/polaris_credentials.env
 ```
 
-### Spark Connect timeout
+### Spark Connect timeout / connection refused
 
 ```bash
-# Check Spark Connect port (15002)
-docker exec spark-master netstat -tuln | grep 15002
+# Check that the spark-connect container is running
+docker ps | grep spark-connect
 
-# Test connection
-telnet spark-master 15002
+# The Connect server takes ~60s to start (downloads Spark packages)
+# Watch its logs
+docker logs spark-connect -f
 ```
 
-### S3 errors (Pipes communication)
+### Streaming stops after restart
+
+Spark recovers automatically from the MinIO checkpoint. Just re-materialise
+`bronze_streaming_job` — it will resume from the last committed Kafka offset.
+
+### MinIO / S3 errors
 
 ```bash
-# Check MinIO
-docker exec minio mc admin info local
+# Check MinIO is healthy
+curl http://localhost:9000/minio/health/live
 
-# List buckets
+# List buckets via mc
 docker exec minio mc ls local/
 ```
 
-# Architecture Flow
-Eventsim (generates events)
-    ↓
-Kafka (kafka:9092) - Event streaming
-    ↓
-Dagster (Mac:3000) - Orchestration
-    ↓ gRPC (Spark Connect Protocol)
-Spark Connect (Docker:15002)
-    ↓ submits to
-Spark Master/Workers (Docker)
-    ↓ writes Iceberg tables via
-Apache Polaris (polaris:8181) - REST catalog
-    ↓ stores metadata
-    ↓ stores data files
-MinIO (minio:9000) - S3-compatible storage
-Polaris Console (localhost:3001) - Web UI
-    ↓ HTTP API
-Apache Polaris (localhost:8181)
-All services communicate on: opendata_network (single Docker bridge network)
+---
 
 ## Future Work
 
 ### Streaming Layer
-- [ ] Add Dagster sensors to detect Bronze updates
-- [ ] Implement health checks for streaming jobs
-- [ ] Add Kafka lag monitoring
-- [ ] Create alerts for stream failures
+- [ ] Dagster sensor to detect streaming job health and auto-restart on failure
+- [ ] Kafka consumer lag monitoring / alerting
+- [ ] Periodic Iceberg compaction (`rewrite_data_files`) as a scheduled Dagster asset
 
-### Batch Layer
-- [ ] Complete `silver_page_view_events` deduplication
-- [ ] Complete `silver_auth_events` deduplication
-- [ ] Implement session reconstruction (`silver_user_sessions`)
-- [ ] Add data quality checks (Great Expectations)
-- [ ] Implement Iceberg compaction/maintenance
-- [ ] Add time-based partitioning
+### Batch Layer (Silver)
+- [ ] `silver_listen_events` — deduplicate bronze by `event_id`
+- [ ] `silver_page_view_events` — deduplicate bronze
+- [ ] `silver_auth_events` — deduplicate bronze
+- [ ] `silver_user_sessions` — session reconstruction (30-min timeout)
+- [ ] Data quality checks (e.g. null `userId`, duplicate `event_id` ratio)
 
 ### Gold Layer
-- [ ] Migrate to SQLMesh for dbt-style SQL transformations
-- [ ] Add customer churn prediction models
-- [ ] Add user path analysis
-- [ ] Add real-time feature serving
+- [ ] Top tracks / artists aggregations
+- [ ] DAU / MAU metrics
+- [ ] User churn analysis (`auth = 'Cancelled'`)
+- [ ] User conversion funnel (Guest → Registered → Paid)
+- [ ] Potential SQLMesh integration for SQL-first transformations
+
+---
 
 ## References
 
-- [Dagster Pipes Documentation](https://docs.dagster.io/guides/build/external-pipelines/using-dagster-pipes)
-- [PySpark + Pipes Guide](https://docs.dagster.io/guides/build/external-pipelines/pyspark-pipeline)
 - [Spark Connect Overview](https://spark.apache.org/docs/latest/spark-connect-overview.html)
+- [Spark Structured Streaming + Iceberg](https://iceberg.apache.org/docs/latest/spark-writes/#streaming-writes)
 - [Apache Iceberg](https://iceberg.apache.org/)
-- [Polaris Catalog](https://github.com/apache/polaris)
+- [Apache Polaris Catalog](https://github.com/apache/polaris)
+- [Dagster Assets](https://docs.dagster.io/guides/build/assets/)
