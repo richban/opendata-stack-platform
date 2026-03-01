@@ -56,9 +56,16 @@ class SparkConnectResource(dg.ConfigurableResource):
 
         return (
             builder.config(
-                "spark.sql.extensions",
-                "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
+                # "spark.sql.extensions",
+                # "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
             )
+            # .config(
+            #     "spark.jars.packages",
+            #     "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1,"
+            #     "org.apache.iceberg:iceberg-aws-bundle:1.7.1,"
+            #     "org.apache.hadoop:hadoop-aws:3.3.4,"
+            #     "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3",
+            # )
             .config(
                 f"spark.sql.catalog.{self.catalog}",
                 "org.apache.iceberg.spark.SparkCatalog",
