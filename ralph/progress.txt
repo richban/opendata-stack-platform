@@ -276,3 +276,42 @@ Session: https://opncd.ai/s/[share-id]
 - When using SQL aggregation functions like min/max/count, they shadow Python builtins - this is acceptable for Spark assets
 - The SHA-256 session ID provides deterministic, unique identifiers without requiring external state
 ---
+
+## Sun Mar 2 01:30:00 CET 2026 - US-010
+Session: https://opncd.ai/s/[share-id]
+- Implemented US-010: Silver Layer Data Quality Checks with DQ Results Table
+- Created `defs/dq_store.py` with DQResultStore class:
+  - SQLite-based storage at `dq_results/dq_checks.db` with append-only `dq_results` table
+  - Logging to `dq_results/dq_checks.log` using Python logging with FileHandler
+  - Methods: `write_result()` and `get_results()` for persistence and retrieval
+  - Uses stdlib `sqlite3` - no external dependencies
+- Created `defs/dq_checks.py` with 11 asset checks:
+  - silver_listen_events: not_empty, no_nulls, no_duplicates
+  - silver_page_view_events: not_empty, no_nulls, no_duplicates
+  - silver_auth_events: not_empty, no_nulls, no_duplicates
+  - silver_user_sessions: not_empty, valid_duration
+- Each check writes results to DQResultStore and returns dg.AssetCheckResult with metadata
+- Registered checks in `defs/definitions.py` using `dg.load_asset_checks_from_modules([dq_checks])`
+- Updated `AGENTS.md` with patterns for asset checks and SQLite storage
+- Files changed:
+  - Created: `src/team_ops/defs/dq_store.py`
+  - Created: `src/team_ops/defs/dq_checks.py`
+  - Created: `tests/test_dq_checks.py`
+  - Modified: `src/team_ops/defs/definitions.py` (registered asset checks)
+  - Modified: `dagster-workspace/team_ops/AGENTS.md` (added patterns)
+- Quality checks:
+  - `dg check defs`: All definitions loaded successfully
+  - `pytest tests/test_dq_checks.py -v`: 7 passed
+  - `pytest tests/ -v`: 30 passed (all tests)
+  - `dg list defs`: Shows 11 asset checks
+  - `ruff format` and `ruff check`: Minor PLR0913 warning on internal helper (acceptable)
+
+**Learnings for future iterations:**
+- Asset checks use `@dg.asset_check(asset="asset_name")` decorator and return `dg.AssetCheckResult`
+- Asset checks are `AssetChecksDefinition` objects, not regular functions - test by verifying type
+- Use `dg.load_asset_checks_from_modules()` to register checks in Definitions
+- SQLite with stdlib is perfect for simple append-only storage (no external deps)
+- Store SQLite files in a subdirectory and add to `.gitignore`
+- Use module-level imports in tests to avoid PLC0415 violations
+- Asset check context may not have `run_id` attribute - use `getattr()` defensively
+---

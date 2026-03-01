@@ -118,7 +118,7 @@
     },
     {
       "id": "US-007",
-      "title": "Silver Layer — Deduplicated Page View Events Asset",
+      "title": "Silver Layer \u2014 Deduplicated Page View Events Asset",
       "description": "As a data engineer, I want a silver_page_view_events asset that deduplicates Bronze page-view events by event_id, so that page-level analytics are accurate.",
       "acceptanceCriteria": [
         "silver_page_view_events asset implemented in defs/silver_assets.py following the same pattern as silver_listen_events",
@@ -158,7 +158,7 @@
     },
     {
       "id": "US-009",
-      "title": "Silver Layer — User Session Reconstruction Asset",
+      "title": "Silver Layer \u2014 User Session Reconstruction Asset",
       "description": "As a data engineer, I want a silver_user_sessions asset that reconstructs user sessions from silver_listen_events and silver_page_view_events using a 30-minute inactivity timeout, so that session-level metrics are available for Gold analytics.",
       "acceptanceCriteria": [
         "silver_user_sessions asset implemented in defs/silver_assets.py",
@@ -198,8 +198,8 @@
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": "Use sqlite3 stdlib \u2014 no extra dependency. DQ results table is append-only. Log file uses Python logging with FileHandler."
+      "passes": true,
+      "notes": "Implemented DQResultStore class in defs/dq_store.py using sqlite3 stdlib. Created 11 asset checks in defs/dq_checks.py: 3 checks each for silver_listen_events, silver_page_view_events, silver_auth_events (not_empty, no_nulls, no_duplicates), and 2 checks for silver_user_sessions (not_empty, valid_duration). All checks write results to SQLite and log to file. Tests pass: pytest tests/test_dq_checks.py -v (7 passed). dg check defs passes."
     },
     {
       "id": "US-011",
