@@ -9,7 +9,7 @@ All configuration is managed via ConfigurableResources loaded from environment v
 
 import dagster as dg
 
-from team_ops.defs import assets, maintenance_assets, sensors, silver_assets
+from team_ops.defs import assets, dq_checks, maintenance_assets, sensors, silver_assets
 from team_ops.defs.resources import (
     create_s3_resource,
     create_spark_resource,
@@ -27,6 +27,7 @@ bronze_compaction_schedule = dg.ScheduleDefinition(
 
 defs = dg.Definitions(
     assets=dg.load_assets_from_modules([assets, maintenance_assets, silver_assets]),
+    asset_checks=dg.load_asset_checks_from_modules([dq_checks]),
     sensors=[sensors.bronze_restart_sensor, sensors.kafka_lag_sensor],
     schedules=[bronze_compaction_schedule],
     resources={

@@ -68,3 +68,56 @@ defs = dg.Definitions(
     ...
 )
 ```
+
+## Asset Checks
+
+Use `@dg.asset_check` decorator to define data quality checks:
+```python
+@dg.asset_check(asset="silver_listen_events")
+def silver_listen_events_not_empty(
+    context: dg.AssetCheckExecutionContext,
+    spark: SparkConnectResource,
+    streaming_config: StreamingJobConfig,
+) -> dg.AssetCheckResult:
+    # Check logic here
+    return dg.AssetCheckResult(
+        passed=row_count > 0,
+        metadata={"row_count": dg.MetadataValue.int(row_count)},
+    )
+```
+
+Register asset checks in Definitions:
+```python
+defs = dg.Definitions(
+    asset_checks=dg.load_asset_checks_from_modules([dq_checks]),
+    ...
+)
+```
+
+## Testing Asset Checks
+
+Asset checks return `AssetChecksDefinition` objects and should be tested by:
+1. Verifying the check function is properly decorated
+2. Testing the underlying logic/integrations separately
+3. Using module-level imports to avoid PLC0415 violations
+
+Example:
+```python
+from team_ops.defs.dq_checks import silver_listen_events_not_empty
+
+def test_dq_checks_are_asset_checks():
+    assert isinstance(silver_listen_events_not_empty, dg.AssetChecksDefinition)
+```
+
+## SQLite Data Store Pattern
+
+For simple append-only data storage (like DQ results), use SQLite with stdlib:
+```python
+import sqlite3
+
+with sqlite3.connect(db_path) as conn:
+    conn.execute("INSERT INTO table (...) VALUES (...)")
+    conn.commit()
+```
+
+Store SQLite databases in a subdirectory (e.g., `dq_results/`) and add to `.gitignore`.
