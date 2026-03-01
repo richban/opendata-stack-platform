@@ -2,7 +2,7 @@
 
 Real-time music streaming analytics pipeline using Kafka, Spark, Iceberg, and Dagster. Implements a Lambda architecture with streaming (Dagster Pipes) and batch (Spark Connect) layers.
 
-> **📖 Quick Start**: See [`/QUICKSTART.md`](../../QUICKSTART.md) for immediate setup  
+> **📖 Quick Start**: See [`/QUICKSTART.md`](../../QUICKSTART.md) for immediate setup
 > **📚 Full Guide**: See [`/SETUP.md`](../../SETUP.md) for detailed documentation
 
 ## Architecture Overview
@@ -52,7 +52,7 @@ Real-time music streaming analytics pipeline using Kafka, Spark, Iceberg, and Da
 
 **Technology**:
 - **Orchestration**: Dagster Pipes
-- **Execution**: `spark-submit` subprocess  
+- **Execution**: `spark-submit` subprocess
 - **Monitoring**: S3-based message passing (logs, metrics)
 - **Script**: `spark_scripts/stream_to_iceberg.py`
 
@@ -113,7 +113,7 @@ CREATE TABLE bronze_listen_events (
     userId BIGINT,
     sessionId INT,
     -- ... (other fields)
-    
+
     -- Added by streaming job
     event_id STRING,           -- SHA256(userId|sessionId|ts)
     event_date DATE,           -- PARTITION KEY
