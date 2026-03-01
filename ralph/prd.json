@@ -35,8 +35,8 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Asset decorator updated with group_name='bronze', kinds={'spark', 'iceberg', 'kafka'}, owners=['team:team-ops'], tags={'layer': 'bronze', 'schedule': 'streaming'}. MaterializeResult now includes topics_started (json), spark_ui_url (url), catalog (text), checkpoint_base (text). Tests updated and passing."
     },
     {
       "id": "US-003",
@@ -54,8 +54,8 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented bronze_restart_sensor in defs/sensors.py with module-level state tracking for restart timestamps. Sensor respects STREAMING_RESTART_MIN_INTERVAL_SECONDS env var. All 7 unit tests pass."
     },
     {
       "id": "US-004",

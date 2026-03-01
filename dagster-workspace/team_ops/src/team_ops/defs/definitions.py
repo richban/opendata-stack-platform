@@ -9,7 +9,7 @@ All configuration is managed via ConfigurableResources loaded from environment v
 
 import dagster as dg
 
-from team_ops.defs import assets
+from team_ops.defs import assets, sensors
 from team_ops.defs.resources import (
     create_s3_resource,
     create_spark_resource,
@@ -18,6 +18,7 @@ from team_ops.defs.resources import (
 
 defs = dg.Definitions(
     assets=dg.load_assets_from_modules([assets]),
+    sensors=[sensors.bronze_restart_sensor],
     resources={
         "spark": create_spark_resource(),
         "s3": create_s3_resource(),
