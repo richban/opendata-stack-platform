@@ -205,3 +205,35 @@ Session: https://opncd.ai/s/[share-id]
 - Type hint dict[str, Any] for flexible dictionary values in asset metadata
 - define_asset_job() returns UnresolvedAssetJobDefinition - assert on name, not isinstance JobDefinition
 - AssetSelection.groups('streamify').downstream() for selecting group assets with dependencies
+
+- Don't use `dg.AssetExecutionContext` as type hint - either import directly or leave blank
+- Use countDistinct("userId") for unique listener calculations in aggregations
+
+## Mon Mar 2 16:45:00 CET 2026 - US-012
+Session: https://opncd.ai/s/[share-id]
+- Implemented US-012: Gold Layer Top Tracks and Artists Daily Aggregation
+- Created `src/team_ops/defs/gold_assets.py` with two assets:
+  - `gold_top_tracks`: Aggregates by (event_date, song, artist) with play_count, unique_listeners, avg_duration
+  - `gold_top_artists`: Aggregates by (event_date, artist) with play_count, unique_listeners
+- Asset features:
+  - deps=[AssetKey('silver_listen_events')] for upstream dependency
+  - group_name='gold', kinds={'spark', 'iceberg'}, owners=['team:team-ops'], tags={'layer': 'gold'}
+  - Uses mode('overwrite').partitionOverwriteMode('dynamic') with partitionBy('event_date')
+  - Returns MaterializeResult with output_rows, event_date, source_table, target_table metadata
+- Updated `src/team_ops/defs/definitions.py` to load gold_assets module
+- Created comprehensive test suite in `tests/test_gold_assets.py`:
+  - 2 unit tests verifying aggregation logic with mocked Spark DataFrames
+- Quality checks:
+  - `dg check defs`: All definitions loaded successfully (39 total tests pass)
+  - `pytest tests/test_gold_assets.py -v`: 2 passed
+  - `pytest tests/ -v`: 39 passed (all tests)
+  - `dg list defs`: Shows both gold assets in gold group with correct metadata
+  - `ruff format`: Applied to new files
+
+**Learnings for future iterations:**
+- When using Dagster type hints for context parameter, don't use `dg.AssetExecutionContext` - either import `AssetExecutionContext` directly from dagster or leave type annotation blank
+- Gold assets follow the same pattern as Silver assets: read from source table, aggregate with groupBy/agg, write with dynamic partition overwrite
+- Asset dependencies are specified via deps=[AssetKey("upstream_asset")] in the decorator for upstream assets in other modules
+- Use countDistinct("userId") for unique listener calculations
+- MetadataValue.text() for simple string values like event_date
+---
