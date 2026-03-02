@@ -14,7 +14,8 @@ import dagster as dg
 from pyspark.sql.functions import col
 
 from team_ops.defs.dq_store import DQResultStore
-from team_ops.defs.resources import SparkConnectResource, StreamingJobConfig
+from pyspark.sql import SparkSession
+from team_ops.defs.resources import StreamingJobConfig
 
 
 def _get_dq_store() -> DQResultStore:
@@ -52,7 +53,7 @@ def _write_check_result(
 @dg.asset_check(asset="silver_listen_events")
 def silver_listen_events_not_empty(
     context: dg.AssetCheckExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.AssetCheckResult:
     """Check that silver_listen_events is not empty."""
@@ -60,7 +61,7 @@ def silver_listen_events_not_empty(
     asset_name = "silver_listen_events"
     check_name = "not_empty"
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
     table_name = f"{catalog}.{namespace}.silver_listen_events"
@@ -92,7 +93,7 @@ def silver_listen_events_not_empty(
 @dg.asset_check(asset="silver_listen_events")
 def silver_listen_events_no_nulls(
     context: dg.AssetCheckExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.AssetCheckResult:
     """Check that null event_id and userId are below threshold (0.01%)."""
@@ -101,7 +102,7 @@ def silver_listen_events_no_nulls(
     check_name = "no_nulls"
     threshold = 0.0001  # 0.01%
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
     table_name = f"{catalog}.{namespace}.silver_listen_events"
@@ -163,7 +164,7 @@ def silver_listen_events_no_nulls(
 @dg.asset_check(asset="silver_listen_events")
 def silver_listen_events_no_duplicates(
     context: dg.AssetCheckExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.AssetCheckResult:
     """Check that there are no duplicate event_ids."""
@@ -171,7 +172,7 @@ def silver_listen_events_no_duplicates(
     asset_name = "silver_listen_events"
     check_name = "no_duplicates"
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
     table_name = f"{catalog}.{namespace}.silver_listen_events"
@@ -229,7 +230,7 @@ def silver_listen_events_no_duplicates(
 @dg.asset_check(asset="silver_page_view_events")
 def silver_page_view_events_not_empty(
     context: dg.AssetCheckExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.AssetCheckResult:
     """Check that silver_page_view_events is not empty."""
@@ -237,7 +238,7 @@ def silver_page_view_events_not_empty(
     asset_name = "silver_page_view_events"
     check_name = "not_empty"
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
     table_name = f"{catalog}.{namespace}.silver_page_view_events"
@@ -267,7 +268,7 @@ def silver_page_view_events_not_empty(
 @dg.asset_check(asset="silver_page_view_events")
 def silver_page_view_events_no_nulls(
     context: dg.AssetCheckExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.AssetCheckResult:
     """Check that null event_id and userId are below threshold (0.01%)."""
@@ -276,7 +277,7 @@ def silver_page_view_events_no_nulls(
     check_name = "no_nulls"
     threshold = 0.0001  # 0.01%
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
     table_name = f"{catalog}.{namespace}.silver_page_view_events"
@@ -337,7 +338,7 @@ def silver_page_view_events_no_nulls(
 @dg.asset_check(asset="silver_page_view_events")
 def silver_page_view_events_no_duplicates(
     context: dg.AssetCheckExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.AssetCheckResult:
     """Check that there are no duplicate event_ids."""
@@ -345,7 +346,7 @@ def silver_page_view_events_no_duplicates(
     asset_name = "silver_page_view_events"
     check_name = "no_duplicates"
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
     table_name = f"{catalog}.{namespace}.silver_page_view_events"
@@ -403,7 +404,7 @@ def silver_page_view_events_no_duplicates(
 @dg.asset_check(asset="silver_auth_events")
 def silver_auth_events_not_empty(
     context: dg.AssetCheckExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.AssetCheckResult:
     """Check that silver_auth_events is not empty."""
@@ -411,7 +412,7 @@ def silver_auth_events_not_empty(
     asset_name = "silver_auth_events"
     check_name = "not_empty"
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
     table_name = f"{catalog}.{namespace}.silver_auth_events"
@@ -441,7 +442,7 @@ def silver_auth_events_not_empty(
 @dg.asset_check(asset="silver_auth_events")
 def silver_auth_events_no_nulls(
     context: dg.AssetCheckExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.AssetCheckResult:
     """Check that null event_id and userId are below threshold (0.01%)."""
@@ -450,7 +451,7 @@ def silver_auth_events_no_nulls(
     check_name = "no_nulls"
     threshold = 0.0001  # 0.01%
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
     table_name = f"{catalog}.{namespace}.silver_auth_events"
@@ -511,7 +512,7 @@ def silver_auth_events_no_nulls(
 @dg.asset_check(asset="silver_auth_events")
 def silver_auth_events_no_duplicates(
     context: dg.AssetCheckExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.AssetCheckResult:
     """Check that there are no duplicate event_ids."""
@@ -519,7 +520,7 @@ def silver_auth_events_no_duplicates(
     asset_name = "silver_auth_events"
     check_name = "no_duplicates"
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
     table_name = f"{catalog}.{namespace}.silver_auth_events"
@@ -577,7 +578,7 @@ def silver_auth_events_no_duplicates(
 @dg.asset_check(asset="silver_user_sessions")
 def silver_user_sessions_not_empty(
     context: dg.AssetCheckExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.AssetCheckResult:
     """Check that silver_user_sessions is not empty."""
@@ -585,7 +586,7 @@ def silver_user_sessions_not_empty(
     asset_name = "silver_user_sessions"
     check_name = "not_empty"
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
     table_name = f"{catalog}.{namespace}.silver_user_sessions"
@@ -615,7 +616,7 @@ def silver_user_sessions_not_empty(
 @dg.asset_check(asset="silver_user_sessions")
 def silver_user_sessions_valid_duration(
     context: dg.AssetCheckExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.AssetCheckResult:
     """Check that no session_duration_seconds is negative."""
@@ -623,7 +624,7 @@ def silver_user_sessions_valid_duration(
     asset_name = "silver_user_sessions"
     check_name = "valid_duration"
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
     table_name = f"{catalog}.{namespace}.silver_user_sessions"

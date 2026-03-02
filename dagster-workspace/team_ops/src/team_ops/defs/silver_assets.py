@@ -25,8 +25,9 @@ from pyspark.sql.functions import (
     when,
 )
 from pyspark.sql.window import Window
+from pyspark.sql import SparkSession
 
-from team_ops.defs.resources import SparkConnectResource, StreamingJobConfig
+from team_ops.defs.resources import StreamingJobConfig
 
 
 @dg.asset(
@@ -40,7 +41,7 @@ from team_ops.defs.resources import SparkConnectResource, StreamingJobConfig
 )
 def silver_listen_events(
     context: dg.AssetExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.MaterializeResult:
     """Deduplicate bronze_listen_events and write to silver_listen_events.
@@ -64,7 +65,7 @@ def silver_listen_events(
     """
     partition_date = context.partition_key if context.has_partition_key else None
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
 
@@ -137,7 +138,7 @@ def silver_listen_events(
 )
 def silver_page_view_events(
     context: dg.AssetExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.MaterializeResult:
     """Deduplicate bronze_page_view_events and write to silver_page_view_events.
@@ -161,7 +162,7 @@ def silver_page_view_events(
     """
     partition_date = context.partition_key if context.has_partition_key else None
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
 
@@ -234,7 +235,7 @@ def silver_page_view_events(
 )
 def silver_auth_events(
     context: dg.AssetExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.MaterializeResult:
     """Deduplicate bronze_auth_events and write to silver_auth_events.
@@ -258,7 +259,7 @@ def silver_auth_events(
     """
     partition_date = context.partition_key if context.has_partition_key else None
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
 
@@ -329,7 +330,7 @@ def silver_auth_events(
 )
 def silver_user_sessions(
     context: dg.AssetExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.MaterializeResult:
     """Reconstruct user sessions from Silver layer events.
@@ -363,7 +364,7 @@ def silver_user_sessions(
     Returns:
         MaterializeResult with metadata about sessions created and metrics
     """
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
 

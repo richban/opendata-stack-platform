@@ -12,7 +12,7 @@ import dagster as dg
 from team_ops.defs import assets, dq_checks, maintenance_assets, sensors, silver_assets
 from team_ops.defs.resources import (
     create_s3_resource,
-    create_spark_resource,
+    create_spark_session,
     create_streaming_config,
 )
 
@@ -31,7 +31,7 @@ defs = dg.Definitions(
     sensors=[sensors.bronze_restart_sensor, sensors.kafka_lag_sensor],
     schedules=[bronze_compaction_schedule],
     resources={
-        "spark": create_spark_resource(),
+        "spark": create_spark_session(),
         "s3": create_s3_resource(),
         "streaming_config": create_streaming_config(),
     },

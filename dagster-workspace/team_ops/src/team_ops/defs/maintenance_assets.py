@@ -9,7 +9,9 @@ from dagster import AssetKey
 
 from typing import Any
 
-from team_ops.defs.resources import SparkConnectResource, StreamingJobConfig
+from pyspark.sql import SparkSession
+
+from team_ops.defs.resources import StreamingJobConfig
 
 
 @dg.asset(
@@ -21,7 +23,7 @@ from team_ops.defs.resources import SparkConnectResource, StreamingJobConfig
 )
 def bronze_compaction(
     context: dg.AssetExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ) -> dg.MaterializeResult:
     """Run Iceberg rewrite_data_files on all three Bronze tables.
@@ -44,7 +46,7 @@ def bronze_compaction(
     """
     context.log.info("Starting Bronze Iceberg table compaction")
 
-    session = spark.get_session()
+    session = spark
     catalog = streaming_config.catalog
     namespace = streaming_config.namespace
     topics = ["listen_events", "page_view_events", "auth_events"]
