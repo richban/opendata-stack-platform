@@ -240,7 +240,7 @@
     },
     {
       "id": "US-013",
-      "title": "Gold Layer \u2014 DAU/MAU Metrics Asset",
+      "title": "Gold Layer — DAU/MAU Metrics Asset",
       "description": "As an analyst, I want a gold_dau_mau asset that computes Daily Active Users and Monthly Active Users from silver_listen_events, so that I can track user engagement trends over time.",
       "acceptanceCriteria": [
         "gold_dau_mau asset implemented in defs/gold_assets.py",
@@ -256,8 +256,8 @@
         "Typecheck passes"
       ],
       "priority": 13,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented gold_dau_mau asset in defs/gold_assets.py with date_trunc import. Asset computes DAU (daily unique users) and MAU (monthly unique users) from silver_listen_events using countDistinct aggregation. Joins DAU and MAU on year_month to provide both metrics in one view. Asset writes to streamify.bronze.gold_dau_mau with dynamic partition overwrite, partitioned by event_date. Returns MaterializeResult with dau, mau, event_date, mau_month, source_table, target_table, output_rows. All tests pass (3/3). dg check defs passes."
     },
     {
       "id": "US-014",
