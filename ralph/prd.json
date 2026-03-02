@@ -261,8 +261,8 @@
     },
     {
       "id": "US-014",
-      "title": "Gold Layer \u2014 User Conversion Funnel Asset",
-      "description": "As an analyst, I want a gold_user_conversion_funnel asset that models the conversion funnel (free \u2192 paid) from silver_auth_events and silver_listen_events, so that I can measure subscription conversion rates.",
+      "title": "Gold Layer — User Conversion Funnel Asset",
+      "description": "As an analyst, I want a gold_user_conversion_funnel asset that models the conversion funnel (free → paid) from silver_auth_events and silver_listen_events, so that I can measure subscription conversion rates.",
       "acceptanceCriteria": [
         "gold_user_conversion_funnel asset implemented in defs/gold_assets.py",
         "Depends on silver_auth_events and silver_listen_events via function parameters",
@@ -277,8 +277,8 @@
         "Typecheck passes"
       ],
       "priority": 14,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented gold_user_conversion_funnel asset in defs/gold_assets.py with deps on silver_auth_events and silver_listen_events. Asset computes free_users and paid_users using countDistinct with level filter, calculates null-safe conversion_rate using when/otherwise, writes to Iceberg with dynamic partition overwrite. Returns MaterializeResult with event_date, free_users, paid_users, conversion_rate metadata. Test added to tests/test_gold_assets.py with mocked Spark DataFrames. All 39 tests pass."
     },
     {
       "id": "US-015",

@@ -33,3 +33,36 @@ Session: https://opncd.ai/s/[share-id]
 - For DAU/MAU metrics, joining on a computed field (year_month) allows combining daily and monthly aggregations
 - Gold layer assets follow consistent pattern: read from Silver, aggregate, write to Gold with partition overwrite
 ---
+
+## Mon Mar 2 17:00:00 CET 2026 - US-014
+Session: https://opncd.ai/s/[share-id]
+- Implemented US-014: Gold Layer — User Conversion Funnel Asset
+- Created gold_user_conversion_funnel asset in defs/gold_assets.py
+- Asset features:
+  - Depends on silver_auth_events and silver_listen_events via deps parameter
+  - Computes free_users and paid_users using countDistinct with level='free'/'paid' filters
+  - Calculates null-safe conversion_rate using when(col("free_users") > 0, ...).otherwise(0.0)
+  - Writes to streamify.gold_user_conversion_funnel with dynamic partition overwrite
+  - Returns MaterializeResult with event_date, free_users, paid_users, conversion_rate metadata
+- Added comprehensive test in tests/test_gold_assets.py:
+  - Mocks filter() with side_effect to handle multiple filter calls
+  - Mocks PySpark comparison operators (__gt__, __lt__, __eq__) on MagicMock
+  - Verifies asset returns correct metadata structure
+- Quality checks:
+  - pytest tests/test_gold_assets.py -v: 4 passed (including new test)
+  - pytest tests/ -v: 39 passed (all tests)
+  - dg check defs: All definitions loaded successfully
+  - ralph/prd.json updated with passes: true for US-014
+- Files changed:
+  - Modified: src/team_ops/defs/gold_assets.py (added gold_user_conversion_funnel asset)
+  - Modified: tests/test_gold_assets.py (added test class for conversion funnel)
+
+**Learnings for future iterations:**
+- When testing assets with multiple filter() calls (e.g., filter(level='free'), filter(level='paid')), use side_effect on the mock to return different DataFrames for each call
+- PySpark column comparison operators (col > 0) need __gt__ method mocked on MagicMock instances
+- Complex mock chains for DataFrame operations need careful setup of return values at each step
+- Gold assets follow the same pattern: read from Silver tables, aggregate with groupBy/agg or filter/agg, write with dynamic partition overwrite
+- Use when().otherwise() pattern for null-safe calculations in PySpark
+---
+
+(End of file - total 280 lines)
