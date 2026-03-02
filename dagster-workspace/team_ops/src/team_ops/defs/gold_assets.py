@@ -15,7 +15,7 @@ from team_ops.defs.resources import StreamingJobConfig
 
 @dg.asset(
     deps=[dg.AssetKey("silver_listen_events")],
-    group_name="gold",
+    group_name="streamify",
     kinds={"spark", "iceberg"},
     owners=["team:team-ops"],
     tags={"layer": "gold"},
@@ -107,7 +107,7 @@ def gold_top_tracks(
 
 @dg.asset(
     deps=[dg.AssetKey("silver_listen_events")],
-    group_name="gold",
+    group_name="streamify",
     kinds={"spark", "iceberg"},
     owners=["team:team-ops"],
     tags={"layer": "gold"},
@@ -194,7 +194,7 @@ def gold_top_artists(
 
 @dg.asset(
     deps=[dg.AssetKey("silver_listen_events")],
-    group_name="gold",
+    group_name="streamify",
     kinds={"spark", "iceberg"},
     owners=["team:team-ops"],
     tags={"layer": "gold"},
@@ -309,7 +309,7 @@ def gold_dau_mau(
         dg.AssetKey("silver_auth_events"),
         dg.AssetKey("silver_listen_events"),
     ],
-    group_name="gold",
+    group_name="streamify",
     kinds={"spark", "iceberg"},
     owners=["team:team-ops"],
     tags={"layer": "gold"},
@@ -439,7 +439,7 @@ def gold_user_conversion_funnel(
 
 @dg.asset(
     deps=[dg.AssetKey("silver_auth_events")],
-    group_name="gold",
+    group_name="streamify",
     kinds={"spark", "iceberg"},
     owners=["team:team-ops"],
     tags={"layer": "gold"},

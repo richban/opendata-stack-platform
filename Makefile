@@ -33,7 +33,7 @@ lint-format:
 format: lint-format
 
 # Dagster commands
-dg-dev: clean-dagster
+dg-dev:
 	@echo "Starting Dagster development server..."
 	cd $(DAGSTER_WORKSPACE) && dg dev
 
