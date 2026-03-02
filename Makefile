@@ -10,7 +10,7 @@ clean:
 	@echo "Cleaning Python cache files..."
 	find . \( -type d -name "__pycache__" -o -type f -name "*.pyc" -o -type d -name ".pytest_cache" -o -type d -name "*.egg-info" \) -print0 | xargs -0 rm -rf
 
-clean-dagster:
+dg-clean:
 	@echo "Cleaning Dagster storage and logs..."
 	rm -rf $(DAGSTER_HOME)/storage $(DAGSTER_HOME)/logs $(DAGSTER_HOME)/history
 
@@ -50,4 +50,3 @@ docker-up:
 docker-down:
 	@echo "Stopping Docker services..."
 	docker-compose down
-

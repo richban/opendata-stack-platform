@@ -21,7 +21,7 @@ def create_spark_session(app_name: str = "StreamifyDagsterJob") -> SparkSession:
     polaris_client_id = os.getenv("POLARIS_CLIENT_ID", "")
     polaris_client_secret = os.getenv("POLARIS_CLIENT_SECRET", "")
     polaris_credential = f"{polaris_client_id}:{polaris_client_secret}"
-    
+
     catalog = os.getenv("POLARIS_CATALOG", "lakehouse")
     spark_remote = os.getenv("SPARK_REMOTE", "sc://localhost:15002")
 

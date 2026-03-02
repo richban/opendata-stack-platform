@@ -4,7 +4,6 @@ This module contains batch assets that read from Bronze tables,
 perform deduplication, and write to Silver tables for downstream analytics.
 """
 
-
 import dagster as dg
 
 from dagster import AssetKey, DailyPartitionsDefinition
