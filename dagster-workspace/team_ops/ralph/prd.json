@@ -240,7 +240,7 @@
     },
     {
       "id": "US-013",
-      "title": "Gold Layer — DAU/MAU Metrics Asset",
+      "title": "Gold Layer \u2014 DAU/MAU Metrics Asset",
       "description": "As an analyst, I want a gold_dau_mau asset that computes Daily Active Users and Monthly Active Users from silver_listen_events, so that I can track user engagement trends over time.",
       "acceptanceCriteria": [
         "gold_dau_mau asset implemented in defs/gold_assets.py",
@@ -261,8 +261,8 @@
     },
     {
       "id": "US-014",
-      "title": "Gold Layer — User Conversion Funnel Asset",
-      "description": "As an analyst, I want a gold_user_conversion_funnel asset that models the conversion funnel (free → paid) from silver_auth_events and silver_listen_events, so that I can measure subscription conversion rates.",
+      "title": "Gold Layer \u2014 User Conversion Funnel Asset",
+      "description": "As an analyst, I want a gold_user_conversion_funnel asset that models the conversion funnel (free \u2192 paid) from silver_auth_events and silver_listen_events, so that I can measure subscription conversion rates.",
       "acceptanceCriteria": [
         "gold_user_conversion_funnel asset implemented in defs/gold_assets.py",
         "Depends on silver_auth_events and silver_listen_events via function parameters",
@@ -282,7 +282,7 @@
     },
     {
       "id": "US-015",
-      "title": "Gold Layer — User Churn Analysis Asset",
+      "title": "Gold Layer \u2014 User Churn Analysis Asset",
       "description": "As an analyst, I want a gold_user_churn asset that identifies churned users from silver_auth_events based on cancellation signals, so that I can monitor churn rate and user retention over time.",
       "acceptanceCriteria": [
         "gold_user_churn asset implemented in defs/gold_assets.py",
@@ -329,8 +329,8 @@
         "Typecheck passes"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": "Mock SparkSession entirely \u2014 do not use trigger(once=True) for now."
+      "passes": true,
+      "notes": "Test infrastructure already in place from US-001. tests/conftest.py has fixtures for mock_spark_resource (MagicMock of SparkSession), mock_s3_resource, and mock_streaming_config. tests/test_bronze_assets.py has 4 tests including test_definitions_load_without_errors which verifies dg check defs passes. All 45 tests pass. Note: Acceptance criteria mentions SparkConnectResource but the actual code uses SparkSession directly via dg.ResourceParam[SparkSession]."
     },
     {
       "id": "US-018",
@@ -346,8 +346,8 @@
         "Typecheck passes"
       ],
       "priority": 18,
-      "passes": false,
-      "notes": "Keep each test minimal \u2014 one assertion per test. Use tmp_path fixture for SQLite DQ store in tests."
+      "passes": true,
+      "notes": "All tests implemented and passing. tests/test_silver_assets.py has tests for all 4 Silver assets (listen_events, page_view_events, auth_events, user_sessions). tests/test_gold_assets.py has tests for all 5 Gold assets. tests/test_sensors.py has 7 tests for bronze_restart_sensor and 2 tests for kafka_lag_sensor. tests/test_dq_checks.py has 7 tests including DQResultStore and asset check definitions. All 47 tests pass. dg check defs passes."
     }
   ]
 }
