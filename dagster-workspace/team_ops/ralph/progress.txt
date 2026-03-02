@@ -211,6 +211,33 @@ Session: https://opncd.ai/s/[share-id]
 - When mocking PySpark comparison operators (col > 0), create MagicMock with __gt__, __lt__, __eq__ methods
 - Mock filter() with side_effect when testing assets that filter multiple times with different conditions
 
+## Mon Mar 2 17:10:00 CET 2026 - US-016
+Session: https://opncd.ai/s/[share-id]
+- Implemented US-016: Gold Layer Batch Schedule
+- Already implemented in defs/schedules.py:
+  - `gold_batch_job`: Uses `dg.define_asset_job()` with `AssetSelection.groups('gold')`
+  - `gold_daily_schedule`: Uses `dg.ScheduleDefinition` with cron '0 6 * * *' (6 AM UTC)
+- Both already registered in `defs/definitions.py` in jobs and schedules lists
+- Created comprehensive test suite additions in `tests/test_schedules.py`:
+  - 5 unit tests for Gold schedule (TestGoldBatchSchedule class)
+  - Tests verify job exists, schedule exists, correct cron (0 6 * * *), job target, and asset selection
+- Quality checks:
+  - `dg check defs`: All definitions loaded successfully (45 total tests pass)
+  - `pytest tests/test_schedules.py -v`: 10 passed (5 silver + 5 gold)
+  - `pytest tests/ -v`: 45 passed (all tests)
+  - `dg list defs`: Shows gold_batch_job and gold_daily_schedule
+  - `ruff format`: Already formatted
+- Files changed:
+  - Modified: `tests/test_schedules.py` (added gold schedule tests)
+  - Modified: `ralph/prd.json` (marked US-016 as passing)
+
+**Learnings for future iterations:**
+- Gold schedule follows the same pattern as Silver schedule: define_asset_job + ScheduleDefinition
+- Cron '0 6 * * *' runs at 6 AM UTC (2 hours after Silver's 4 AM schedule)
+- AssetSelection.groups('gold') selects all assets in the gold group (not downstream)
+- Tests can be organized in separate classes for logical grouping (TestSilverBatchSchedule, TestGoldBatchSchedule)
+---
+
 ## Mon Mar 2 16:45:00 CET 2026 - US-012
 Session: https://opncd.ai/s/[share-id]
 - Implemented US-012: Gold Layer Top Tracks and Artists Daily Aggregation
