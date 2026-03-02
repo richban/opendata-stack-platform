@@ -6,7 +6,7 @@ import dagster as dg
 import pytest
 from dagster import build_op_context
 
-from team_ops.defs.resources import SparkConnectResource, StreamingJobConfig
+from team_ops.defs.resources import StreamingJobConfig
 from team_ops.defs.silver_assets import (
     silver_auth_events,
     silver_listen_events,
@@ -21,9 +21,8 @@ class TestSilverListenEventsAsset:
     @patch("team_ops.defs.silver_assets.col")
     @patch("team_ops.defs.silver_assets.row_number")
     @patch("team_ops.defs.silver_assets.Window")
-    @patch.object(SparkConnectResource, "get_session")
     def test_asset_deduplicates_rows_correctly(
-        self, mock_get_session, mock_Window, mock_row_number, mock_col
+        self, mock_Window, mock_row_number, mock_col
     ):
         """Test that asset deduplicates rows using ROW_NUMBER window function."""
         # Setup mock Spark session
@@ -61,22 +60,12 @@ class TestSilverListenEventsAsset:
         mock_after_filter.drop.return_value = mock_final_df
 
         mock_session.table.return_value = mock_df
-        mock_get_session.return_value = mock_session
 
         # Mock PySpark functions
         mock_col.return_value = MagicMock()
         mock_col.return_value.desc.return_value = MagicMock()
         mock_row_number.return_value = MagicMock()
         mock_Window.partitionBy.return_value.orderBy.return_value = MagicMock()
-
-        # Create real resources
-        spark_resource = SparkConnectResource(
-            spark_remote="sc://localhost:15002",
-            polaris_client_id="test-client-id",
-            polaris_client_secret="test-client-secret",
-            polaris_uri="http://localhost:8181",
-            catalog="streamify",
-        )
 
         streaming_config = StreamingJobConfig(
             kafka_bootstrap_servers="kafka:9092",
@@ -92,7 +81,7 @@ class TestSilverListenEventsAsset:
         # Build context without partition (full table mode)
         context = build_op_context(
             resources={
-                "spark": spark_resource,
+                "spark": mock_session,
                 "streaming_config": streaming_config,
             }
         )
@@ -115,9 +104,8 @@ class TestSilverListenEventsAsset:
     @patch("team_ops.defs.silver_assets.col")
     @patch("team_ops.defs.silver_assets.row_number")
     @patch("team_ops.defs.silver_assets.Window")
-    @patch.object(SparkConnectResource, "get_session")
     def test_asset_returns_materialize_result(
-        self, mock_get_session, mock_Window, mock_row_number, mock_col
+        self, mock_Window, mock_row_number, mock_col
     ):
         """Test that asset returns MaterializeResult with expected metadata."""
         # Setup mock Spark session
@@ -139,22 +127,12 @@ class TestSilverListenEventsAsset:
         mock_writer.mode.return_value.option.return_value.partitionBy.return_value.format.return_value.saveAsTable.return_value = None
 
         mock_session.table.return_value = mock_df
-        mock_get_session.return_value = mock_session
 
         # Mock PySpark functions
         mock_col.return_value = MagicMock()
         mock_col.return_value.desc.return_value = MagicMock()
         mock_row_number.return_value = MagicMock()
         mock_Window.partitionBy.return_value.orderBy.return_value = MagicMock()
-
-        # Create real resources
-        spark_resource = SparkConnectResource(
-            spark_remote="sc://localhost:15002",
-            polaris_client_id="test-client-id",
-            polaris_client_secret="test-client-secret",
-            polaris_uri="http://localhost:8181",
-            catalog="streamify",
-        )
 
         streaming_config = StreamingJobConfig(
             kafka_bootstrap_servers="kafka:9092",
@@ -170,7 +148,7 @@ class TestSilverListenEventsAsset:
         # Build context
         context = build_op_context(
             resources={
-                "spark": spark_resource,
+                "spark": mock_session,
                 "streaming_config": streaming_config,
             }
         )
@@ -197,9 +175,8 @@ class TestSilverPageViewEventsAsset:
     @patch("team_ops.defs.silver_assets.col")
     @patch("team_ops.defs.silver_assets.row_number")
     @patch("team_ops.defs.silver_assets.Window")
-    @patch.object(SparkConnectResource, "get_session")
     def test_asset_deduplicates_rows_correctly(
-        self, mock_get_session, mock_Window, mock_row_number, mock_col
+        self, mock_Window, mock_row_number, mock_col
     ):
         """Test that asset deduplicates rows using ROW_NUMBER window function."""
         # Setup mock Spark session
@@ -237,22 +214,12 @@ class TestSilverPageViewEventsAsset:
         mock_after_filter.drop.return_value = mock_final_df
 
         mock_session.table.return_value = mock_df
-        mock_get_session.return_value = mock_session
 
         # Mock PySpark functions
         mock_col.return_value = MagicMock()
         mock_col.return_value.desc.return_value = MagicMock()
         mock_row_number.return_value = MagicMock()
         mock_Window.partitionBy.return_value.orderBy.return_value = MagicMock()
-
-        # Create real resources
-        spark_resource = SparkConnectResource(
-            spark_remote="sc://localhost:15002",
-            polaris_client_id="test-client-id",
-            polaris_client_secret="test-client-secret",
-            polaris_uri="http://localhost:8181",
-            catalog="streamify",
-        )
 
         streaming_config = StreamingJobConfig(
             kafka_bootstrap_servers="kafka:9092",
@@ -268,7 +235,7 @@ class TestSilverPageViewEventsAsset:
         # Build context without partition (full table mode)
         context = build_op_context(
             resources={
-                "spark": spark_resource,
+                "spark": mock_session,
                 "streaming_config": streaming_config,
             }
         )
@@ -291,9 +258,8 @@ class TestSilverPageViewEventsAsset:
     @patch("team_ops.defs.silver_assets.col")
     @patch("team_ops.defs.silver_assets.row_number")
     @patch("team_ops.defs.silver_assets.Window")
-    @patch.object(SparkConnectResource, "get_session")
     def test_asset_returns_materialize_result(
-        self, mock_get_session, mock_Window, mock_row_number, mock_col
+        self, mock_Window, mock_row_number, mock_col
     ):
         """Test that asset returns MaterializeResult with expected metadata."""
         # Setup mock Spark session
@@ -315,22 +281,12 @@ class TestSilverPageViewEventsAsset:
         mock_writer.mode.return_value.option.return_value.partitionBy.return_value.format.return_value.saveAsTable.return_value = None
 
         mock_session.table.return_value = mock_df
-        mock_get_session.return_value = mock_session
 
         # Mock PySpark functions
         mock_col.return_value = MagicMock()
         mock_col.return_value.desc.return_value = MagicMock()
         mock_row_number.return_value = MagicMock()
         mock_Window.partitionBy.return_value.orderBy.return_value = MagicMock()
-
-        # Create real resources
-        spark_resource = SparkConnectResource(
-            spark_remote="sc://localhost:15002",
-            polaris_client_id="test-client-id",
-            polaris_client_secret="test-client-secret",
-            polaris_uri="http://localhost:8181",
-            catalog="streamify",
-        )
 
         streaming_config = StreamingJobConfig(
             kafka_bootstrap_servers="kafka:9092",
@@ -346,7 +302,7 @@ class TestSilverPageViewEventsAsset:
         # Build context
         context = build_op_context(
             resources={
-                "spark": spark_resource,
+                "spark": mock_session,
                 "streaming_config": streaming_config,
             }
         )
@@ -373,9 +329,8 @@ class TestSilverAuthEventsAsset:
     @patch("team_ops.defs.silver_assets.col")
     @patch("team_ops.defs.silver_assets.row_number")
     @patch("team_ops.defs.silver_assets.Window")
-    @patch.object(SparkConnectResource, "get_session")
     def test_asset_deduplicates_rows_correctly(
-        self, mock_get_session, mock_Window, mock_row_number, mock_col
+        self, mock_Window, mock_row_number, mock_col
     ):
         """Test that asset deduplicates rows using ROW_NUMBER window function."""
         # Setup mock Spark session
@@ -413,22 +368,12 @@ class TestSilverAuthEventsAsset:
         mock_after_filter.drop.return_value = mock_final_df
 
         mock_session.table.return_value = mock_df
-        mock_get_session.return_value = mock_session
 
         # Mock PySpark functions
         mock_col.return_value = MagicMock()
         mock_col.return_value.desc.return_value = MagicMock()
         mock_row_number.return_value = MagicMock()
         mock_Window.partitionBy.return_value.orderBy.return_value = MagicMock()
-
-        # Create real resources
-        spark_resource = SparkConnectResource(
-            spark_remote="sc://localhost:15002",
-            polaris_client_id="test-client-id",
-            polaris_client_secret="test-client-secret",
-            polaris_uri="http://localhost:8181",
-            catalog="streamify",
-        )
 
         streaming_config = StreamingJobConfig(
             kafka_bootstrap_servers="kafka:9092",
@@ -444,7 +389,7 @@ class TestSilverAuthEventsAsset:
         # Build context without partition (full table mode)
         context = build_op_context(
             resources={
-                "spark": spark_resource,
+                "spark": mock_session,
                 "streaming_config": streaming_config,
             }
         )
@@ -467,9 +412,8 @@ class TestSilverAuthEventsAsset:
     @patch("team_ops.defs.silver_assets.col")
     @patch("team_ops.defs.silver_assets.row_number")
     @patch("team_ops.defs.silver_assets.Window")
-    @patch.object(SparkConnectResource, "get_session")
     def test_asset_returns_materialize_result(
-        self, mock_get_session, mock_Window, mock_row_number, mock_col
+        self, mock_Window, mock_row_number, mock_col
     ):
         """Test that asset returns MaterializeResult with expected metadata."""
         # Setup mock Spark session
@@ -491,22 +435,12 @@ class TestSilverAuthEventsAsset:
         mock_writer.mode.return_value.option.return_value.partitionBy.return_value.format.return_value.saveAsTable.return_value = None
 
         mock_session.table.return_value = mock_df
-        mock_get_session.return_value = mock_session
 
         # Mock PySpark functions
         mock_col.return_value = MagicMock()
         mock_col.return_value.desc.return_value = MagicMock()
         mock_row_number.return_value = MagicMock()
         mock_Window.partitionBy.return_value.orderBy.return_value = MagicMock()
-
-        # Create real resources
-        spark_resource = SparkConnectResource(
-            spark_remote="sc://localhost:15002",
-            polaris_client_id="test-client-id",
-            polaris_client_secret="test-client-secret",
-            polaris_uri="http://localhost:8181",
-            catalog="streamify",
-        )
 
         streaming_config = StreamingJobConfig(
             kafka_bootstrap_servers="kafka:9092",
@@ -522,7 +456,7 @@ class TestSilverAuthEventsAsset:
         # Build context
         context = build_op_context(
             resources={
-                "spark": spark_resource,
+                "spark": mock_session,
                 "streaming_config": streaming_config,
             }
         )

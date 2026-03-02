@@ -7,14 +7,13 @@ import pytest
 from dagster import build_op_context
 
 from team_ops.defs.maintenance_assets import bronze_compaction
-from team_ops.defs.resources import SparkConnectResource, StreamingJobConfig
+from team_ops.defs.resources import StreamingJobConfig
 
 
 class TestBronzeCompactionAsset:
     """Test cases for bronze_compaction asset."""
 
-    @patch.object(SparkConnectResource, "get_session")
-    def test_asset_calls_spark_sql_three_times(self, mock_get_session):
+    def test_asset_calls_spark_sql_three_times(self):
         """Test that asset calls spark.sql() 3 times (once per topic)."""
         # Setup mock Spark session
         mock_session = MagicMock()
@@ -29,16 +28,6 @@ class TestBronzeCompactionAsset:
             )
         ]
         mock_session.sql.return_value = mock_result
-        mock_get_session.return_value = mock_session
-
-        # Create real resources
-        spark_resource = SparkConnectResource(
-            spark_remote="sc://localhost:15002",
-            polaris_client_id="test-client-id",
-            polaris_client_secret="test-client-secret",
-            polaris_uri="http://localhost:8181",
-            catalog="streamify",
-        )
 
         streaming_config = StreamingJobConfig(
             kafka_bootstrap_servers="kafka:9092",
@@ -54,7 +43,7 @@ class TestBronzeCompactionAsset:
         # Build context with real resources
         context = build_op_context(
             resources={
-                "spark": spark_resource,
+                "spark": mock_session,
                 "streaming_config": streaming_config,
             }
         )
@@ -78,8 +67,7 @@ class TestBronzeCompactionAsset:
             assert "rewrite_data_files" in sql_query
             assert expected_tables[i] in sql_query
 
-    @patch.object(SparkConnectResource, "get_session")
-    def test_asset_returns_materialize_result(self, mock_get_session):
+    def test_asset_returns_materialize_result(self):
         """Test that asset returns MaterializeResult with expected metadata."""
         # Setup mock Spark session
         mock_session = MagicMock()
@@ -94,16 +82,6 @@ class TestBronzeCompactionAsset:
             )
         ]
         mock_session.sql.return_value = mock_result
-        mock_get_session.return_value = mock_session
-
-        # Create real resources
-        spark_resource = SparkConnectResource(
-            spark_remote="sc://localhost:15002",
-            polaris_client_id="test-client-id",
-            polaris_client_secret="test-client-secret",
-            polaris_uri="http://localhost:8181",
-            catalog="lakehouse",
-        )
 
         streaming_config = StreamingJobConfig(
             kafka_bootstrap_servers="kafka:9092",
@@ -119,7 +97,7 @@ class TestBronzeCompactionAsset:
         # Build context
         context = build_op_context(
             resources={
-                "spark": spark_resource,
+                "spark": mock_session,
                 "streaming_config": streaming_config,
             }
         )
@@ -140,8 +118,7 @@ class TestBronzeCompactionAsset:
         assert result.metadata["catalog"].text == "lakehouse"
         assert result.metadata["namespace"].text == "streamify"
 
-    @patch.object(SparkConnectResource, "get_session")
-    def test_asset_handles_empty_result(self, mock_get_session):
+    def test_asset_handles_empty_result(self):
         """Test that asset handles empty result from rewrite_data_files."""
         # Setup mock Spark session with empty result
         mock_session = MagicMock()
@@ -150,16 +127,6 @@ class TestBronzeCompactionAsset:
         mock_result = MagicMock()
         mock_result.count.return_value = 0
         mock_session.sql.return_value = mock_result
-        mock_get_session.return_value = mock_session
-
-        # Create real resources
-        spark_resource = SparkConnectResource(
-            spark_remote="sc://localhost:15002",
-            polaris_client_id="test-client-id",
-            polaris_client_secret="test-client-secret",
-            polaris_uri="http://localhost:8181",
-            catalog="streamify",
-        )
 
         streaming_config = StreamingJobConfig(
             kafka_bootstrap_servers="kafka:9092",
@@ -175,7 +142,7 @@ class TestBronzeCompactionAsset:
         # Build context
         context = build_op_context(
             resources={
-                "spark": spark_resource,
+                "spark": mock_session,
                 "streaming_config": streaming_config,
             }
         )
@@ -186,8 +153,7 @@ class TestBronzeCompactionAsset:
         # Verify result
         assert isinstance(result, dg.MaterializeResult)
 
-    @patch.object(SparkConnectResource, "get_session")
-    def test_asset_handles_compaction_error(self, mock_get_session):
+    def test_asset_handles_compaction_error(self):
         """Test that asset handles errors gracefully for individual tables."""
         # Setup mock Spark session that raises on second call
         mock_session = MagicMock()
@@ -210,16 +176,6 @@ class TestBronzeCompactionAsset:
             return mock_result
 
         mock_session.sql.side_effect = mock_sql_side_effect
-        mock_get_session.return_value = mock_session
-
-        # Create real resources
-        spark_resource = SparkConnectResource(
-            spark_remote="sc://localhost:15002",
-            polaris_client_id="test-client-id",
-            polaris_client_secret="test-client-secret",
-            polaris_uri="http://localhost:8181",
-            catalog="streamify",
-        )
 
         streaming_config = StreamingJobConfig(
             kafka_bootstrap_servers="kafka:9092",
@@ -235,7 +191,7 @@ class TestBronzeCompactionAsset:
         # Build context
         context = build_op_context(
             resources={
-                "spark": spark_resource,
+                "spark": mock_session,
                 "streaming_config": streaming_config,
             }
         )

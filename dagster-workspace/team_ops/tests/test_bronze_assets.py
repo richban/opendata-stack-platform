@@ -49,8 +49,6 @@ def test_bronze_streaming_job_asset_function(
     """Test the bronze_streaming_job function directly with mocked dependencies."""
     # Create mock resources
     mock_spark_session = MagicMock()
-    mock_spark_resource = MagicMock()
-    mock_spark_resource.get_session.return_value = mock_spark_session
 
     # Use a real StreamingJobConfig with test values
     streaming_config = StreamingJobConfig(
@@ -105,7 +103,7 @@ def test_bronze_streaming_job_asset_function(
     # Build the context with resources
     context = build_op_context(
         resources={
-            "spark": mock_spark_resource,
+            "spark": mock_spark_session,
             "streaming_config": streaming_config,
         }
     )
@@ -119,9 +117,6 @@ def test_bronze_streaming_job_asset_function(
     # Verify the result
     assert result is not None
     assert isinstance(result, dg.MaterializeResult)
-
-    # Verify get_session was called
-    mock_spark_resource.get_session.assert_called_once()
 
     # Verify SQL was called for namespace creation
     assert mock_spark_session.sql.call_count >= 1
@@ -149,8 +144,6 @@ def test_bronze_streaming_job_metadata_content(
     """Test that the asset returns expected metadata fields."""
     # Create mock resources
     mock_spark_session = MagicMock()
-    mock_spark_resource = MagicMock()
-    mock_spark_resource.get_session.return_value = mock_spark_session
 
     # Use a real StreamingJobConfig with test values
     streaming_config = StreamingJobConfig(
@@ -199,7 +192,7 @@ def test_bronze_streaming_job_metadata_content(
     # Build the context with resources
     context = build_op_context(
         resources={
-            "spark": mock_spark_resource,
+            "spark": mock_spark_session,
             "streaming_config": streaming_config,
         }
     )

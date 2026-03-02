@@ -4,13 +4,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from team_ops.defs.resources import SparkConnectResource, StreamingJobConfig
+from pyspark.sql import SparkSession
+from team_ops.defs.resources import StreamingJobConfig
 
 
 @pytest.fixture
 def mock_spark_resource():
-    """Mock SparkConnectResource for testing."""
-    return MagicMock(spec=SparkConnectResource)
+    """Mock SparkSession direct instance for testing."""
+    return MagicMock(spec=SparkSession)
 
 
 @pytest.fixture
