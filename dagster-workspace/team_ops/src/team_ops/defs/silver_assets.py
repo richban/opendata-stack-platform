@@ -31,7 +31,7 @@ from team_ops.defs.resources import StreamingJobConfig
 
 
 @dg.asset(
-    group_name="silver",
+    group_name="streamify",
     kinds={"spark", "iceberg"},
     owners=["team:team-ops"],
     tags={"layer": "silver", "topic": "listen_events"},
@@ -128,7 +128,7 @@ def silver_listen_events(
 
 
 @dg.asset(
-    group_name="silver",
+    group_name="streamify",
     kinds={"spark", "iceberg"},
     owners=["team:team-ops"],
     tags={"layer": "silver", "topic": "page_view_events"},
@@ -225,7 +225,7 @@ def silver_page_view_events(
 
 
 @dg.asset(
-    group_name="silver",
+    group_name="streamify",
     kinds={"spark", "iceberg"},
     owners=["team:team-ops"],
     tags={"layer": "silver", "topic": "auth_events"},
@@ -322,7 +322,7 @@ def silver_auth_events(
 
 
 @dg.asset(
-    group_name="silver",
+    group_name="streamify",
     kinds={"spark", "iceberg"},
     owners=["team:team-ops"],
     deps=[AssetKey("silver_listen_events"), AssetKey("silver_page_view_events")],

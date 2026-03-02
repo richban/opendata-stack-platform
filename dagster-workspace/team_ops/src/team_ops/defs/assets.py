@@ -25,7 +25,7 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import StructType
 
-from team_ops.defs.resources import SparkConnectResource, StreamingJobConfig
+from team_ops.defs.resources import StreamingJobConfig
 from team_ops.schemas import SCHEMAS as TOPIC_SCHEMAS, meta_schema
 
 
@@ -83,6 +83,7 @@ def process_stream(
         .option("subscribe", topic)
         .option("startingOffsets", "earliest")
         .option("failOnDataLoss", "false")
+        .option("maxOffsetsPerTrigger", 5000)
         .load()
     )
 
@@ -152,7 +153,7 @@ def write_stream(
 
 
 @dg.asset(
-    group_name="bronze",
+    group_name="streamify",
     kinds={"spark", "iceberg", "kafka"},
     owners=["team:team-ops"],
     tags={"layer": "bronze", "schedule": "streaming"},
@@ -160,7 +161,7 @@ def write_stream(
 )
 def bronze_streaming_job(
     context: dg.AssetExecutionContext,
-    spark: SparkConnectResource,
+    spark: dg.ResourceParam[SparkSession],
     streaming_config: StreamingJobConfig,
 ):
     """Launch Spark Structured Streaming job to ingest Kafka events to Iceberg Bronze.
@@ -188,7 +189,7 @@ def bronze_streaming_job(
 
         # Get Spark session via Connect
         context.log.info("Connecting to Spark Connect...")
-        session = spark.get_session()
+        session = spark
         context.log.info("✓ Connected to Spark Connect")
     except Exception as e:
         context.log.error(f"Failed to connect to Spark: {e}")
@@ -235,14 +236,10 @@ def bronze_streaming_job(
             "spark_ui_url": dg.MetadataValue.url(spark_ui_url),
             "catalog": dg.MetadataValue.text(streaming_config.catalog),
             "checkpoint_base": dg.MetadataValue.text(streaming_config.checkpoint_path),
-            # Keep existing metadata for backward compatibility
             "topics": dg.MetadataValue.json(topics_started),
             "namespace": streaming_config.namespace,
             "kafka_servers": streaming_config.kafka_bootstrap_servers,
             "num_streams": len(queries),
         }
     )
-
-    # Keep streams alive (this will run indefinitely)
-    context.log.info("Streams are running. Waiting for termination...")
-    session.streams.awaitAnyTermination()
+    # Server-side streaming continues on the Spark Connect JVM after we exit.

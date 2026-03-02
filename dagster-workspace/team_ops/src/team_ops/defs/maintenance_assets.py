@@ -15,7 +15,7 @@ from team_ops.defs.resources import StreamingJobConfig
 
 
 @dg.asset(
-    group_name="bronze_maintenance",
+    group_name="streamify",
     kinds={"spark", "iceberg"},
     owners=["team:team-ops"],
     deps=[AssetKey("bronze_streaming_job")],
