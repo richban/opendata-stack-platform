@@ -470,3 +470,138 @@ class TestGoldUserConversionFunnelAsset:
 
         # Verify filter was called for both free and paid
         assert mock_df_auth.filter.call_count >= 1
+
+
+class TestGoldUserChurnAsset:
+    """Test cases for gold_user_churn asset."""
+
+    @patch("team_ops.defs.gold_assets.col")
+    @patch("team_ops.defs.gold_assets.countDistinct")
+    @patch("team_ops.defs.gold_assets.when")
+    def test_asset_computes_churn_correctly(
+        self, mock_when, mock_countDistinct, mock_col
+    ):
+        """Test that asset computes churn metrics correctly with groupBy and join."""
+        # Setup mock Spark session
+        mock_session = MagicMock()
+
+        # Create mock DataFrame that simulates input auth events data
+        mock_df_auth = MagicMock()
+
+        # Setup churned users aggregation chain (success='false' AND level='cancelled')
+        mock_churned_filtered_df = MagicMock()
+        mock_churned_grouped_df = MagicMock()
+        mock_churned_agg_df = MagicMock()
+        mock_churned_selected_df = MagicMock()
+
+        # Setup total users aggregation chain
+        mock_total_grouped_df = MagicMock()
+        mock_total_agg_df = MagicMock()
+        mock_total_selected_df = MagicMock()
+
+        # Setup join and final calculation chain
+        mock_joined_df = MagicMock()
+        mock_filled_df = MagicMock()
+        mock_result_df = MagicMock()
+
+        # Setup counts
+        mock_result_df.count.return_value = 30  # 30 days of data
+
+        # Setup first() call for metadata
+        mock_metrics_select = MagicMock()
+        mock_metrics_row = MagicMock()
+        mock_metrics_row.__getitem__ = MagicMock(
+            side_effect=lambda key: {
+                "churned_user_count": 50,
+                "churn_rate_pct": 5.0,
+            }.get(key, 0)
+        )
+        mock_metrics_select.first.return_value = mock_metrics_row
+        mock_result_df.select.return_value = mock_metrics_select
+
+        # Setup write chain
+        mock_writer = MagicMock()
+        mock_result_df.write = mock_writer
+        mock_mode_writer = MagicMock()
+        mock_writer.mode.return_value = mock_mode_writer
+        mock_option_writer = MagicMock()
+        mock_mode_writer.option.return_value = mock_option_writer
+        mock_partition_writer = MagicMock()
+        mock_option_writer.partitionBy.return_value = mock_partition_writer
+        mock_format_writer = MagicMock()
+        mock_partition_writer.format.return_value = mock_format_writer
+        mock_format_writer.saveAsTable.return_value = None
+
+        # Build churned users chain: filter(...).groupBy().agg().select()
+        mock_df_auth.filter.return_value = mock_churned_filtered_df
+        mock_churned_filtered_df.groupBy.return_value = mock_churned_grouped_df
+        mock_churned_grouped_df.agg.return_value = mock_churned_agg_df
+        mock_churned_agg_df.select.return_value = mock_churned_selected_df
+
+        # Build total users chain: groupBy().agg().select()
+        mock_df_auth.groupBy.return_value = mock_total_grouped_df
+        mock_total_grouped_df.agg.return_value = mock_total_agg_df
+        mock_total_agg_df.select.return_value = mock_total_selected_df
+
+        # Build join chain: churned_df.join(total_df, ...).select().fillna().withColumn()
+        mock_churned_selected_df.join.return_value = mock_joined_df
+        mock_joined_df.select.return_value = mock_joined_df
+        mock_joined_df.fillna.return_value = mock_filled_df
+        mock_filled_df.withColumn.return_value = mock_result_df
+
+        mock_session.table.return_value = mock_df_auth
+
+        # Mock PySpark functions
+        mock_col_instance = MagicMock()
+        mock_col_instance.__gt__ = MagicMock(return_value=MagicMock())
+        mock_col_instance.__lt__ = MagicMock(return_value=MagicMock())
+        mock_col_instance.__eq__ = MagicMock(return_value=MagicMock())
+        mock_col_instance.__truediv__ = MagicMock(return_value=MagicMock())
+        mock_col_instance.__mul__ = MagicMock(return_value=MagicMock())
+        mock_col_instance.__and__ = MagicMock(return_value=MagicMock())
+        mock_col.return_value = mock_col_instance
+
+        mock_countDistinct.return_value = MagicMock()
+
+        # Mock when() to return an object that supports .otherwise()
+        mock_when_instance = MagicMock()
+        mock_when_instance.otherwise.return_value = MagicMock()
+        mock_when.return_value = mock_when_instance
+
+        streaming_config = StreamingJobConfig(
+            kafka_bootstrap_servers="kafka:9092",
+            checkpoint_path="s3a://checkpoints/streaming",
+            polaris_uri="http://polaris:8181",
+            polaris_client_id="test-client-id",
+            polaris_client_secret="test-client-secret",
+            catalog="streamify",
+            namespace="bronze",
+            dagster_pipes_bucket="dagster-pipes",
+        )
+
+        from team_ops.defs.gold_assets import gold_user_churn
+
+        # Build context
+        context = build_op_context(
+            resources={
+                "spark": mock_session,
+                "streaming_config": streaming_config,
+            }
+        )
+
+        # Execute asset
+        result = gold_user_churn(context)
+
+        # Verify result type
+        assert isinstance(result, dg.MaterializeResult)
+        assert result.metadata is not None
+
+        # Verify metadata
+        assert result.metadata["output_rows"].value == 30
+        assert result.metadata["event_date"].text == "all_dates"
+        assert result.metadata["churned_user_count"].value == 50
+        assert result.metadata["churn_rate_pct"].value == 5.0
+        assert "gold_user_churn" in result.metadata["target_table"].text
+
+        # Verify filter was called for churn condition
+        mock_df_auth.filter.assert_called_once()

@@ -208,6 +208,8 @@ Session: https://opncd.ai/s/[share-id]
 
 - Don't use `dg.AssetExecutionContext` as type hint - either import directly or leave blank
 - Use countDistinct("userId") for unique listener calculations in aggregations
+- When mocking PySpark comparison operators (col > 0), create MagicMock with __gt__, __lt__, __eq__ methods
+- Mock filter() with side_effect when testing assets that filter multiple times with different conditions
 
 ## Mon Mar 2 16:45:00 CET 2026 - US-012
 Session: https://opncd.ai/s/[share-id]

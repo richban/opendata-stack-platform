@@ -435,3 +435,124 @@ def gold_user_conversion_funnel(
             "output_rows": dg.MetadataValue.int(output_rows),
         }
     )
+
+
+@dg.asset(
+    deps=[dg.AssetKey("silver_auth_events")],
+    group_name="gold",
+    kinds={"spark", "iceberg"},
+    owners=["team:team-ops"],
+    tags={"layer": "gold"},
+    description="User churn analysis from silver_auth_events cancellation signals",
+)
+def gold_user_churn(
+    context,
+    spark: dg.ResourceParam[SparkSession],
+    streaming_config: StreamingJobConfig,
+) -> dg.MaterializeResult:
+    """Compute user churn metrics from silver_auth_events.
+
+    This asset reads from silver_auth_events and identifies churned users based on
+    cancellation signals (success='false' and level='cancelled'). It computes daily
+    churn metrics including churned user count, total users, and churn rate.
+
+    Churn Logic:
+    - churned_users: COUNT(DISTINCT userId) WHERE success='false' AND level='cancelled' per event_date
+    - total_users: COUNT(DISTINCT userId) per event_date
+    - churn_rate_pct: (churned_users / total_users) * 100 (null-safe)
+
+    Args:
+        context: Dagster asset execution context for logging
+        spark: SparkConnectResource for Spark operations
+        streaming_config: Configuration containing catalog and namespace info
+
+    Returns:
+        MaterializeResult with metadata about churned_user_count and churn_rate_pct
+    """
+    session = spark
+    catalog = streaming_config.catalog
+    namespace = streaming_config.namespace
+
+    source_table = f"{catalog}.{namespace}.silver_auth_events"
+    target_table = f"{catalog}.{namespace}.gold_user_churn"
+
+    context.log.info(f"Reading from Silver table: {source_table}")
+
+    # Read from auth events table
+    df = session.table(source_table)
+
+    # Calculate churned users per event_date (success='false' AND level='cancelled')
+    churned_users_df = (
+        df.filter((col("success") == "false") & (col("level") == "cancelled"))
+        .groupBy("event_date")
+        .agg(countDistinct("userId").alias("churned_user_count"))
+        .select(col("event_date"), col("churned_user_count"))
+    )
+
+    # Calculate total users per event_date
+    total_users_df = (
+        df.groupBy("event_date")
+        .agg(countDistinct("userId").alias("total_users"))
+        .select(col("event_date"), col("total_users"))
+    )
+
+    # Join churned and total users dataframes
+    churn_df = churned_users_df.join(total_users_df, "event_date", "outer").select(
+        col("event_date"),
+        col("churned_user_count"),
+        col("total_users"),
+    )
+
+    # Fill null values with 0 for calculations
+    churn_df = churn_df.fillna({"churned_user_count": 0, "total_users": 0})
+
+    # Calculate churn rate: (churned_users / total_users) * 100 (null-safe)
+    result_df = churn_df.withColumn(
+        "churn_rate_pct",
+        when(
+            col("total_users") > 0, (col("churned_user_count") / col("total_users")) * 100
+        ).otherwise(0.0),
+    )
+
+    output_rows = result_df.count()
+    context.log.info(f"Computed churn metrics for {output_rows} date records")
+
+    # Get the event_date being processed (if partitioned, use partition key)
+    event_date = context.partition_key if context.has_partition_key else "all_dates"
+    context.log.info(f"Processing event_date: {event_date}")
+
+    # Get metrics for metadata
+    if output_rows > 0:
+        metrics_row = result_df.select("churned_user_count", "churn_rate_pct").first()
+        churned_user_count = int(metrics_row["churned_user_count"])
+        churn_rate_pct = float(metrics_row["churn_rate_pct"])
+    else:
+        churned_user_count = 0
+        churn_rate_pct = 0.0
+
+    context.log.info(
+        f"Churn metrics: churned={churned_user_count}, rate={churn_rate_pct:.2f}%"
+    )
+
+    # Write to Gold table with dynamic partition overwrite
+    context.log.info(f"Writing to Gold table: {target_table}")
+
+    write_mode = "overwrite"
+    partition_overwrite_mode = "dynamic"
+
+    result_df.write.mode(write_mode).option(
+        "partitionOverwriteMode", partition_overwrite_mode
+    ).partitionBy("event_date").format("iceberg").saveAsTable(target_table)
+
+    context.log.info(f"✓ Successfully wrote {output_rows} rows to {target_table}")
+
+    return dg.MaterializeResult(
+        metadata={
+            "event_date": dg.MetadataValue.text(event_date),
+            "churned_user_count": dg.MetadataValue.int(churned_user_count),
+            "churn_rate_pct": dg.MetadataValue.float(churn_rate_pct),
+            "source_table": dg.MetadataValue.text(source_table),
+            "target_table": dg.MetadataValue.text(target_table),
+            "output_rows": dg.MetadataValue.int(output_rows),
+        }
+    )

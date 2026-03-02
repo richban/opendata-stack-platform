@@ -1,0 +1,37 @@
+
+## Mon Mar 2 17:10:00 CET 2026 - US-015
+Session: https://opncd.ai/s/[share-id]
+- Implemented US-015: Gold Layer — User Churn Analysis Asset
+- Created gold_user_churn asset in defs/gold_assets.py:
+  - Depends on silver_auth_events via function parameter
+  - Identifies churned users: userId with success='false' AND level='cancelled'
+  - Computes churned_user_count, total_users, and churn_rate_pct per event_date
+  - Joins churned users with total users dataframes on event_date
+  - Uses null-safe churn_rate calculation with when().otherwise() pattern
+  - Written to {catalog}.streamify.gold_user_churn with dynamic partition overwrite
+  - Returns MaterializeResult with churned_user_count, churn_rate_pct, event_date metadata
+- Asset features:
+  - group_name='gold', kinds={'spark', 'iceberg'}, owners=['team:team-ops'], tags={'layer': 'gold'}
+  - Follows same pattern as other Gold assets (gold_user_conversion_funnel)
+- Added comprehensive test in tests/test_gold_assets.py:
+  - TestGoldUserChurnAsset class with test for churn computation
+  - Mocks filter() for churn condition (success='false' AND level='cancelled')
+  - Mocks join between churned_users_df and total_users_df
+  - Verifies metadata emission including churned_user_count and churn_rate_pct
+- Files changed:
+  - Modified: src/team_ops/defs/gold_assets.py (added gold_user_churn asset)
+  - Modified: tests/test_gold_assets.py (added TestGoldUserChurnAsset test class)
+- Quality checks:
+  - pytest tests/test_gold_assets.py -v: 5 passed (including new test)
+  - pytest tests/ -v: 40 passed (all tests)
+  - dg check defs: All definitions loaded successfully
+  - ralph/prd.json updated with passes: true for US-015
+
+**Learnings for future iterations:**
+- Churn analysis follows similar pattern to conversion funnel: filter by condition, aggregate by date, join metrics, calculate rate
+- For churn detection, filter on both success='false' AND level='cancelled' to identify cancelled users
+- Use & operator for combining PySpark column conditions (not 'and' keyword)
+- Join with outer join to ensure all dates are captured even if no churn on that day
+- Fillna() before rate calculation prevents division by null values
+- Gold assets consistently use when().otherwise() for null-safe rate calculations
+---

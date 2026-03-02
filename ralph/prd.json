@@ -282,7 +282,7 @@
     },
     {
       "id": "US-015",
-      "title": "Gold Layer \u2014 User Churn Analysis Asset",
+      "title": "Gold Layer — User Churn Analysis Asset",
       "description": "As an analyst, I want a gold_user_churn asset that identifies churned users from silver_auth_events based on cancellation signals, so that I can monitor churn rate and user retention over time.",
       "acceptanceCriteria": [
         "gold_user_churn asset implemented in defs/gold_assets.py",
@@ -298,8 +298,8 @@
         "Typecheck passes"
       ],
       "priority": 15,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented gold_user_churn asset in defs/gold_assets.py. Asset identifies churned users from silver_auth_events where success='false' AND level='cancelled'. Computes churned_user_count, total_users, and churn_rate_pct per event_date. Asset includes group_name='gold', kinds={'spark', 'iceberg'}, owners=['team:team-ops'], tags={'layer': 'gold'}. Returns MaterializeResult with churned_user_count and churn_rate_pct metadata. Test added to tests/test_gold_assets.py. All 40 tests pass."
     },
     {
       "id": "US-016",
