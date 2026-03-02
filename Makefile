@@ -14,6 +14,10 @@ clean-dagster:
 	@echo "Cleaning Dagster storage and logs..."
 	rm -rf $(DAGSTER_HOME)/storage $(DAGSTER_HOME)/logs $(DAGSTER_HOME)/history
 
+clean-kafka:
+	@echo "Cleaning Kafka topics..."
+	./scripts/clean-kafka.sh
+
 lint:
 	@echo "Running linting checks..."
 	ruff check .
@@ -29,7 +33,7 @@ lint-format:
 format: lint-format
 
 # Dagster commands
-dagster-dev: clean-dagster
+dg-dev: clean-dagster
 	@echo "Starting Dagster development server..."
 	cd $(DAGSTER_WORKSPACE) && dg dev
 
