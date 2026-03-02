@@ -9,94 +9,58 @@ from pyspark.sql import SparkSession
 import dagster as dg
 
 
-class SparkConnectResource(dg.ConfigurableResource):
-    """Spark Connect resource for lazy SparkSession creation.
+def create_spark_session(app_name: str = "StreamifyDagsterJob") -> SparkSession:
+    """Create a SparkSession configured for Iceberg and Spark Connect via environment variables."""
+    # Ensure Spark Connect (Docker) can reach Polaris (Docker)
+    # Use Docker network hostname 'polaris' instead of localhost
+    polaris_uri = os.getenv("POLARIS_URI", "")
+    config_polaris_uri = polaris_uri.replace("localhost", "polaris").replace(
+        "192.168.1.47", "polaris"
+    )
 
-    Only creates the SparkSession when first accessed during asset execution.
-    Can also be used to create regular SparkSessions for Pipes scripts.
-    """
+    polaris_client_id = os.getenv("POLARIS_CLIENT_ID", "")
+    polaris_client_secret = os.getenv("POLARIS_CLIENT_SECRET", "")
+    polaris_credential = f"{polaris_client_id}:{polaris_client_secret}"
+    
+    catalog = os.getenv("POLARIS_CATALOG", "lakehouse")
+    spark_remote = os.getenv("SPARK_REMOTE", "sc://localhost:15002")
 
-    spark_remote: str = "sc://spark-master"
-    polaris_client_id: str = EnvVar("POLARIS_CLIENT_ID")
-    polaris_client_secret: str = EnvVar("POLARIS_CLIENT_SECRET")
-    polaris_uri: str = EnvVar("POLARIS_URI")
-    catalog: str = EnvVar("POLARIS_CATALOG")
+    builder = SparkSession.builder.appName(app_name)
 
-    _session: SparkSession = None
+    if spark_remote:
+        builder = builder.remote(spark_remote)
 
-    def get_session(self) -> SparkSession:
-        """Get or create SparkSession via Spark Connect."""
-        if self._session is None:
-            self._session = self._create_session(self.spark_remote)
-        return self._session
-
-    def create_regular_session(self, app_name: str = "StreamToIceberg") -> SparkSession:
-        """Create a regular (non-Connect) SparkSession for Pipes scripts.
-
-        This is used by streaming scripts that need a full Spark driver,
-        not just Spark Connect.
-        """
-        return self._create_session(None, app_name)
-
-    def _create_session(
-        self, spark_remote: str | None = None, app_name: str = "DagsterSparkJob"
-    ) -> SparkSession:
-        """Internal method to create SparkSession with common Iceberg config."""
-        polaris_credential = f"{self.polaris_client_id}:{self.polaris_client_secret}"
-
-        # Ensure Spark Connect (Docker) can reach Polaris (Docker)
-        # Use Docker network hostname 'polaris' instead of localhost
-        config_polaris_uri = self.polaris_uri.replace("localhost", "polaris").replace(
-            "192.168.1.47", "polaris"
+    return (
+        builder.config(
+            f"spark.sql.catalog.{catalog}",
+            "org.apache.iceberg.spark.SparkCatalog",
         )
-
-        builder = SparkSession.builder.appName(app_name)
-
-        if spark_remote:
-            builder = builder.remote(spark_remote)
-
-        return (
-            builder.config(
-                # "spark.sql.extensions",
-                # "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
-            )
-            # .config(
-            #     "spark.jars.packages",
-            #     "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1,"
-            #     "org.apache.iceberg:iceberg-aws-bundle:1.7.1,"
-            #     "org.apache.hadoop:hadoop-aws:3.3.4,"
-            #     "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3",
-            # )
-            .config(
-                f"spark.sql.catalog.{self.catalog}",
-                "org.apache.iceberg.spark.SparkCatalog",
-            )
-            .config(f"spark.sql.catalog.{self.catalog}.type", "rest")
-            .config(f"spark.sql.catalog.{self.catalog}.uri", config_polaris_uri)
-            .config(f"spark.sql.catalog.{self.catalog}.warehouse", self.catalog)
-            .config(f"spark.sql.catalog.{self.catalog}.credential", polaris_credential)
-            .config(
-                f"spark.sql.catalog.{self.catalog}.oauth2-server-uri",
-                f"{config_polaris_uri}/v1/oauth/tokens",
-            )
-            .config(f"spark.sql.catalog.{self.catalog}.scope", "PRINCIPAL_ROLE:ALL")
-            .config(
-                f"spark.sql.catalog.{self.catalog}.s3.endpoint",
-                "http://minio:9000",
-            )
-            .config(
-                f"spark.sql.catalog.{self.catalog}.s3.access-key-id",
-                os.getenv("AWS_ACCESS_KEY_ID", "minioadmin"),
-            )
-            .config(
-                f"spark.sql.catalog.{self.catalog}.s3.secret-access-key",
-                os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
-            )
-            .config(f"spark.sql.catalog.{self.catalog}.s3.path-style-access", "true")
-            .config(f"spark.sql.catalog.{self.catalog}.token-refresh-enabled", "true")
-            .config("spark.sql.defaultCatalog", self.catalog)
-            .getOrCreate()
+        .config(f"spark.sql.catalog.{catalog}.type", "rest")
+        .config(f"spark.sql.catalog.{catalog}.uri", config_polaris_uri)
+        .config(f"spark.sql.catalog.{catalog}.warehouse", catalog)
+        .config(f"spark.sql.catalog.{catalog}.credential", polaris_credential)
+        .config(
+            f"spark.sql.catalog.{catalog}.oauth2-server-uri",
+            f"{config_polaris_uri}/v1/oauth/tokens",
         )
+        .config(f"spark.sql.catalog.{catalog}.scope", "PRINCIPAL_ROLE:ALL")
+        .config(
+            f"spark.sql.catalog.{catalog}.s3.endpoint",
+            "http://minio:9000",
+        )
+        .config(
+            f"spark.sql.catalog.{catalog}.s3.access-key-id",
+            os.getenv("AWS_ACCESS_KEY_ID", "minioadmin"),
+        )
+        .config(
+            f"spark.sql.catalog.{catalog}.s3.secret-access-key",
+            os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
+        )
+        .config(f"spark.sql.catalog.{catalog}.s3.path-style-access", "true")
+        .config(f"spark.sql.catalog.{catalog}.token-refresh-enabled", "true")
+        .config("spark.sql.defaultCatalog", catalog)
+        .getOrCreate()
+    )
 
 
 class StreamingJobConfig(dg.ConfigurableResource):
@@ -118,17 +82,6 @@ class StreamingJobConfig(dg.ConfigurableResource):
     def get_polaris_credential(self) -> str:
         """Get formatted Polaris credential string."""
         return f"{self.polaris_client_id}:{self.polaris_client_secret}"
-
-
-def create_spark_resource():
-    """Create SparkConnectResource from environment variables."""
-    return SparkConnectResource(
-        spark_remote=os.getenv("SPARK_REMOTE", "sc://localhost:15002"),
-        polaris_client_id=os.getenv("POLARIS_CLIENT_ID", ""),
-        polaris_client_secret=os.getenv("POLARIS_CLIENT_SECRET", ""),
-        polaris_uri=os.getenv("POLARIS_URI", ""),
-        catalog=os.getenv("POLARIS_CATALOG", ""),
-    )
 
 
 def create_streaming_config():
