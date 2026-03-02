@@ -126,13 +126,19 @@ services:
       retries: 5
       start_period: 30s
 
+  # ---------------------------------------------------------------------------
+  # Spark 4.1.1 — Scala 2.13, Java 21
+  # Iceberg 1.10.1 (iceberg-spark-runtime-4.0_2.13) — latest stable for Spark 4
+  # Hadoop AWS 3.4.1 — matches Spark 4.x bundled Hadoop
+  # ---------------------------------------------------------------------------
+
   spark-master:
-    image: apache/spark:3.5.3
+    image: apache/spark:4.1.1
     command: /opt/spark/sbin/start-master.sh -h spark-master
     environment:
       SPARK_NO_DAEMONIZE: "true"
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-miniouser}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-miniouser}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ENDPOINT_URL: http://minio:9000
     ports:
@@ -143,19 +149,17 @@ services:
     volumes:
       - ./data:/data
       - ./dagster-workspace/team_ops:/opt/team_ops
-      - spark_ivy_cache:/root/.ivy2
 
   spark-worker:
-    image: apache/spark:3.5.3
+    image: apache/spark:4.1.1
     user: root
     command: /opt/spark/sbin/start-worker.sh spark://spark-master:7077
     depends_on:
       - spark-master
     environment:
       SPARK_NO_DAEMONIZE: "true"
-      SPARK_WORKER_MEMORY: 2G
-      SPARK_WORKER_CORES: 2
-      SPARK_EXECUTOR_EXTRACLASSPATH: "/root/.ivy2/jars/*"
+      SPARK_WORKER_MEMORY: 4G
+      SPARK_WORKER_CORES: 4
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: ${AWS_REGION:-us-east-1}
@@ -165,38 +169,44 @@ services:
     volumes:
       - ./data:/data
       - ./dagster-workspace/team_ops:/opt/team_ops
-      - spark_ivy_cache:/root/.ivy2
 
   spark-connect:
-    image: apache/spark:3.5.3
+    image: apache/spark:4.1.1
     user: root
     entrypoint: /bin/bash
     command:
       - -c
       - |
-        mkdir -p /root/.ivy2/cache /root/.ivy2/jars
+        mkdir -p /root/.ivy2
         chmod -R 777 /root/.ivy2
-        rm -rf /root/.ivy2/jars/*
-        
-        # Define packages
-        PACKAGES="org.apache.spark:spark-connect_2.12:3.5.3,org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.7.1,org.apache.iceberg:iceberg-aws-bundle:1.7.1,org.apache.hadoop:hadoop-aws:3.3.4,org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3"
-        
-        # 1. Trigger download of packages into local ivy cache
-        echo "Downloading packages..."
-        /opt/spark/bin/spark-submit --packages $$PACKAGES --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples_*.jar 1
-        
-        # 3. Flatten jars into the shared volume so workers can find them
-        # Use simple copy loop with grep to filter out conflicts
-        echo "Copying jars to shared volume..."
-        find /root/.ivy2/cache -name "*.jar" | grep -v "spark-connect" | grep -v "hadoop-client" | while read -r f; do cp -n "$$f" /root/.ivy2/jars/; done
-        
-        # 4. Explicitly remove any labeled artifacts just in case
-        rm -f /root/.ivy2/jars/*spark-connect* /root/.ivy2/jars/*hadoop-client*
-        
-        # 3. Start Connect server
+
+        # Spark 4.x / Scala 2.13 package coordinates.
+        # spark-connect is built into Spark 4 — no separate artifact needed.
+        PACKAGES="\
+        org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.1,\
+        org.apache.iceberg:iceberg-aws-bundle:1.10.1,\
+        org.apache.hadoop:hadoop-aws:3.4.1,\
+        org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.1"
+
+        # 1. Pre-download packages via a throwaway SparkPi run so the ivy cache
+        #    is warm before the Connect server starts.
+        echo "==> Downloading packages into ivy cache..."
+        /opt/spark/bin/spark-submit \
+          --packages "$$PACKAGES" \
+          --conf spark.jars.ivy=/root/.ivy2 \
+          --class org.apache.spark.examples.SparkPi \
+          /opt/spark/examples/jars/spark-examples_*.jar 1
+
+        # 2. Start Spark Connect server.
+        # jars are distributed to executors via Spark's built-in --packages
+        # mechanism (uploaded AFTER Spark's own jars, so no Netty/Netty conflict).
+        echo "==> Starting Spark Connect server..."
         /opt/spark/sbin/start-connect-server.sh \
-          --packages $$PACKAGES \
+          --packages "$$PACKAGES" \
           --conf spark.driver.host=spark-connect \
+          --conf spark.driver.memory=2g \
+          --conf spark.executor.memory=2g \
+          --conf spark.executor.cores=2 \
           --conf spark.jars.ivy=/root/.ivy2 \
           --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions \
           --conf spark.hadoop.fs.s3a.access.key=minioadmin \
@@ -295,4 +305,6 @@ volumes:
   zookeeper_data:
   zookeeper_logs:
   kafka_data:
+  # ivy2 cache for spark-connect package downloads (driver-side only)
   spark_ivy_cache:
+
