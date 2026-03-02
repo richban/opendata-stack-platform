@@ -163,6 +163,35 @@ Session: https://opncd.ai/s/[share-id]
 - Type annotation dict[str, dict[str, Any]] avoids type narrowing issues when storing mixed types
 ---
 
+## Mon Mar 2 08:40:00 CET 2026 - US-011
+Session: https://opncd.ai/s/[share-id]
+- Implemented US-011: Silver Layer Batch Schedule
+- Created `defs/schedules.py` with:
+  - `silver_batch_job`: Uses `dg.define_asset_job()` with `AssetSelection.groups('streamify').downstream()`
+  - `silver_daily_schedule`: Uses `dg.ScheduleDefinition` with cron '0 4 * * *'
+- Updated `defs/definitions.py` to register both job and schedule
+- Created comprehensive test suite in `tests/test_schedules.py`:
+  - 5 unit tests covering all acceptance criteria
+  - Tests verify job exists, schedule exists, correct cron, job target, and asset selection
+- Quality checks:
+  - `dg check defs`: All definitions loaded successfully (40 total tests pass)
+  - `pytest tests/test_schedules.py -v`: 5 passed
+  - `pytest tests/ -v`: 40 passed (all tests)
+  - `dg list defs`: Shows silver_batch_job and silver_daily_schedule
+- Files changed:
+  - Created: `src/team_ops/defs/schedules.py`
+  - Created: `tests/test_schedules.py`
+  - Modified: `src/team_ops/defs/definitions.py` (registered job and schedule)
+  - Modified: `ralph/prd.json` (marked US-011 as passing)
+
+**Learnings for future iterations:**
+- `define_asset_job()` returns `UnresolvedAssetJobDefinition`, not `JobDefinition` - check type with `type(obj).__name__`
+- Use `AssetSelection.groups('group_name').downstream()` to select all assets in a group plus their downstream dependencies
+- Jobs must be registered in Definitions via the `jobs=[...]` parameter, not just schedules
+- When testing UnresolvedAssetJobDefinition, assert on the `name` attribute and check the `selection` property
+- Import sorting: use `from __future__ import annotations` before other imports for cleaner type hints
+---
+
 ## Codebase Patterns
 - Use `sql<number>` template for aggregations
 - Always use `IF NOT EXISTS` for migrations
@@ -172,4 +201,7 @@ Session: https://opncd.ai/s/[share-id]
 - Asset dependencies: deps=[AssetKey("upstream_asset")] in the @dg.asset decorator
 - MetadataValue.json() for structured data in MaterializeResult
 - Schedules registered via Definitions(schedules=[...])
+- Jobs registered via Definitions(jobs=[...])
 - Type hint dict[str, Any] for flexible dictionary values in asset metadata
+- define_asset_job() returns UnresolvedAssetJobDefinition - assert on name, not isinstance JobDefinition
+- AssetSelection.groups('streamify').downstream() for selecting group assets with dependencies
