@@ -250,11 +250,11 @@ services:
     command:
       - |
         /opt/eventsim/eventsim.sh \
-          -c /opt/eventsim/examples/example-config.json \
-          --from 730 \
+          -c /opt/eventsim/examples/spotify-scale-config.json \
+          --from 1 \
           --to 0 \
-          --nusers 10 \
-          --growth-rate 0.001 \
+          --nusers 3000 \
+          --growth-rate 0.01 \
           --userid 1 \
           --kafkaBrokerList kafka:9092 \
           --randomseed $$(shuf -i 1-10000 -n 1) \
@@ -307,4 +307,3 @@ volumes:
   kafka_data:
   # ivy2 cache for spark-connect package downloads (driver-side only)
   spark_ivy_cache:
-

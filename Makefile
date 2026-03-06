@@ -50,3 +50,6 @@ docker-up:
 docker-down:
 	@echo "Stopping Docker services..."
 	docker-compose down
+
+listen-events-topic:
+	nix-shell -p unixtools.watch.out --run "watch -n 5 'docker exec opendata-stack-platform-kafka-1 kafka-run-class kafka.tools.GetOffsetShell --broker-list kafka:9092 --topic listen_events --time -1'"
