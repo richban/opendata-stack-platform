@@ -81,9 +81,9 @@ def process_stream(
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", streaming_config.kafka_bootstrap_servers)
         .option("subscribe", topic)
-        .option("startingOffsets", "earliest")
+        .option("startingOffsets", "latest")
         .option("failOnDataLoss", "false")
-        .option("maxOffsetsPerTrigger", 5000)
+        .option("maxOffsetsPerTrigger", 100000)
         .load()
     )
 
@@ -178,6 +178,7 @@ def bronze_streaming_job(
     - Running with a timeout or max duration
     - Using a separate scheduler/cron to restart if needed
     - Monitoring with sensors for health checks
+    - For historical backfill use `startingOffsets=earliest`, but for continuous streaming use `latest`
     """
     try:
         context.log.info("STREAMIFY - Kafka to Iceberg Streaming (Spark Connect)")

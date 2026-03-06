@@ -87,6 +87,6 @@ meta_schema = [
 
 SCHEMAS = {
     "listen_events": LISTEN_EVENTS_SCHEMA,
-    "page_view_events": PAGE_VIEW_EVENTS_SCHEMA,
-    "auth_events": AUTH_EVENTS_SCHEMA,
+    # "page_view_events": PAGE_VIEW_EVENTS_SCHEMA,
+    # "auth_events": AUTH_EVENTS_SCHEMA,
 }

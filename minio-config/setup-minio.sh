@@ -9,10 +9,9 @@ mc alias set minio http://minio:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD
 mc mb minio/warehouse --ignore-existing
 mc mb minio/datalake --ignore-existing
 mc mb minio/lakehouse --ignore-existing     # Iceberg tables for Polaris catalog
-mc mb minio/dagster-pipes --ignore-existing # Dagster Pipes communication
 mc mb minio/checkpoints --ignore-existing   # Spark Structured Streaming checkpoints
 
-echo "Created buckets: warehouse, datalake, lakehouse, dagster-pipes, checkpoints"
+echo "Created buckets: warehouse, datalake, lakehouse, checkpoints"
 
 # Create Minio policies from JSON files
 mc admin policy create minio s3-rw-policy /config/s3-rw-policy.json || true
