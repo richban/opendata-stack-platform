@@ -17,8 +17,6 @@ opendata_stack_platform_dbt_project = DbtProject(
     target=get_dbt_target(),
 )
 
-# Note: prepare_if_dev() temporarily disabled due to PATH issue in subprocess
-# Run manually: cd opendata_stack_platform_dbt && dbt deps && dbt parse
-# opendata_stack_platform_dbt_project.prepare_if_dev()
+opendata_stack_platform_dbt_project.prepare_if_dev()
 
 dbt_resource = DbtCliResource(project_dir=opendata_stack_platform_dbt_project)
