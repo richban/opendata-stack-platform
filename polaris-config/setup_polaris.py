@@ -39,7 +39,6 @@ POLARIS_CATALOG_URI = f"http://{POLARIS_HOST}:8181/api/catalog"
 AUTH_URL = f"http://{POLARIS_HOST}:8181/api/catalog/v1/oauth/tokens"
 
 
-
 def authenticate(max_retries: int = 30, retry_interval: int = 3) -> str:
     """Authenticate to Polaris via OAuth2 client credentials flow."""
     payload = {
@@ -123,6 +122,8 @@ def ensure_catalog(headers: dict) -> None:
 
 def ensure_principal(headers: dict) -> dict:
     """Create the streamify principal and return credentials."""
+    creds_file = "/opt/streamify/.env.polaris"
+
     # Check if principal exists
     response = requests.get(
         f"{POLARIS_MANAGEMENT}/principals/{PRINCIPAL_NAME}",
@@ -131,19 +132,23 @@ def ensure_principal(headers: dict) -> dict:
     )
 
     if response.status_code == 200:
-        print(f"[OK] Principal '{PRINCIPAL_NAME}' already exists, rotating credentials")
-        # Rotate credentials for existing principal
-        rotate_response = requests.post(
-            f"{POLARIS_MANAGEMENT}/principals/{PRINCIPAL_NAME}/rotate",
-            headers=headers,
-            timeout=10,
-        )
-        if rotate_response.status_code == 200:
-            creds = rotate_response.json()["credentials"]
-            print(f"[OK] Rotated credentials for '{PRINCIPAL_NAME}'")
-            return creds
+        print(f"[OK] Principal '{PRINCIPAL_NAME}' already exists")
+        # Check if we have existing credentials file
+        if os.path.exists(creds_file):
+            print(f"[OK] Using existing credentials from {creds_file}")
+            return {"clientId": PRINCIPAL_NAME, "clientSecret": "[USE_EXISTING]"}
         else:
-            raise Exception(f"Failed to rotate credentials: {rotate_response.text}")
+            print(
+                f"\n[ERROR] Principal '{PRINCIPAL_NAME}' exists but credentials file is missing!"
+            )
+            print(
+                f"[ERROR] Cannot retrieve credentials from Polaris (not allowed for security)"
+            )
+            print(f"\n[SOLUTION] Delete the principal and re-run:")
+            print(
+                f'  curl -X DELETE http://localhost:8181/api/management/v1/principals/{PRINCIPAL_NAME} -H "Authorization: Bearer <token>"'
+            )
+            raise Exception("Credentials file missing and cannot retrieve credentials")
 
     # Create new principal
     principal_config = {
@@ -168,15 +173,13 @@ def ensure_principal(headers: dict) -> dict:
         return creds
     elif response.status_code == 409:
         print(f"[OK] Principal '{PRINCIPAL_NAME}' already exists (409)")
-        # Try to rotate credentials
-        rotate_response = requests.post(
-            f"{POLARIS_MANAGEMENT}/principals/{PRINCIPAL_NAME}/rotate",
-            headers=headers,
-            timeout=10,
-        )
-        if rotate_response.status_code == 200:
-            return rotate_response.json()["credentials"]
-        raise Exception(f"Failed to rotate credentials: {rotate_response.text}")
+        if os.path.exists(creds_file):
+            print(f"[OK] Using existing credentials from {creds_file}")
+            return {"clientId": PRINCIPAL_NAME, "clientSecret": "[USE_EXISTING]"}
+        else:
+            raise Exception(
+                f"Principal '{PRINCIPAL_NAME}' exists but credentials file is missing"
+            )
     else:
         raise Exception(f"Failed to create principal: {response.text}")
 
@@ -246,6 +249,16 @@ def print_spark_config(credentials: dict) -> None:
     """Print Spark configuration for connecting to Polaris."""
     client_id = credentials["clientId"]
     client_secret = credentials["clientSecret"]
+    creds_file = "/opt/streamify/.env.polaris"
+
+    # If using existing credentials, just confirm
+    if client_secret == "[USE_EXISTING]":
+        print("\n" + "=" * 70)
+        print("POLARIS SETUP COMPLETE")
+        print("=" * 70)
+        print(f"\n[OK] Using existing credentials from {creds_file}")
+        print(f"     Principal: {PRINCIPAL_NAME}")
+        return
 
     print("\n" + "=" * 70)
     print("POLARIS SETUP COMPLETE")
@@ -290,6 +303,11 @@ def print_spark_config(credentials: dict) -> None:
 
     # Write credentials to a file for other services to use
     creds_file = "/opt/streamify/.env.polaris"
+
+    # Skip writing if using existing credentials
+    if client_secret == "[USE_EXISTING]":
+        return
+
     try:
         with open(creds_file, "w") as f:
             f.write(f"POLARIS_CLIENT_ID={client_id}\n")
