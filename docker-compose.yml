@@ -1,4 +1,24 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: polaris-postgres
+    environment:
+      POSTGRES_DB: polaris_db
+      POSTGRES_USER: polaris_user
+      POSTGRES_PASSWORD: polaris_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U polaris_user -d polaris_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - opendata_network
+    restart: unless-stopped
+
   minio:
     image: minio/minio
     ports:
@@ -49,6 +69,8 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     networks:
       - opendata_network
     environment:
@@ -60,12 +82,34 @@ services:
       POLARIS_BOOTSTRAP_CREDENTIALS: default,admin,password
       polaris.realm-context.realms: default
       polaris.features.DROP_WITH_PURGE_ENABLED: "true"
+      POLARIS_PERSISTENCE_TYPE: relational-jdbc
+      QUARKUS_DATASOURCE_DB_KIND: postgresql
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/polaris_db
+      QUARKUS_DATASOURCE_USERNAME: polaris_user
+      QUARKUS_DATASOURCE_PASSWORD: polaris_password
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8182/q/health"]
       interval: 10s
       timeout: 5s
       retries: 20
       start_period: 60s
+
+  polaris-bootstrap:
+    image: apache/polaris-admin-tool:latest
+    platform: linux/amd64
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - opendata_network
+    environment:
+      POLARIS_PERSISTENCE_TYPE: relational-jdbc
+      QUARKUS_DATASOURCE_DB_KIND: postgresql
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/polaris_db
+      QUARKUS_DATASOURCE_USERNAME: polaris_user
+      QUARKUS_DATASOURCE_PASSWORD: polaris_password
+      POLARIS_BOOTSTRAP_CREDENTIALS: default,admin,password
+    command: ["bootstrap", "--realm", "default", "--credential", "default,admin,password", "--print-credentials"]
 
   polaris-init:
     image: python:3.11-slim
@@ -301,6 +345,7 @@ networks:
     driver: bridge
 
 volumes:
+  postgres_data:
   minio_data:
   zookeeper_data:
   zookeeper_logs:
