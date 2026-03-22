@@ -1,7 +1,7 @@
 """Data Quality result store using SQLite.
 
-This module provides a simple SQLite-based storage for Dagster asset check results.
-Results are written to a local SQLite file with an append-only table design.
+This module provides a Dagster ConfigurableResource for storing asset check results
+in a local SQLite database with an append-only table design.
 """
 
 import json
@@ -11,29 +11,43 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+import dagster as dg
 
-class DQResultStore:
+
+class DQResultStore(dg.ConfigurableResource):
     """Store for data quality check results.
 
     Stores check results in a local SQLite database with an append-only table.
     Also logs check results to a file using Python's logging module.
 
-    Args:
+    Configuration fields:
         db_path: Path to SQLite database file (default: dq_results/dq_checks.db)
         log_path: Path to log file (default: dq_results/dq_checks.log)
+
+    Example:
+        >>> store = DQResultStore(db_path="custom/path/dq.db")
+        >>> store.write_result(
+        ...     check_name="not_null",
+        ...     asset_name="my_table",
+        ...     passed=True,
+        ...     run_id="12345",
+        ... )
     """
 
-    def __init__(
-        self,
-        db_path: str | Path = "dq_results/dq_checks.db",
-        log_path: str | Path = "dq_results/dq_checks.log",
-    ) -> None:
-        self.db_path = Path(db_path)
-        self.log_path = Path(log_path)
+    db_path: str = "dq_results/dq_checks.db"
+    log_path: str = "dq_results/dq_checks.log"
 
-        # Ensure directory exists
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+    def setup_for_execution(self, context: dg.InitResourceContext) -> None:
+        """Initialize the resource for execution.
+
+        Creates necessary directories, sets up logging, and initializes the database.
+        """
+        self._db_path = Path(self.db_path)
+        self._log_path = Path(self.log_path)
+
+        # Ensure directories exist
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._log_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Set up file logging
         self._setup_logging()
@@ -50,7 +64,7 @@ class DQResultStore:
         self.logger.handlers = []
 
         # Add file handler
-        file_handler = logging.FileHandler(self.log_path)
+        file_handler = logging.FileHandler(self._log_path)
         file_handler.setLevel(logging.INFO)
 
         # Simple format: timestamp - level - message
@@ -64,7 +78,7 @@ class DQResultStore:
 
     def _init_db(self) -> None:
         """Initialize SQLite database with dq_results table."""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self._db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS dq_results (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,7 +110,7 @@ class DQResultStore:
             metadata: Optional metadata dictionary (stored as JSON)
         """
         # Write to SQLite
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self._db_path) as conn:
             conn.execute(
                 """
                 INSERT INTO dq_results
@@ -156,7 +170,7 @@ class DQResultStore:
         query += " ORDER BY checked_at DESC LIMIT ?"
         params.append(limit)
 
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self._db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(query, params)
             rows = cursor.fetchall()

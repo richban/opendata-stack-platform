@@ -17,6 +17,7 @@ from team_ops.defs import (
     sensors,
     silver_assets,
 )
+from team_ops.defs.dq_store import DQResultStore
 from team_ops.defs.resources import (
     create_s3_resource,
     create_spark_session,
@@ -50,5 +51,6 @@ defs = dg.Definitions(
         "spark": create_spark_session(),
         "s3": create_s3_resource(),
         "streaming_config": create_streaming_config(),
+        "dq_store": DQResultStore(),
     },
 )
