@@ -6,14 +6,14 @@ from pathlib import Path
 
 
 def get_project_root() -> Path:
-    """Get the absolute path to the project root directory.
+    """Get the absolute path to the git repository root directory.
 
     Returns:
-        Path: Absolute path to the project root directory
+        Path: Absolute path to the git repository root directory
     """
-    # This file is in opendata_stack_platform/utils/paths.py
-    # Go up three levels to get to the project root
-    return Path(__file__).parent.parent.parent.parent
+    # This file is in dagster-workspace/projects/data_platform/src/data_platform/utils/paths.py
+    # Need to go up 5 levels to reach the repo root (data_platform, src, data_platform, projects, dagster-workspace)
+    return Path(__file__).parent.parent.parent.parent.parent
 
 
 def get_duckdb_path() -> Path:

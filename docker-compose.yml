@@ -250,7 +250,7 @@ services:
     command:
       - |
         /opt/eventsim/eventsim.sh \
-          -c /opt/eventsim/examples/spotify-scale-config.json \
+          -c /opt/eventsim/examples/example-config.json \
           --from 1 \
           --to 0 \
           --nusers 3000 \

@@ -154,7 +154,7 @@
     {"source": {"page": "Home", "method": "GET", "status": 200, "auth": "Logged Out", "level": "free"}, "dest": {"page": "Error", "method": "GET", "status": 404, "auth": "Logged Out", "level": "free"}, "p": 0.001},
     {"source": {"page": "Login", "method": "PUT", "status": 307, "auth": "Logged Out", "level": "free"}, "dest": {"page": "Home", "method": "GET", "status": 200, "auth": "Logged In", "level": "free"}, "p": 0.9},
     {"source": {"page": "Login", "method": "PUT", "status": 307, "auth": "Logged Out", "level": "free"}, "dest": {"page": "Home", "method": "GET", "status": 200, "auth": "Logged Out", "level": "free"}, "p": 0.099},
-    {"source": {"page": "Login", "method": "PUT", "status": 307, "auth": "Logged Out", "level": "free"}, "dest": {"page": {"page": "Error", "method": "GET", "status": 404, "auth": "Logged Out", "level": "free"}, "p": 0.001},
+    {"source": {"page": "Login", "method": "PUT", "status": 307, "auth": "Logged Out", "level": "free"}, "dest": {"page": "Error", "method": "GET", "status": 404, "auth": "Logged Out", "level": "free"}, "p": 0.001},
     {"source": {"page": "Error", "method": "GET", "status": 404, "auth": "Logged Out", "level": "free"}, "dest": {"page": "Help", "method": "GET", "status": 200, "auth": "Logged Out", "level": "free"}, "p": 0.05},
     {"source": {"page": "Error", "method": "GET", "status": 404, "auth": "Logged Out", "level": "free"}, "dest": {"page": "Home", "method": "GET", "status": 200, "auth": "Logged Out", "level": "free"}, "p": 0.3},
     {"source": {"page": "Error", "method": "GET", "status": 404, "auth": "Logged Out", "level": "free"}, "dest": {"page": "Login", "method": "PUT", "status": 307, "auth": "Logged Out", "level": "free"}, "p": 0.1},

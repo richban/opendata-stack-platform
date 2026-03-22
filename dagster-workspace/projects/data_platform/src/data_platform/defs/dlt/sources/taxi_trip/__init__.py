@@ -84,9 +84,9 @@ def taxi_trip_resource(
 
         # Simple one-line filter that checks if the file's date is in range
         raw_files.add_filter(
-            lambda item: start_date
-            <= item["file_name"].split("_")[-1].split(".")[0]
-            <= end_date
+            lambda item: (
+                start_date <= item["file_name"].split("_")[-1].split(".")[0] <= end_date
+            )
         )
     elif partition_key:
         # Single partition case
@@ -121,12 +121,21 @@ def taxi_trip_source(
 
 
 if __name__ == "__main__":
+    import os
+    from pathlib import Path
+
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
+    # Get repo root (9 levels up from this file)
+    repo_root = Path(
+        __file__
+    ).parent.parent.parent.parent.parent.parent.parent.parent.parent
+    duckdb_path = repo_root / "data" / "nyc_database.duckdb"
+
     dlt_pipeline = dlt.pipeline(
         pipeline_name="unified_taxi_trip_bronze_pipeline",
-        destination=dlt.destinations.duckdb("../data/nyc_database.duckdb"),
+        destination=dlt.destinations.duckdb(str(duckdb_path)),
         dataset_name="bronze/green/taxi_trip",
         dev_mode=True,
         progress="log",
