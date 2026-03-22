@@ -9,7 +9,7 @@ All configuration is managed via ConfigurableResources loaded from environment v
 
 import dagster as dg
 
-from team_ops.defs import (
+from streamify.defs import (
     bronze_assets,
     dq_checks,
     gold_assets,
@@ -17,13 +17,13 @@ from team_ops.defs import (
     sensors,
     silver_assets,
 )
-from team_ops.defs.dq_store import DQResultStore
-from team_ops.defs.resources import (
+from streamify.defs.dq_store import DQResultStore
+from streamify.defs.resources import (
     create_s3_resource,
     create_spark_session,
     create_streaming_config,
 )
-from team_ops.defs.schedules import (
+from streamify.defs.schedules import (
     gold_batch_job,
     gold_daily_schedule,
     silver_batch_job,

@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv(".env.polaris")
 
-from team_ops.defs.resources import create_spark_session
+from streamify.defs.resources import create_spark_session
 
 spark = create_spark_session()
 print("Connected. Running SQL...")

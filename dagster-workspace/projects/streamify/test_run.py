@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 load_dotenv(".env.polaris")
 
 from dagster import build_op_context
-from team_ops.defs.assets import bronze_streaming_job
-from team_ops.defs.definitions import defs
+from streamify.defs.assets import bronze_streaming_job
+from streamify.defs.definitions import defs
 
-from team_ops.defs.resources import create_spark_session, create_streaming_config
+from streamify.defs.resources import create_spark_session, create_streaming_config
 
 spark = create_spark_session()
 streaming_config = create_streaming_config()

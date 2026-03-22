@@ -6,8 +6,8 @@ import dagster as dg
 import pytest
 from dagster import build_op_context
 
-from team_ops.defs.resources import StreamingJobConfig
-from team_ops.defs.silver_assets import (
+from streamify.defs.resources import StreamingJobConfig
+from streamify.defs.silver_assets import (
     silver_auth_events,
     silver_listen_events,
     silver_page_view_events,
@@ -18,9 +18,9 @@ from team_ops.defs.silver_assets import (
 class TestSilverListenEventsAsset:
     """Test cases for silver_listen_events asset."""
 
-    @patch("team_ops.defs.silver_assets.col")
-    @patch("team_ops.defs.silver_assets.row_number")
-    @patch("team_ops.defs.silver_assets.Window")
+    @patch("streamify.defs.silver_assets.col")
+    @patch("streamify.defs.silver_assets.row_number")
+    @patch("streamify.defs.silver_assets.Window")
     def test_asset_deduplicates_rows_correctly(
         self, mock_Window, mock_row_number, mock_col
     ):
@@ -101,9 +101,9 @@ class TestSilverListenEventsAsset:
         # Verify Window.partitionBy was called with event_id
         mock_Window.partitionBy.assert_called_once_with("event_id")
 
-    @patch("team_ops.defs.silver_assets.col")
-    @patch("team_ops.defs.silver_assets.row_number")
-    @patch("team_ops.defs.silver_assets.Window")
+    @patch("streamify.defs.silver_assets.col")
+    @patch("streamify.defs.silver_assets.row_number")
+    @patch("streamify.defs.silver_assets.Window")
     def test_asset_returns_materialize_result(
         self, mock_Window, mock_row_number, mock_col
     ):
@@ -182,9 +182,9 @@ class TestSilverListenEventsAsset:
 class TestSilverPageViewEventsAsset:
     """Test cases for silver_page_view_events asset."""
 
-    @patch("team_ops.defs.silver_assets.col")
-    @patch("team_ops.defs.silver_assets.row_number")
-    @patch("team_ops.defs.silver_assets.Window")
+    @patch("streamify.defs.silver_assets.col")
+    @patch("streamify.defs.silver_assets.row_number")
+    @patch("streamify.defs.silver_assets.Window")
     def test_asset_deduplicates_rows_correctly(
         self, mock_Window, mock_row_number, mock_col
     ):
@@ -265,9 +265,9 @@ class TestSilverPageViewEventsAsset:
         # Verify Window.partitionBy was called with event_id
         mock_Window.partitionBy.assert_called_once_with("event_id")
 
-    @patch("team_ops.defs.silver_assets.col")
-    @patch("team_ops.defs.silver_assets.row_number")
-    @patch("team_ops.defs.silver_assets.Window")
+    @patch("streamify.defs.silver_assets.col")
+    @patch("streamify.defs.silver_assets.row_number")
+    @patch("streamify.defs.silver_assets.Window")
     def test_asset_returns_materialize_result(
         self, mock_Window, mock_row_number, mock_col
     ):
@@ -346,9 +346,9 @@ class TestSilverPageViewEventsAsset:
 class TestSilverAuthEventsAsset:
     """Test cases for silver_auth_events asset."""
 
-    @patch("team_ops.defs.silver_assets.col")
-    @patch("team_ops.defs.silver_assets.row_number")
-    @patch("team_ops.defs.silver_assets.Window")
+    @patch("streamify.defs.silver_assets.col")
+    @patch("streamify.defs.silver_assets.row_number")
+    @patch("streamify.defs.silver_assets.Window")
     def test_asset_deduplicates_rows_correctly(
         self, mock_Window, mock_row_number, mock_col
     ):
@@ -425,9 +425,9 @@ class TestSilverAuthEventsAsset:
         assert result.metadata["output_rows"].value == 48
         assert result.metadata["duplicate_rows_removed"].value == 2
 
-    @patch("team_ops.defs.silver_assets.col")
-    @patch("team_ops.defs.silver_assets.row_number")
-    @patch("team_ops.defs.silver_assets.Window")
+    @patch("streamify.defs.silver_assets.col")
+    @patch("streamify.defs.silver_assets.row_number")
+    @patch("streamify.defs.silver_assets.Window")
     def test_asset_returns_materialize_result(
         self, mock_Window, mock_row_number, mock_col
     ):
@@ -506,20 +506,20 @@ class TestSilverAuthEventsAsset:
 class TestSilverUserSessionsAsset:
     """Test cases for silver_user_sessions asset."""
 
-    @patch("team_ops.defs.silver_assets.col")
-    @patch("team_ops.defs.silver_assets.lit")
-    @patch("team_ops.defs.silver_assets.when")
-    @patch("team_ops.defs.silver_assets.lag")
-    @patch("team_ops.defs.silver_assets.Window")
-    @patch("team_ops.defs.silver_assets.unix_timestamp")
-    @patch("team_ops.defs.silver_assets.first")
-    @patch("team_ops.defs.silver_assets.sha2")
-    @patch("team_ops.defs.silver_assets.concat_ws")
-    @patch("team_ops.defs.silver_assets.min")
-    @patch("team_ops.defs.silver_assets.max")
-    @patch("team_ops.defs.silver_assets.avg")
-    @patch("team_ops.defs.silver_assets.spark_count")
-    @patch("team_ops.defs.silver_assets.spark_sum")
+    @patch("streamify.defs.silver_assets.col")
+    @patch("streamify.defs.silver_assets.lit")
+    @patch("streamify.defs.silver_assets.when")
+    @patch("streamify.defs.silver_assets.lag")
+    @patch("streamify.defs.silver_assets.Window")
+    @patch("streamify.defs.silver_assets.unix_timestamp")
+    @patch("streamify.defs.silver_assets.first")
+    @patch("streamify.defs.silver_assets.sha2")
+    @patch("streamify.defs.silver_assets.concat_ws")
+    @patch("streamify.defs.silver_assets.min")
+    @patch("streamify.defs.silver_assets.max")
+    @patch("streamify.defs.silver_assets.avg")
+    @patch("streamify.defs.silver_assets.spark_count")
+    @patch("streamify.defs.silver_assets.spark_sum")
     def test_asset_reconstructs_sessions_correctly(
         self,
         mock_spark_sum,
@@ -619,20 +619,20 @@ class TestSilverUserSessionsAsset:
         assert "avg_tracks_per_session" in result.metadata
         assert result.metadata["session_count"].value == 10
 
-    @patch("team_ops.defs.silver_assets.col")
-    @patch("team_ops.defs.silver_assets.lit")
-    @patch("team_ops.defs.silver_assets.when")
-    @patch("team_ops.defs.silver_assets.lag")
-    @patch("team_ops.defs.silver_assets.Window")
-    @patch("team_ops.defs.silver_assets.unix_timestamp")
-    @patch("team_ops.defs.silver_assets.first")
-    @patch("team_ops.defs.silver_assets.sha2")
-    @patch("team_ops.defs.silver_assets.concat_ws")
-    @patch("team_ops.defs.silver_assets.min")
-    @patch("team_ops.defs.silver_assets.max")
-    @patch("team_ops.defs.silver_assets.avg")
-    @patch("team_ops.defs.silver_assets.spark_count")
-    @patch("team_ops.defs.silver_assets.spark_sum")
+    @patch("streamify.defs.silver_assets.col")
+    @patch("streamify.defs.silver_assets.lit")
+    @patch("streamify.defs.silver_assets.when")
+    @patch("streamify.defs.silver_assets.lag")
+    @patch("streamify.defs.silver_assets.Window")
+    @patch("streamify.defs.silver_assets.unix_timestamp")
+    @patch("streamify.defs.silver_assets.first")
+    @patch("streamify.defs.silver_assets.sha2")
+    @patch("streamify.defs.silver_assets.concat_ws")
+    @patch("streamify.defs.silver_assets.min")
+    @patch("streamify.defs.silver_assets.max")
+    @patch("streamify.defs.silver_assets.avg")
+    @patch("streamify.defs.silver_assets.spark_count")
+    @patch("streamify.defs.silver_assets.spark_sum")
     def test_asset_returns_materialize_result_with_metadata(
         self,
         mock_spark_sum,

@@ -1,11 +1,11 @@
-"""Test fixtures for team_ops project."""
+"""Test fixtures for streamify project."""
 
 from unittest.mock import MagicMock
 
 import pytest
 
 from pyspark.sql import SparkSession
-from team_ops.defs.resources import StreamingJobConfig
+from streamify.defs.resources import StreamingJobConfig
 
 
 @pytest.fixture

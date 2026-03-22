@@ -109,7 +109,7 @@ The Polaris Console provides a modern web interface for managing Apache Polaris:
 - Manage access policies and principals
 - Monitor catalog operations
 
-**Login Credentials**: Use the OAuth credentials from `dagster-workspace/team_ops/.env.polaris`
+**Login Credentials**: Use the OAuth credentials from `dagster-workspace/streamify/.env.polaris`
 
 ---
 

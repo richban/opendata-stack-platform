@@ -13,9 +13,9 @@ import dagster as dg
 
 from pyspark.sql.functions import col
 
-from team_ops.defs.dq_store import DQResultStore
+from streamify.defs.dq_store import DQResultStore
 from pyspark.sql import SparkSession
-from team_ops.defs.resources import StreamingJobConfig
+from streamify.defs.resources import StreamingJobConfig
 
 
 def _get_dq_store() -> DQResultStore:

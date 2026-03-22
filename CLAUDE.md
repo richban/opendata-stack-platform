@@ -13,7 +13,7 @@ This is a modern data analytics platform for NYC taxi trip data that demonstrate
 - **Dagster workspace** (`dagster-workspace/`): Multi-team orchestration setup with:
   - `dagster-workspace/team_data_platform/data_platform/`: Main data platform with taxi data pipelines
   - `dagster-workspace/team_climate_risk/physical_risk_impact/`: Climate risk analysis workspace
-  - `dagster-workspace/team_ops/`: Streaming data pipelines
+  - `dagster-workspace/streamify/`: Streaming data pipelines
   - `dagster-workspace/team_ml/`: Bauplan for ML pipelines
 - **sqlmesh project** (`opendata_stack_platform_sqlmesh/`): Data transformations with bronze/silver/gold architecture
 - **Infrastructure** (`docker-compose.yml`): MinIO S3 storage, Apache Polaris catalog, and supporting services

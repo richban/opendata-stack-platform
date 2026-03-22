@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 import dagster as dg
 from dagster import build_op_context
 
-from team_ops.defs.assets import bronze_streaming_job
-from team_ops.defs.definitions import defs
-from team_ops.defs.resources import StreamingJobConfig
+from streamify.defs.assets import bronze_streaming_job
+from streamify.defs.definitions import defs
+from streamify.defs.resources import StreamingJobConfig
 
 
 def test_definitions_load_without_errors():
@@ -30,13 +30,13 @@ def test_bronze_streaming_job_asset_exists():
     assert len(bronze_streaming_job.keys) == 1
 
 
-@patch("team_ops.defs.assets.col")
-@patch("team_ops.defs.assets.from_json")
-@patch("team_ops.defs.assets.concat_ws")
-@patch("team_ops.defs.assets.sha2")
-@patch("team_ops.defs.assets.to_date")
-@patch("team_ops.defs.assets.from_unixtime")
-@patch("team_ops.defs.assets.current_timestamp")
+@patch("streamify.defs.assets.col")
+@patch("streamify.defs.assets.from_json")
+@patch("streamify.defs.assets.concat_ws")
+@patch("streamify.defs.assets.sha2")
+@patch("streamify.defs.assets.to_date")
+@patch("streamify.defs.assets.from_unixtime")
+@patch("streamify.defs.assets.current_timestamp")
 def test_bronze_streaming_job_asset_function(
     mock_current_timestamp,
     mock_from_unixtime,
@@ -125,13 +125,13 @@ def test_bronze_streaming_job_asset_function(
     assert mock_write_stream.toTable.call_count == 3
 
 
-@patch("team_ops.defs.assets.col")
-@patch("team_ops.defs.assets.from_json")
-@patch("team_ops.defs.assets.concat_ws")
-@patch("team_ops.defs.assets.sha2")
-@patch("team_ops.defs.assets.to_date")
-@patch("team_ops.defs.assets.from_unixtime")
-@patch("team_ops.defs.assets.current_timestamp")
+@patch("streamify.defs.assets.col")
+@patch("streamify.defs.assets.from_json")
+@patch("streamify.defs.assets.concat_ws")
+@patch("streamify.defs.assets.sha2")
+@patch("streamify.defs.assets.to_date")
+@patch("streamify.defs.assets.from_unixtime")
+@patch("streamify.defs.assets.current_timestamp")
 def test_bronze_streaming_job_metadata_content(
     mock_current_timestamp,
     mock_from_unixtime,

@@ -10,7 +10,7 @@ import dagster as dg
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import avg, col, count, countDistinct, date_trunc, when
 
-from team_ops.defs.resources import StreamingJobConfig
+from streamify.defs.resources import StreamingJobConfig
 
 
 @dg.asset(

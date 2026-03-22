@@ -11,7 +11,7 @@ from typing import Any
 
 from pyspark.sql import SparkSession
 
-from team_ops.defs.resources import StreamingJobConfig
+from streamify.defs.resources import StreamingJobConfig
 
 
 @dg.asset(

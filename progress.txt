@@ -19,7 +19,7 @@ Session: https://opncd.ai/s/[share-id]
   - Mocks join between churned_users_df and total_users_df
   - Verifies metadata emission including churned_user_count and churn_rate_pct
 - Files changed:
-  - Modified: src/team_ops/defs/gold_assets.py (added gold_user_churn asset)
+  - Modified: src/streamify/defs/gold_assets.py (added gold_user_churn asset)
   - Modified: tests/test_gold_assets.py (added TestGoldUserChurnAsset test class)
 - Quality checks:
   - pytest tests/test_gold_assets.py -v: 5 passed (including new test)

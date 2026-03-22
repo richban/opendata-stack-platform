@@ -10,12 +10,12 @@ from pathlib import Path
 
 import dagster as dg
 
-from team_ops.defs import dq_checks
-from team_ops.defs.dq_checks import (
+from streamify.defs import dq_checks
+from streamify.defs.dq_checks import (
     silver_listen_events_not_empty,
     silver_user_sessions_not_empty,
 )
-from team_ops.defs.dq_store import DQResultStore
+from streamify.defs.dq_store import DQResultStore
 
 EXPECTED_RESULT_COUNT = 3
 EXPECTED_ROW_COUNT = 1000

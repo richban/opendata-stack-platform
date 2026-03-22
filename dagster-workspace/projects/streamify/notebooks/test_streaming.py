@@ -119,7 +119,7 @@ def _(mo):
     mo.md("""
     ## Define Schemas
 
-    Using the same schemas from `team_ops.schemas`
+    Using the same schemas from `streamify.schemas`
     """)
     return
 

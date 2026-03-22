@@ -76,7 +76,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./polaris-config:/config
-      - ./dagster-workspace/projects/team_ops:/opt/team_ops
+      - ./dagster-workspace/projects/streamify:/opt/streamify
     networks:
       - opendata_network
     environment:
@@ -148,7 +148,7 @@ services:
       - opendata_network
     volumes:
       - ./data:/data
-      - ./dagster-workspace/projects/team_ops:/opt/team_ops
+      - ./dagster-workspace/projects/streamify:/opt/streamify
 
   spark-worker:
     image: apache/spark:4.1.1
@@ -168,7 +168,7 @@ services:
       - opendata_network
     volumes:
       - ./data:/data
-      - ./dagster-workspace/projects/team_ops:/opt/team_ops
+      - ./dagster-workspace/projects/streamify:/opt/streamify
 
   spark-connect:
     image: apache/spark:4.1.1
@@ -231,7 +231,7 @@ services:
       - opendata_network
     volumes:
       - ./data:/data
-      - ./dagster-workspace/projects/team_ops:/opt/team_ops
+      - ./dagster-workspace/projects/streamify:/opt/streamify
       - spark_ivy_cache:/root/.ivy2
 
   eventsim:

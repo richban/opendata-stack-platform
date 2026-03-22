@@ -87,10 +87,10 @@ No silver or gold assets are implemented yet. The `SparkConnectResource` is alre
 ## Project Structure
 
 ```
-team_ops/
-├── src/team_ops/
+streamify/
+├── src/streamify/
 │   ├── schemas.py                  # PySpark schemas for all 3 Kafka topics + meta_schema
-│   ├── definitions.py              # Entry point → team_ops.defs.definitions
+│   ├── definitions.py              # Entry point → streamify.defs.definitions
 │   └── defs/
 │       ├── __init__.py             # Package docstring
 │       ├── assets.py               # bronze_streaming_job asset (only asset)
@@ -232,7 +232,7 @@ export KAFKA_BOOTSTRAP_SERVERS="localhost:9093"
 ### 4. Install Dependencies
 
 ```bash
-cd dagster-workspace/team_ops
+cd dagster-workspace/streamify
 uv sync
 source .venv/bin/activate
 ```
@@ -241,7 +241,7 @@ source .venv/bin/activate
 
 ```bash
 cd dagster-workspace
-dagster dev -m team_ops.definitions
+dagster dev -m streamify.definitions
 ```
 
 ---
@@ -251,7 +251,7 @@ dagster dev -m team_ops.definitions
 ### Launch the Bronze Streaming Job
 
 ```bash
-dagster asset materialize -m team_ops.definitions -a bronze_streaming_job
+dagster asset materialize -m streamify.definitions -a bronze_streaming_job
 ```
 
 Or materialise via the Dagster UI at `http://localhost:3000`.
@@ -273,7 +273,7 @@ Or materialise via the Dagster UI at `http://localhost:3000`.
 ### Test the Pipeline Independently (Without Dagster)
 
 ```bash
-cd dagster-workspace/team_ops
+cd dagster-workspace/streamify
 source .venv/bin/activate
 
 # Runs: Kafka read → JSON parse → transform → console output (10 seconds)

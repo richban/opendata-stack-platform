@@ -11,7 +11,7 @@ import os
 import sys
 from pathlib import Path
 
-# Add parent directory to path to import team_ops modules
+# Add parent directory to path to import streamify modules
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from pyspark.sql import SparkSession

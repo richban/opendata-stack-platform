@@ -10,7 +10,7 @@
       "acceptanceCriteria": [
         "docker-compose up -d starts all services (Kafka, Spark, MinIO, Polaris, Eventsim, Kafdrop) without errors",
         "polaris-init container creates catalog, namespace, principal, and writes credentials to polaris-config/polaris_credentials.env",
-        "bronze_streaming_job materialises successfully via: uv run dagster asset materialize -m team_ops.definitions -a bronze_streaming_job",
+        "bronze_streaming_job materialises successfully via: uv run dagster asset materialize -m streamify.definitions -a bronze_streaming_job",
         "Spark UI at http://localhost:8080 shows three active streaming queries (one per topic) within 60 seconds",
         "MinIO has Parquet data files under {catalog}/streamify/bronze_listen_events/, bronze_page_view_events/, bronze_auth_events/",
         "MinIO has checkpoint directories under checkpoints/streaming/{topic}",

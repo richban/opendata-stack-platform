@@ -103,7 +103,7 @@ Asset checks return `AssetChecksDefinition` objects and should be tested by:
 
 Example:
 ```python
-from team_ops.defs.dq_checks import silver_listen_events_not_empty
+from streamify.defs.dq_checks import silver_listen_events_not_empty
 
 def test_dq_checks_are_asset_checks():
     assert isinstance(silver_listen_events_not_empty, dg.AssetChecksDefinition)

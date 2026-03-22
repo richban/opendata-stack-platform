@@ -5,22 +5,22 @@ from unittest.mock import MagicMock, patch
 import dagster as dg
 from dagster import build_op_context
 
-from team_ops.defs.gold_assets import (
+from streamify.defs.gold_assets import (
     gold_dau_mau,
     gold_top_artists,
     gold_top_tracks,
     gold_user_conversion_funnel,
 )
-from team_ops.defs.resources import StreamingJobConfig
+from streamify.defs.resources import StreamingJobConfig
 
 
 class TestGoldTopTracksAsset:
     """Test cases for gold_top_tracks asset."""
 
-    @patch("team_ops.defs.gold_assets.col")
-    @patch("team_ops.defs.gold_assets.count")
-    @patch("team_ops.defs.gold_assets.countDistinct")
-    @patch("team_ops.defs.gold_assets.avg")
+    @patch("streamify.defs.gold_assets.col")
+    @patch("streamify.defs.gold_assets.count")
+    @patch("streamify.defs.gold_assets.countDistinct")
+    @patch("streamify.defs.gold_assets.avg")
     def test_asset_aggregates_tracks_correctly(
         self, mock_avg, mock_countDistinct, mock_count, mock_col
     ):
@@ -104,9 +104,9 @@ class TestGoldTopTracksAsset:
 class TestGoldTopArtistsAsset:
     """Test cases for gold_top_artists asset."""
 
-    @patch("team_ops.defs.gold_assets.col")
-    @patch("team_ops.defs.gold_assets.count")
-    @patch("team_ops.defs.gold_assets.countDistinct")
+    @patch("streamify.defs.gold_assets.col")
+    @patch("streamify.defs.gold_assets.count")
+    @patch("streamify.defs.gold_assets.countDistinct")
     def test_asset_aggregates_artists_correctly(
         self, mock_countDistinct, mock_count, mock_col
     ):
@@ -189,9 +189,9 @@ class TestGoldTopArtistsAsset:
 class TestGoldDauMauAsset:
     """Test cases for gold_dau_mau asset."""
 
-    @patch("team_ops.defs.gold_assets.col")
-    @patch("team_ops.defs.gold_assets.countDistinct")
-    @patch("team_ops.defs.gold_assets.date_trunc")
+    @patch("streamify.defs.gold_assets.col")
+    @patch("streamify.defs.gold_assets.countDistinct")
+    @patch("streamify.defs.gold_assets.date_trunc")
     def test_asset_computes_dau_mau_correctly(
         self, mock_date_trunc, mock_countDistinct, mock_col
     ):
@@ -322,9 +322,9 @@ class TestGoldDauMauAsset:
 class TestGoldUserConversionFunnelAsset:
     """Test cases for gold_user_conversion_funnel asset."""
 
-    @patch("team_ops.defs.gold_assets.col")
-    @patch("team_ops.defs.gold_assets.countDistinct")
-    @patch("team_ops.defs.gold_assets.when")
+    @patch("streamify.defs.gold_assets.col")
+    @patch("streamify.defs.gold_assets.countDistinct")
+    @patch("streamify.defs.gold_assets.when")
     def test_asset_computes_conversion_funnel_correctly(
         self, mock_when, mock_countDistinct, mock_col
     ):
@@ -475,9 +475,9 @@ class TestGoldUserConversionFunnelAsset:
 class TestGoldUserChurnAsset:
     """Test cases for gold_user_churn asset."""
 
-    @patch("team_ops.defs.gold_assets.col")
-    @patch("team_ops.defs.gold_assets.countDistinct")
-    @patch("team_ops.defs.gold_assets.when")
+    @patch("streamify.defs.gold_assets.col")
+    @patch("streamify.defs.gold_assets.countDistinct")
+    @patch("streamify.defs.gold_assets.when")
     def test_asset_computes_churn_correctly(
         self, mock_when, mock_countDistinct, mock_col
     ):
@@ -579,7 +579,7 @@ class TestGoldUserChurnAsset:
             dagster_pipes_bucket="dagster-pipes",
         )
 
-        from team_ops.defs.gold_assets import gold_user_churn
+        from streamify.defs.gold_assets import gold_user_churn
 
         # Build context
         context = build_op_context(

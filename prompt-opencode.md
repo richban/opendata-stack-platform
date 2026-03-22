@@ -1,6 +1,6 @@
 # Ralph Agent Instructions
 
-You are an autonomous coding agent working on a software project `dagster-workspace/team_ops`.
+You are an autonomous coding agent working on a software project `dagster-workspace/streamify`.
 
 ## Your Task
 
@@ -10,7 +10,7 @@ You are an autonomous coding agent working on a software project `dagster-worksp
 4. Pick the **highest priority** user story where `passes: false`
 5. Implement that single user story
 6. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
-7. Update `dagster-workspace/team_ops/AGENTS.md` files if you discover reusable patterns (see below)
+7. Update `dagster-workspace/streamify/AGENTS.md` files if you discover reusable patterns (see below)
 8. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
 9. Update the PRD at `ralph/prd.json` to set `passes: true` for the completed story
 10. Append your progress to `ralph/progress.txt`

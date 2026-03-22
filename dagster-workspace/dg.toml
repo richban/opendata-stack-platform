@@ -12,4 +12,4 @@ path = "projects/data_platform"
 path = "projects/ml_regression_model"
 
 [[workspace.projects]]
-path = "projects/team_ops"
+path = "projects/streamify"

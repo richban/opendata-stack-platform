@@ -14,7 +14,7 @@ from dagster import (
     build_sensor_context,
 )
 
-from team_ops.defs.sensors import (
+from streamify.defs.sensors import (
     _last_restart_timestamps,
     bronze_restart_sensor,
     kafka_lag_sensor,

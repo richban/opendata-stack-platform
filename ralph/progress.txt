@@ -19,15 +19,15 @@ Session: https://opncd.ai/s/[share-id]
   - ruff format applied to codebase
 - Files changed:
   - Created: tests/conftest.py, tests/test_bronze_assets.py
-  - Modified: src/team_ops/defs/assets.py (formatting), src/team_ops/defs/resources.py (formatting)
+  - Modified: src/streamify/defs/assets.py (formatting), src/streamify/defs/resources.py (formatting)
 
 **Learnings for future iterations:**
 - Use `build_op_context(resources={...})` to properly test Dagster assets with resources
-- Patch PySpark functions (col, from_json, etc.) in team_ops.defs.assets when testing to avoid SparkContext issues
+- Patch PySpark functions (col, from_json, etc.) in streamify.defs.assets when testing to avoid SparkContext issues
 - Use real StreamingJobConfig instance with test values, not mocks, to satisfy Dagster resource validation
 - Bronze asset uses generator pattern (yield), so call `next()` to get the MaterializeResult
-- Run `dg check defs` from dagster-workspace/team_ops directory, not root
-- Tests should patch `team_ops.defs.assets.<function>` to intercept PySpark calls
+- Run `dg check defs` from dagster-workspace/streamify directory, not root
+- Tests should patch `streamify.defs.assets.<function>` to intercept PySpark calls
 ---
 
 ## Sun Mar 1 22:25:00 CET 2026 - US-002
@@ -45,7 +45,7 @@ Session: https://opncd.ai/s/[share-id]
   - checkpoint_base (MetadataValue.text)
   - Plus backward-compatible fields (topics, namespace, kafka_servers, num_streams)
 - Files changed:
-  - Modified: src/team_ops/defs/assets.py (decorator and metadata)
+  - Modified: src/streamify/defs/assets.py (decorator and metadata)
   - Modified: tests/test_bronze_assets.py (updated assertions for new metadata)
 - Quality checks:
   - dg check defs: All definitions loaded successfully
@@ -78,9 +78,9 @@ Session: https://opncd.ai/s/[share-id]
   - Tests for first failure, cooldown elapsed, cooldown active, custom interval
   - Tests for logging, non-bronze job filtering, timestamp updates
 - Files changed:
-  - Created: `src/team_ops/defs/sensors.py`
+  - Created: `src/streamify/defs/sensors.py`
   - Created: `tests/test_sensors.py`
-  - Modified: `src/team_ops/defs/definitions.py` (added sensor to Definitions)
+  - Modified: `src/streamify/defs/definitions.py` (added sensor to Definitions)
   - Modified: `ralph/prd.json` (marked US-003 as passing)
 - Quality checks:
   - `dg check defs`: All definitions loaded successfully
@@ -112,9 +112,9 @@ Session: https://opncd.ai/s/[share-id]
   - 2 tests for kafka_lag_sensor (returns SensorResult, handles errors)
   - Uses mocked KafkaAdminClient and KafkaConsumer for isolated testing
 - Files changed:
-  - Modified: `src/team_ops/defs/sensors.py`
+  - Modified: `src/streamify/defs/sensors.py`
   - Modified: `tests/test_sensors.py`
-  - Modified: `src/team_ops/defs/definitions.py`
+  - Modified: `src/streamify/defs/definitions.py`
 - Quality checks:
   - `dg check defs`: All definitions loaded successfully
   - `pytest tests/test_sensors.py -v`: 9 passed (7 + 2 new)
@@ -131,7 +131,7 @@ Session: https://opncd.ai/s/[share-id]
 ## Sun Mar 2 00:00:00 CET 2026 - US-005
 Session: https://opncd.ai/s/[share-id]
 - Implemented US-005: Iceberg Bronze Table Compaction Asset
-- Created `src/team_ops/defs/maintenance_assets.py` with `bronze_compaction` asset
+- Created `src/streamify/defs/maintenance_assets.py` with `bronze_compaction` asset
 - Asset features:
   - Uses SparkConnectResource to execute CALL {catalog}.system.rewrite_data_files for all 3 Bronze tables
   - Decorator: group_name='bronze_maintenance', kinds={'spark', 'iceberg'}, owners=['team:team-ops']
@@ -179,9 +179,9 @@ Session: https://opncd.ai/s/[share-id]
   - `pytest tests/ -v`: 40 passed (all tests)
   - `dg list defs`: Shows silver_batch_job and silver_daily_schedule
 - Files changed:
-  - Created: `src/team_ops/defs/schedules.py`
+  - Created: `src/streamify/defs/schedules.py`
   - Created: `tests/test_schedules.py`
-  - Modified: `src/team_ops/defs/definitions.py` (registered job and schedule)
+  - Modified: `src/streamify/defs/definitions.py` (registered job and schedule)
   - Modified: `ralph/prd.json` (marked US-011 as passing)
 
 **Learnings for future iterations:**
@@ -241,7 +241,7 @@ Session: https://opncd.ai/s/[share-id]
 ## Mon Mar 2 16:45:00 CET 2026 - US-012
 Session: https://opncd.ai/s/[share-id]
 - Implemented US-012: Gold Layer Top Tracks and Artists Daily Aggregation
-- Created `src/team_ops/defs/gold_assets.py` with two assets:
+- Created `src/streamify/defs/gold_assets.py` with two assets:
   - `gold_top_tracks`: Aggregates by (event_date, song, artist) with play_count, unique_listeners, avg_duration
   - `gold_top_artists`: Aggregates by (event_date, artist) with play_count, unique_listeners
 - Asset features:
@@ -249,7 +249,7 @@ Session: https://opncd.ai/s/[share-id]
   - group_name='gold', kinds={'spark', 'iceberg'}, owners=['team:team-ops'], tags={'layer': 'gold'}
   - Uses mode('overwrite').partitionOverwriteMode('dynamic') with partitionBy('event_date')
   - Returns MaterializeResult with output_rows, event_date, source_table, target_table metadata
-- Updated `src/team_ops/defs/definitions.py` to load gold_assets module
+- Updated `src/streamify/defs/definitions.py` to load gold_assets module
 - Created comprehensive test suite in `tests/test_gold_assets.py`:
   - 2 unit tests verifying aggregation logic with mocked Spark DataFrames
 - Quality checks:

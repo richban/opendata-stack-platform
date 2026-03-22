@@ -25,8 +25,8 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import StructType
 
-from team_ops.defs.resources import StreamingJobConfig
-from team_ops.schemas import SCHEMAS as TOPIC_SCHEMAS, meta_schema
+from streamify.defs.resources import StreamingJobConfig
+from streamify.schemas import SCHEMAS as TOPIC_SCHEMAS, meta_schema
 
 
 def create_namespace_if_not_exists(

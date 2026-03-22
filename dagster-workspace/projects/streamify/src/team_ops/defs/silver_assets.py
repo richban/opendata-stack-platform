@@ -26,7 +26,7 @@ from pyspark.sql.functions import (
 from pyspark.sql.window import Window
 from pyspark.sql import SparkSession
 
-from team_ops.defs.resources import StreamingJobConfig
+from streamify.defs.resources import StreamingJobConfig
 
 
 @dg.asset(

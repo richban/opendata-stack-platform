@@ -8,7 +8,7 @@ This module contains tests for batch job schedules including:
 import dagster as dg
 import pytest
 
-from team_ops.defs.schedules import (
+from streamify.defs.schedules import (
     gold_batch_job,
     gold_daily_schedule,
     silver_batch_job,

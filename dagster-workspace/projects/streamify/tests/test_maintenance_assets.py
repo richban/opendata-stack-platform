@@ -6,8 +6,8 @@ import dagster as dg
 import pytest
 from dagster import build_op_context
 
-from team_ops.defs.maintenance_assets import bronze_compaction
-from team_ops.defs.resources import StreamingJobConfig
+from streamify.defs.maintenance_assets import bronze_compaction
+from streamify.defs.resources import StreamingJobConfig
 
 
 class TestBronzeCompactionAsset:

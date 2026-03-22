@@ -1,5 +1,5 @@
 [project]
-name = "team_ops"
+name = "streamify"
 requires-python = ">=3.10,<3.14"
 version = "0.1.0"
 dependencies = [
@@ -37,4 +37,4 @@ force-include = { "pyproject.toml" = "pyproject.toml" }
 directory_type = "project"
 
 [tool.dg.project]
-root_module = "team_ops"
+root_module = "streamify"
