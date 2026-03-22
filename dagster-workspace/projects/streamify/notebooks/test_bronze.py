@@ -216,7 +216,40 @@ def _(con, mo):
 def _(con, mo):
     _df = mo.sql(
         f"""
-        SELECT * FROM lakehouse.streamify.silver_listen_events
+        SELECT * FROM lakehouse.streamify.bronze_auth_events
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        SELECT * FROM lakehouse.streamify.bronze_listen_events
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        SELECT * FROM lakehouse.streamify.bronze_page_view_events
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        SELECT * FROM lakehouse.streamify.silver_auth_events
         """,
         engine=con
     )
