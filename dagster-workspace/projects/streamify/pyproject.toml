@@ -16,6 +16,7 @@ dependencies = [
     "googleapis-common-protos>=1.56.4",
     "dagster-pipes>=1.12.3",
     "zstandard>=0.25.0",
+    "marimo>=0.21.1",
 ]
 
 [dependency-groups]

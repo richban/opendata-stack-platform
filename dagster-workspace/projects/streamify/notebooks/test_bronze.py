@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.20.4"
+__generated_with = "0.21.1"
 app = marimo.App(width="medium")
 
 
@@ -11,6 +11,7 @@ def _():
     import os
     import duckdb
     from pyiceberg.catalog.rest import RestCatalog
+    import marimo as mo
 
     POLARIS_CLIENT_ID     = os.getenv("POLARIS_CLIENT_ID")
     POLARIS_CLIENT_SECRET = os.getenv("POLARIS_CLIENT_SECRET")
@@ -21,7 +22,8 @@ def _():
     MINIO_KEY             = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
     MINIO_SECRET          = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
 
-
+    print(f"POLARIS_CLIENT_ID:     {POLARIS_CLIENT_ID}")
+    print(f"POLARIS_CLIENT_SECRET: {POLARIS_CLIENT_SECRET}")
     print(f"POLARIS_URI:     {POLARIS_URI}")
     print(f"POLARIS_CATALOG: {POLARIS_CATALOG}")
     print(f"POLARIS_CLIENT_ID set: {bool(POLARIS_CLIENT_ID)}")
@@ -38,6 +40,7 @@ def _():
         POLARIS_URI,
         RestCatalog,
         duckdb,
+        mo,
         os,
     )
 
@@ -157,6 +160,33 @@ def _(con):
     """).df()
 
     top_artists
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        SELECT * FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events');
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        SELECT * FROM iceberg_manifest('lakehouse.streamify.bronze_listen_events');
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _():
     return
 
 
