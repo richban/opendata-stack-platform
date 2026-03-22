@@ -25,12 +25,13 @@ class TestDQResultStore:
     """Tests for the DQResultStore class."""
 
     def test_store_creates_database_and_table(self, tmp_path: Path) -> None:
-        """Test that DQResultStore creates database and table on init."""
+        """Test that DQResultStore creates database and table when accessed."""
         db_path = tmp_path / "test_dq.db"
         log_path = tmp_path / "test_dq.log"
 
-        _store = DQResultStore(db_path=db_path, log_path=log_path)
-        del _store
+        store = DQResultStore(db_path=db_path, log_path=log_path)
+        # Trigger lazy initialization by calling a method
+        store.get_results()
 
         assert db_path.exists()
 
