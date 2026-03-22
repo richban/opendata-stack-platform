@@ -142,6 +142,7 @@ def write_stream(
         .trigger(processingTime="30 seconds")
         .option("checkpointLocation", checkpoint_location)
         .option("fanout-enabled", "true")
+        .queryName(f"bronze_{topic}")
         .toTable(table_name)
     )
 
