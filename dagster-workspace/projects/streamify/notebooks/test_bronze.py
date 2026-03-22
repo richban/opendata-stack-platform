@@ -12,6 +12,7 @@ def _():
     import duckdb
     from pyiceberg.catalog.rest import RestCatalog
     import marimo as mo
+    import sqlalchemy
 
     POLARIS_CLIENT_ID     = os.getenv("POLARIS_CLIENT_ID")
     POLARIS_CLIENT_SECRET = os.getenv("POLARIS_CLIENT_SECRET")
@@ -42,6 +43,7 @@ def _():
         duckdb,
         mo,
         os,
+        sqlalchemy,
     )
 
 
@@ -132,6 +134,42 @@ def _(
 
 
 @app.cell
+def _(sqlalchemy):
+    postgres_engine = sqlalchemy.create_engine(
+        "postgresql://polaris_user:polaris_password@localhost:5432/polaris_db"
+    )
+    return (postgres_engine,)
+
+
+@app.cell
+def _(mo, postgres_engine):
+    _df = mo.sql(
+        f"""
+        SELECT * FROM polaris_schema.principal_authentication_data
+        """,
+        engine=postgres_engine
+    )
+    return
+
+
+@app.cell
+def _(sqlalchemy):
+    sqlite_engine = sqlalchemy.create_engine("sqlite:///dq_results/dq_checks.db")
+    return (sqlite_engine,)
+
+
+@app.cell
+def _(mo, sqlite_engine):
+    _df = mo.sql(
+        f"""
+        select * from main.dq_results
+        """,
+        engine=sqlite_engine
+    )
+    return
+
+
+@app.cell
 def _(con):
     # Preview rows
     df = con.execute("""
@@ -178,7 +216,7 @@ def _(con, mo):
 def _(con, mo):
     _df = mo.sql(
         f"""
-        SELECT * FROM iceberg_manifest('lakehouse.streamify.bronze_listen_events');
+        SELECT * FROM lakehouse.streamify.silver_listen_events
         """,
         engine=con
     )
