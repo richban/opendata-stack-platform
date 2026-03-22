@@ -6,7 +6,9 @@ perform deduplication, and write to Silver tables for downstream analytics.
 
 import dagster as dg
 
-from dagster import AssetKey, DailyPartitionsDefinition
+from dagster import AssetKey
+
+from streamify.defs.partitions import silver_daily_partition
 from pyspark.sql.functions import (
     avg,
     col,
@@ -20,7 +22,6 @@ from pyspark.sql.functions import (
     row_number,
     sha2,
     sum as spark_sum,
-    unix_timestamp,
     when,
 )
 from pyspark.sql.window import Window
@@ -35,7 +36,7 @@ from streamify.defs.resources import StreamingJobConfig
     owners=["team:team-ops"],
     tags={"layer": "silver", "topic": "listen_events"},
     deps=[AssetKey("bronze_streaming_job")],
-    partitions_def=DailyPartitionsDefinition(start_date="2024-01-01"),
+    partitions_def=silver_daily_partition,
     description="Deduplicated listen events from Bronze to Silver layer",
 )
 def silver_listen_events(
@@ -132,7 +133,7 @@ def silver_listen_events(
     owners=["team:team-ops"],
     tags={"layer": "silver", "topic": "page_view_events"},
     deps=[AssetKey("bronze_streaming_job")],
-    partitions_def=DailyPartitionsDefinition(start_date="2024-01-01"),
+    partitions_def=silver_daily_partition,
     description="Deduplicated page view events from Bronze to Silver layer",
 )
 def silver_page_view_events(
@@ -229,7 +230,7 @@ def silver_page_view_events(
     owners=["team:team-ops"],
     tags={"layer": "silver", "topic": "auth_events"},
     deps=[AssetKey("bronze_streaming_job")],
-    partitions_def=DailyPartitionsDefinition(start_date="2024-01-01"),
+    partitions_def=silver_daily_partition,
     description="Deduplicated auth events from Bronze to Silver layer",
 )
 def silver_auth_events(
@@ -399,12 +400,13 @@ def silver_user_sessions(
     window_spec = Window.partitionBy("userId").orderBy("event_ts")
 
     # Calculate time gap from previous event
+    # event_ts is BIGINT (epoch milliseconds), convert to seconds for comparison
     df_with_lag = df_all_events.withColumn(
         "prev_event_ts", lag("event_ts", 1).over(window_spec)
     ).withColumn(
         "time_gap_seconds",
         when(col("prev_event_ts").isNull(), 0).otherwise(
-            unix_timestamp("event_ts") - unix_timestamp("prev_event_ts")
+            (col("event_ts") - col("prev_event_ts")) / 1000
         ),
     )
 
@@ -447,9 +449,11 @@ def silver_user_sessions(
         )
         .withColumn(
             "session_duration_seconds",
-            unix_timestamp("session_end") - unix_timestamp("session_start"),
+            (col("session_end") - col("session_start")) / 1000,
         )
-        .withColumn("session_date", col("session_start").cast("date"))
+        .withColumn(
+            "session_date", (col("session_start") / 1000).cast("timestamp").cast("date")
+        )
     )
 
     # Select final columns

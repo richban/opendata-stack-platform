@@ -511,7 +511,6 @@ class TestSilverUserSessionsAsset:
     @patch("streamify.defs.silver_assets.when")
     @patch("streamify.defs.silver_assets.lag")
     @patch("streamify.defs.silver_assets.Window")
-    @patch("streamify.defs.silver_assets.unix_timestamp")
     @patch("streamify.defs.silver_assets.first")
     @patch("streamify.defs.silver_assets.sha2")
     @patch("streamify.defs.silver_assets.concat_ws")
@@ -530,7 +529,6 @@ class TestSilverUserSessionsAsset:
         mock_concat_ws,
         mock_sha2,
         mock_first,
-        mock_unix_timestamp,
         mock_Window,
         mock_lag,
         mock_when,
@@ -583,7 +581,6 @@ class TestSilverUserSessionsAsset:
         mock_when.return_value = MagicMock()
         mock_when.return_value.otherwise = MagicMock(return_value=MagicMock())
         mock_lag.return_value = MagicMock()
-        mock_unix_timestamp.return_value = MagicMock()
         mock_first.return_value = MagicMock()
         mock_sha2.return_value = MagicMock()
         mock_concat_ws.return_value = MagicMock()
@@ -624,7 +621,6 @@ class TestSilverUserSessionsAsset:
     @patch("streamify.defs.silver_assets.when")
     @patch("streamify.defs.silver_assets.lag")
     @patch("streamify.defs.silver_assets.Window")
-    @patch("streamify.defs.silver_assets.unix_timestamp")
     @patch("streamify.defs.silver_assets.first")
     @patch("streamify.defs.silver_assets.sha2")
     @patch("streamify.defs.silver_assets.concat_ws")
@@ -643,7 +639,6 @@ class TestSilverUserSessionsAsset:
         mock_concat_ws,
         mock_sha2,
         mock_first,
-        mock_unix_timestamp,
         mock_Window,
         mock_lag,
         mock_when,
@@ -688,7 +683,6 @@ class TestSilverUserSessionsAsset:
         mock_when.return_value = MagicMock()
         mock_when.return_value.otherwise = MagicMock(return_value=MagicMock())
         mock_lag.return_value = MagicMock()
-        mock_unix_timestamp.return_value = MagicMock()
         mock_first.return_value = MagicMock()
         mock_sha2.return_value = MagicMock()
         mock_concat_ws.return_value = MagicMock()
