@@ -4,11 +4,9 @@ from dagster_dbt import DbtCliResource, DbtProject
 
 from data_platform.utils.environment_helpers import get_dbt_target
 
-# Get the workspace root directory (9 levels up from the current file)
-# Note: Projects moved from dagster-workspace/team_*/ to dagster-workspace/projects/
-REPO_ROOT = Path(
-    __file__
-).parent.parent.parent.parent.parent.parent.parent.parent.parent
+# Get the repo root directory (8 levels up from the current file)
+# Path: projects/data_platform/src/data_platform/defs/dbt/resources.py
+REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent.parent.parent
 
 # Define the dbt project path relative to repository root
 DBT_PROJECT_PATH = REPO_ROOT / "opendata_stack_platform_dbt"
@@ -19,6 +17,8 @@ opendata_stack_platform_dbt_project = DbtProject(
     target=get_dbt_target(),
 )
 
-opendata_stack_platform_dbt_project.prepare_if_dev()
+# Note: prepare_if_dev() temporarily disabled due to PATH issue in subprocess
+# Run manually: cd opendata_stack_platform_dbt && dbt deps && dbt parse
+# opendata_stack_platform_dbt_project.prepare_if_dev()
 
 dbt_resource = DbtCliResource(project_dir=opendata_stack_platform_dbt_project)

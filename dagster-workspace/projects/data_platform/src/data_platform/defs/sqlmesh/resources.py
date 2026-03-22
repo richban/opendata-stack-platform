@@ -4,11 +4,7 @@ from dagster_sqlmesh import SQLMeshContextConfig, SQLMeshResource
 from data_platform.utils.environment_helpers import get_sqlmesh_gateway
 
 
-# Get the workspace root directory (9 levels up from the current file)
-# Note: Projects moved from dagster-workspace/team_*/ to dagster-workspace/projects/
-REPO_ROOT = Path(
-    __file__
-).parent.parent.parent.parent.parent.parent.parent.parent.parent
+REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.parent.parent.parent
 
 # Define the dbt project path relative to repository root
 SQLMESH_PROJECT_PATH = REPO_ROOT / "opendata_stack_platform_sqlmesh"

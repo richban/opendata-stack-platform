@@ -9,10 +9,10 @@ gateways:
         - ducklake
         - spatial
       catalogs:
-        duckdb: "{{ env_var('DUCKDB_DATABASE', '../../data/nyc_database.duckdb') }}"
+        duckdb: "{{ env_var('DUCKDB_DATABASE', '../data/nyc_database.duckdb') }}"
         ducklake:
           type: ducklake
-          path: "ducklake:../../data/analytics_metadata.ducklake"
+          path: "ducklake:../data/analytics_metadata.ducklake"
           data_path: s3://warehouse
       secrets:
         - type: s3
