@@ -77,6 +77,20 @@ def _(RestCatalog, os):
 
     print(f"Namespaces: {catalog.list_namespaces()}")
     print(f"Tables:     {catalog.list_tables('streamify')}")
+    return (catalog,)
+
+
+@app.cell
+def _(catalog):
+    # Create iceberg_study namespace if it doesn't exist
+    existing_namespaces = catalog.list_namespaces()
+    if ("iceberg_study",) not in existing_namespaces:
+        catalog.create_namespace(
+            "iceberg_study", properties={"location": "s3://lakehouse/iceberg_study/"}
+        )
+        print("✓ Created namespace: iceberg_study")
+    else:
+        print("✓ Namespace already exists: iceberg_study")
     return
 
 
@@ -273,33 +287,141 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    ---
+    ### Exploring the Manifest List
 
-    ## Module 3: Hands-On Exercise - Creating Snapshots
+    The `manifest_list` column in snapshots points to an Avro file containing metadata about all manifest files in that snapshot.
 
-    Let's create our own table and observe how snapshots are created!
-
-    First, we'll create a test table and insert some data:
+    First, let's get the manifest list path from the latest snapshot:
     """)
     return
 
 
 @app.cell
 def _(con):
-    con.execute("DROP TABLE IF EXISTS lakehouse.streamify.iceberg_study")
-    con.execute("""
-        CREATE TABLE lakehouse.streamify.iceberg_study (
+    # Get the manifest list path from the latest snapshot
+    manifest_list_path = con.execute("""
+        SELECT manifest_list 
+        FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events') 
+        ORDER BY timestamp_ms DESC 
+        LIMIT 1
+    """).fetchone()[0]
+    print(f"Manifest list: {manifest_list_path}")
+    return (manifest_list_path,)
+
+
+@app.cell
+def _(con, manifest_list_path, mo):
+    _df = mo.sql(
+        f"""
+        SELECT 
+        	*
+        FROM read_avro('{manifest_list_path}')
+        LIMIT 5
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    **Manifest List Fields:**
+    - `manifest_path`: Path to the manifest Avro file
+    - `sequence_number`: Snapshot sequence number
+    - `added_files_count`: New data files in this manifest
+    - `existing_files_count`: Files carried over from previous snapshots
+    - `deleted_files_count`: Files marked for deletion
+    - `added_rows_count`: Total rows in added files
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### Exploring a Manifest File
+
+    Each manifest file is also an Avro file containing entries for individual data files. First, let's get a manifest file path:
+    """)
+    return
+
+
+@app.cell
+def _(con, manifest_list_path):
+    # Get the first manifest file path from the manifest list
+    manifest_file_path = con.execute(f"""
+        SELECT manifest_path 
+        FROM read_avro('{manifest_list_path}') 
+        LIMIT 1
+    """).fetchone()[0]
+    print(f"Manifest file: {manifest_file_path}")
+    return (manifest_file_path,)
+
+
+@app.cell
+def _(con, manifest_file_path, mo):
+    _df = mo.sql(
+        f"""
+        SELECT 
+            *,
+            data_file.file_path,
+            data_file.file_format,
+            data_file.record_count,
+            data_file.file_size_in_bytes
+        FROM read_avro('{manifest_file_path}')
+        LIMIT 5
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    **Manifest File Entry Fields:**
+    - `status`: 0=EXISTING, 1=ADDED, 2=DELETED
+    - `snapshot_id`: Which snapshot added this file
+    - `sequence_number`: Sequence number when added
+    - `data_file.file_path`: Path to the actual Parquet file
+    - `data_file.file_format`: File format (PARQUET)
+    - `data_file.record_count`: Number of rows
+    - `data_file.file_size_in_bytes`: File size
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ---
+
+    ## Module 3: Hands-On Exercise - Creating Snapshots
+
+    Let's create our own table and observe how snapshots are created!
+
+    First, we'll create the `iceberg_study` namespace and a test table:
+    """)
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        """
+        DROP TABLE IF EXISTS lakehouse.iceberg_study.study_table;
+        CREATE TABLE lakehouse.iceberg_study.study_table (
             id INTEGER,
             fruit VARCHAR,
             quantity INTEGER
-        )
-    """)
-    con.execute("""
-        INSERT INTO lakehouse.streamify.iceberg_study VALUES
+        );
+        INSERT INTO lakehouse.iceberg_study.study_table VALUES
             (1, 'apple', 10),
             (2, 'banana', 20)
-    """)
-    print("✓ Created table and inserted first 2 rows")
+        """,
+        engine=con,
+    )
     return
 
 
@@ -317,7 +439,7 @@ def _(mo):
 def _(con, mo):
     _df = mo.sql(
         """
-        SELECT * FROM lakehouse.streamify.iceberg_study
+        SELECT * FROM lakehouse.iceberg_study.study_table
         """,
         engine=con,
     )
@@ -329,7 +451,7 @@ def _(con, mo):
     _df = mo.sql(
         """
         SELECT sequence_number, snapshot_id, timestamp_ms
-        FROM iceberg_snapshots('lakehouse.streamify.iceberg_study')
+        FROM iceberg_snapshots('lakehouse.iceberg_study.study_table')
         ORDER BY sequence_number
         """,
         engine=con,
@@ -350,7 +472,7 @@ def _(mo):
 @app.cell
 def _(con):
     con.execute("""
-        INSERT INTO lakehouse.streamify.iceberg_study VALUES
+        INSERT INTO lakehouse.iceberg_study.study_table VALUES
             (3, 'cherry', 30)
     """)
     print("✓ Inserted row 3")
@@ -362,7 +484,7 @@ def _(con, mo):
     _df = mo.sql(
         """
         SELECT sequence_number, snapshot_id, timestamp_ms
-        FROM iceberg_snapshots('lakehouse.streamify.iceberg_study')
+        FROM iceberg_snapshots('lakehouse.iceberg_study.study_table')
         ORDER BY sequence_number
         """,
         engine=con,
@@ -396,15 +518,15 @@ def _(mo):
 
 @app.cell
 def _(con):
-    con.execute("DROP TABLE IF EXISTS lakehouse.streamify.cow_example")
+    con.execute("DROP TABLE IF EXISTS lakehouse.iceberg_study.cow_example")
     con.execute("""
-        CREATE TABLE lakehouse.streamify.cow_example (
+        CREATE TABLE lakehouse.iceberg_study.cow_example (
             id INTEGER,
             value VARCHAR
         )
     """)
     con.execute("""
-        INSERT INTO lakehouse.streamify.cow_example VALUES
+        INSERT INTO lakehouse.iceberg_study.cow_example VALUES
             (1, 'original-1'),
             (2, 'original-2'),
             (3, 'original-3')
@@ -424,7 +546,7 @@ def _(mo):
 @app.cell
 def _(con):
     con.execute("""
-        UPDATE lakehouse.streamify.cow_example
+        UPDATE lakehouse.iceberg_study.cow_example
         SET value = 'updated-2'
         WHERE id = 2
     """)
@@ -446,7 +568,7 @@ def _(mo):
 def _(con, mo):
     _df = mo.sql(
         """
-        SELECT * FROM lakehouse.streamify.cow_example ORDER BY id
+        SELECT * FROM lakehouse.iceberg_study.cow_example ORDER BY id
         """,
         engine=con,
     )
@@ -466,7 +588,7 @@ def _(con, mo):
     _df = mo.sql(
         """
         SELECT sequence_number, snapshot_id, timestamp_ms
-        FROM iceberg_snapshots('lakehouse.streamify.cow_example')
+        FROM iceberg_snapshots('lakehouse.iceberg_study.cow_example')
         ORDER BY sequence_number
         """,
         engine=con,
