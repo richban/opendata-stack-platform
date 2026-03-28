@@ -242,30 +242,138 @@ def _(mo):
     mo.md("""
     ---
 
-    ## Module 2: Understanding Metadata with iceberg_metadata()
+    ## Module 2: Deep Dive - Iceberg Hierarchy
 
-    The `iceberg_metadata()` function returns information about files in the table:
-    - `manifest_path`: Path to manifest file
-    - `status`: File status (ADDED, EXISTING, DELETED)
-    - `file_path`: Path to data file
-    - `file_format`: File format (PARQUET, etc.)
-    - `record_count`: Number of records
+    Let's explore the complete Iceberg metadata hierarchy from top to bottom:
+
+    ```
+    Catalog → Metadata File → Snapshots → Manifest Lists → Manifest Files → Data Files
+    ```
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### Level 0: The Catalog
+
+    The **Catalog** is the entry point. It stores:
+    - The location of the **current metadata file** for each table
+    - Namespaces and their properties
+    - Table identifiers
+
+    We've already connected to the Polaris catalog. Let's list what it contains:
     """)
     return
 
 
 @app.cell
-def _(con, mo):
+def _(catalog, mo):
+    namespaces = catalog.list_namespaces()
+    tables_streamify = catalog.list_tables("streamify")
+    tables_iceberg_study = catalog.list_tables("iceberg_study")
+
+    catalog_info = {
+        "namespaces": [ns[0] for ns in namespaces],
+        "tables_in_streamify": [t[1] for t in tables_streamify],
+        "tables_in_iceberg_study": [t[1] for t in tables_iceberg_study],
+    }
+
+    mo.md(f"""
+    **Catalog Contents:**
+
+    - **Namespaces:** {catalog_info["namespaces"]}
+    - **Tables in 'streamify':** {len(catalog_info["tables_in_streamify"])} tables
+    - **Tables in 'iceberg_study':** {len(catalog_info["tables_in_iceberg_study"])} tables
+
+    The catalog stores the pointer to the **current metadata file** for each table.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### Level 1: The Metadata File
+
+    The **metadata file** is the "brain" of Iceberg. It's a JSON file containing:
+    - **Table schema** (all columns and types)
+    - **Full snapshot history** (every snapshot ever created)
+    - **Current snapshot reference** (which snapshot is current)
+    - **Partition specifications**
+    - **Table properties**
+
+    Let's find the metadata file location and examine it:
+    """)
+    return
+
+
+@app.cell
+def _(con):
+    # The catalog DOES store the metadata file location (via metadata_location property)
+    # In production: table = catalog.load_table("..."); metadata_file = table.metadata_location
+    # However, our Polaris catalog uses vended credentials which requires extra setup.
+    # For this demo, we find the metadata file via SQL from the snapshot's manifest_list path.
+
+    manifest_list = con.execute("""
+        SELECT manifest_list 
+        FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events') 
+        ORDER BY timestamp_ms DESC 
+        LIMIT 1
+    """).fetchone()[0]
+
+    # Extract metadata directory from manifest_list path
+    metadata_dir = manifest_list.rsplit("/", 1)[0]
+
+    # Find the latest metadata.json file
+    metadata_file_path = con.execute(f"""
+        SELECT file
+        FROM glob('{metadata_dir}/*metadata.json')
+        ORDER BY file DESC
+        LIMIT 1
+    """).fetchone()[0]
+
+    print(f"Metadata file: {metadata_file_path}")
+    return (metadata_file_path,)
+
+
+@app.cell
+def _(metadata_file_path, mo):
+    mo.md(f"""
+    **Metadata File Location:**
+    ```
+    {metadata_file_path}
+    ```
+
+    This JSON file contains the complete table history and current state.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### Metadata File History
+
+    **Important**: Every time a commit happens (INSERT, UPDATE, DELETE), Iceberg creates a **NEW metadata file**!
+    The catalog simply updates its pointer to the latest one. Let's see all metadata files:
+    """)
+    return
+
+
+@app.cell
+def _(con, metadata_file_path, mo):
+    # Extract metadata directory from current metadata file path
+    _metadata_dir = metadata_file_path.rsplit("/", 1)[0]
+
     _df = mo.sql(
-        """
-        SELECT 
-            manifest_path,
-            status,
-            file_path,
-            file_format,
-            record_count
-        FROM iceberg_metadata('lakehouse.streamify.bronze_listen_events')
-        LIMIT 10
+        f"""
+        SELECT
+            file,
+            replace(file, '{_metadata_dir}/', '') as filename
+        FROM glob('{_metadata_dir}/*metadata.json')
+        ORDER BY file DESC
         """,
         engine=con,
     )
@@ -275,11 +383,70 @@ def _(con, mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    **Key Insights:**
-    - `status`: Shows if file is ADDED, EXISTING, or DELETED
-    - `manifest_path`: References the manifest containing this file
-    - `file_path`: The actual data file location
-    - `record_count`: Number of rows in the file
+    **Key Insight**:
+    - Each commit creates a new metadata file (00001-, 00002-, 00053-, etc.)
+    - The catalog atomically swaps its pointer to the new file
+    - Old metadata files are kept for time-travel and auditing
+    - This is how Iceberg achieves **atomic commits** and **snapshot isolation**
+    """)
+    return
+
+
+@app.cell
+def _(con, metadata_file_path, mo):
+    # Read the metadata JSON file content
+    metadata_content = con.execute(f"""
+        SELECT * FROM read_json('{metadata_file_path}')
+    """).df()
+
+    # Convert to dict for display
+    metadata_dict = metadata_content.to_dict("records")[0]
+
+    # Format the JSON nicely
+    import json
+
+    pretty_json = json.dumps(metadata_dict, indent=2, default=str)
+
+    mo.md(f"""
+    **Metadata File Contents (Raw JSON):**
+
+    ```json
+    {pretty_json[:3000]}...
+    ```
+
+    *(Showing first 3000 characters - the full file contains {len(pretty_json)} characters)*
+    """)
+    return
+
+
+@app.cell
+def _(con, metadata_file_path, mo):
+    _df = mo.sql(
+        f"""
+        SELECT 
+            "format-version" as format_version,
+            "table-uuid" as table_uuid,
+            location,
+            "last-updated-ms" as last_updated_ms,
+            "last-column-id" as last_column_id,
+            "current-snapshot-id" as current_snapshot_id,
+            len(snapshots) as num_snapshots
+        FROM read_json('{metadata_file_path}')
+        LIMIT 1
+        """,
+        engine=con,
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    **Key Metadata Fields:**
+    - `format-version`: Iceberg spec version (1 or 2)
+    - `current-snapshot-id`: Points to the current snapshot
+    - `num_snapshots`: Total number of snapshots in history
+    - `location`: Base location of the table
     """)
     return
 
@@ -287,11 +454,59 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    ### Exploring the Manifest List
+    ### Level 2: Snapshots
 
-    The `manifest_list` column in snapshots points to an Avro file containing metadata about all manifest files in that snapshot.
+    **Snapshots** are immutable points-in-time views of the table.
+    The metadata file contains an array of all snapshots, each with:
+    - `snapshot_id`: Unique identifier
+    - `timestamp_ms`: When it was created
+    - `manifest_list`: Path to the manifest list file
+    - `summary`: Operation statistics
 
-    First, let's get the manifest list path from the latest snapshot:
+    Let's see all snapshots for our table:
+    """)
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        """
+        SELECT 
+            sequence_number,
+            snapshot_id,
+            manifest_list,
+            timestamp_ms
+        FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events')
+        ORDER BY timestamp_ms DESC
+        """,
+        engine=con,
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    **Snapshot Chain:**
+    - Each snapshot has a `sequence_number` (incrementing)
+    - The `manifest_list` column points to an Avro file containing all manifests for that snapshot
+    - Snapshots form an immutable chain - you can time-travel to any snapshot!
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### Level 3: Manifest Lists
+
+    Each **snapshot** points to a **manifest list** (Avro file). This file contains:
+    - One entry per manifest file
+    - Statistics about each manifest (file counts, row counts)
+    - Partition information
+
+    Let's explore the manifest list from the latest snapshot:
     """)
     return
 
@@ -314,11 +529,17 @@ def _(con, manifest_list_path, mo):
     _df = mo.sql(
         f"""
         SELECT 
-        	*
+            manifest_path,
+            manifest_length,
+            sequence_number,
+            added_files_count,
+            existing_files_count,
+            deleted_files_count,
+            added_rows_count
         FROM read_avro('{manifest_list_path}')
         LIMIT 5
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -340,9 +561,15 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md("""
-    ### Exploring a Manifest File
+    ### Level 4: Manifest Files
 
-    Each manifest file is also an Avro file containing entries for individual data files. First, let's get a manifest file path:
+    Each **manifest file** is also an Avro file containing entries for individual **data files**.
+    Each entry tracks:
+    - `status`: 0=EXISTING, 1=ADDED, 2=DELETED
+    - `snapshot_id`: Which snapshot added this file
+    - `data_file`: Information about the actual data file (path, format, row count, etc.)
+
+    Let's peek inside one manifest file:
     """)
     return
 
@@ -364,7 +591,9 @@ def _(con, manifest_file_path, mo):
     _df = mo.sql(
         f"""
         SELECT 
-            *,
+            status,
+            snapshot_id,
+            sequence_number,
             data_file.file_path,
             data_file.file_format,
             data_file.record_count,
@@ -372,7 +601,7 @@ def _(con, manifest_file_path, mo):
         FROM read_avro('{manifest_file_path}')
         LIMIT 5
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -388,6 +617,96 @@ def _(mo):
     - `data_file.file_format`: File format (PARQUET)
     - `data_file.record_count`: Number of rows
     - `data_file.file_size_in_bytes`: File size
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### Level 5: Data Files
+
+    Finally, the **data files** are the actual Parquet files containing the table data.
+    These are stored in the `data/` directory of the table location.
+
+    The manifests track which data files are:
+    - **ADDED** (new data in this snapshot)
+    - **EXISTING** (carried over from previous snapshots)
+    - **DELETED** (removed in this snapshot - COW pattern)
+    """)
+    return
+
+
+@app.cell
+def _(con, manifest_file_path, mo):
+    _df = mo.sql(
+        f"""
+        SELECT 
+            data_file.file_path as data_file_path,
+            data_file.content,
+            data_file.file_format,
+            data_file.record_count,
+            data_file.file_size_in_bytes,
+            CASE 
+                WHEN status = 0 THEN 'EXISTING'
+                WHEN status = 1 THEN 'ADDED'
+                WHEN status = 2 THEN 'DELETED'
+            END as file_status
+        FROM read_avro('{manifest_file_path}')
+        LIMIT 5
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### Summary: The Complete Hierarchy
+
+    ```
+    ┌─────────────────────────────────────┐
+    │  Level 0: CATALOG                   │
+    │  → Stores metadata file location    │
+    └──────────────┬──────────────────────┘
+                   │
+                   ▼
+    ┌─────────────────────────────────────┐
+    │  Level 1: METADATA FILE (JSON)      │
+    │  → All snapshots, schema, current   │
+    └──────────────┬──────────────────────┘
+                   │
+                   ▼
+    ┌─────────────────────────────────────┐
+    │  Level 2: SNAPSHOTS                 │
+    │  → Point-in-time view, manifest_list│
+    └──────────────┬──────────────────────┘
+                   │
+                   ▼
+    ┌─────────────────────────────────────┐
+    │  Level 3: MANIFEST LIST (Avro)      │
+    │  → List of manifests, statistics    │
+    └──────────────┬──────────────────────┘
+                   │
+                   ▼
+    ┌─────────────────────────────────────┐
+    │  Level 4: MANIFEST FILES (Avro)     │
+    │  → Data file entries, status        │
+    └──────────────┬──────────────────────┘
+                   │
+                   ▼
+    ┌─────────────────────────────────────┐
+    │  Level 5: DATA FILES (Parquet)      │
+    │  → Actual table data                │
+    └─────────────────────────────────────┘
+    ```
+
+    **Key Takeaways:**
+    1. **Immutable**: Snapshots, manifests, and data files are never modified
+    2. **Copy-on-Write**: Updates create new snapshots with new data files
+    3. **Time Travel**: You can query any snapshot by its ID
+    4. **Atomic**: All changes are atomic at the snapshot level
     """)
     return
 
