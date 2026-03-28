@@ -52,7 +52,8 @@ def _():
 def _():
     from obstore.store import S3Store
 
-    store = S3Store("lakehouse",
+    store = S3Store(
+        "lakehouse",
         access_key_id="minioadmin",
         secret_access_key="minioadmin",
         endpoint_url="http://localhost:9000",
@@ -159,8 +160,7 @@ def _(mo):
     2. **Snapshots** - How table versions work
     3. **Manifest Files** - Tracking additions and deletions
     4. **COW vs MOR** - Copy-on-write vs Merge-on-read
-    5. **Compaction** - Optimizing table performance
-    6. **Partitioning** - Hidden partitioning and evolution
+    5. **Partitioning** - Hidden partitioning and evolution
 
     Let's begin!
     """)
@@ -186,59 +186,21 @@ def _(mo):
     3. New manifest list (listing manifest files)
     4. New metadata file (listing all snapshots)
     5. Atomic commit to catalog (compare-and-swap)
-
-    Let's explore this with a real table!
     """)
     return
 
 
 @app.cell
 def _(con, mo):
-    # First, let's see what tables exist
-    tables_df = con.execute("SHOW ALL TABLES").df()
-    mo.md(f"""
-    ### Available Tables
-
-    ```
-    {tables_df.to_string()}
-    ```
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md("""
-    ---
-
-    ## Module 2: Understanding Snapshots
-
-    A **snapshot** represents the state of a table at a point in time.
-
-    Each snapshot contains:
-    - **Manifest List**: Points to all manifest files
-    - **Manifest Files**: List data files and their status (ADDED/EXISTING/DELETED)
-    - **Data Files**: The actual Parquet/ORC files with data
-
-    Let's examine the snapshots of a real table.
-    """)
-    return
-
-
-@app.cell
-def _(con, mo):
-    # Explore snapshots
+    # Available columns: sequence_number, snapshot_id, manifest_list, timestamp_ms
     snapshots_df = con.execute("""
         SELECT 
             sequence_number,
             snapshot_id,
-            parent_id,
             manifest_list,
-            committed_at,
-            operation,
-            summary
+            timestamp_ms
         FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events')
-        ORDER BY committed_at DESC
+        ORDER BY timestamp_ms DESC
     """).df()
 
     mo.md(f"""
@@ -253,9 +215,8 @@ def _(con, mo):
     **Key Fields:**
     - `sequence_number`: Monotonically increasing version number
     - `snapshot_id`: Unique identifier for this snapshot
-    - `parent_id`: Reference to previous snapshot (forms a chain)
     - `manifest_list`: Path to the manifest list file
-    - `operation`: Type of operation (append, overwrite, etc.)
+    - `timestamp_ms`: When the snapshot was created
     """)
     return
 
@@ -265,51 +226,43 @@ def _(mo):
     mo.md("""
     ---
 
-    ## Module 3: Manifest Lists and Manifest Files
+    ## Module 2: Understanding Metadata with iceberg_metadata()
 
-    ### Manifest List
-    The manifest list file contains one entry per manifest file, with metadata about each manifest.
-
-    ### Manifest File
-    Each manifest file contains entries that reference data files. Each entry has:
-    - **Status**: ADDED, EXISTING, or DELETED
-    - **Data File Path**: Location of the data file
-    - **Partition Info**: Partition values
-    - **Statistics**: Row count, null count, min/max values
-
-    Let's inspect these files directly!
+    The `iceberg_metadata()` function returns information about files in the table:
+    - `manifest_path`: Path to manifest file
+    - `status`: File status (ADDED, EXISTING, DELETED)
+    - `file_path`: Path to data file
+    - `file_format`: File format (PARQUET, etc.)
+    - `record_count`: Number of records
     """)
     return
 
 
 @app.cell
 def _(con, mo):
-    # Explore manifest files for the latest snapshot
-    manifests_df = con.execute("""
+    metadata_df = con.execute("""
         SELECT 
             manifest_path,
-            manifest_sequence_number,
-            manifest_content,
-            added_data_files_count,
-            existing_data_files_count,
-            deleted_data_files_count,
-            added_rows_count,
-            deleted_rows_count
-        FROM iceberg_manifests('lakehouse.streamify.bronze_listen_events')
+            status,
+            file_path,
+            file_format,
+            record_count
+        FROM iceberg_metadata('lakehouse.streamify.bronze_listen_events')
+        LIMIT 10
     """).df()
 
     mo.md(f"""
-    ### Manifest Files for Latest Snapshot
+    ### Iceberg Metadata Files
 
     ```
-    {manifests_df.to_string()}
+    {metadata_df.to_string()}
     ```
 
     **Key Insights:**
-    - `manifest_content`: 0 = DATA files, 1 = DELETE files (for MOR)
-    - `added_*`: Files/rows added in this snapshot
-    - `deleted_*`: Files/rows deleted in this snapshot
-    - `existing_*`: Files carried over from previous snapshots
+    - `status`: Shows if file is ADDED, EXISTING, or DELETED
+    - `manifest_path`: References the manifest containing this file
+    - `file_path`: The actual data file location
+    - `record_count`: Number of rows in the file
     """)
     return
 
@@ -319,27 +272,19 @@ def _(mo):
     mo.md("""
     ---
 
-    ## Module 4: Hands-On Exercise - Creating Snapshots
+    ## Module 3: Hands-On Exercise - Creating Snapshots
 
     Let's create our own table and observe how snapshots are created!
-
-    We'll:
-    1. Create a new Iceberg table
-    2. Insert data (creates snapshot 1)
-    3. Insert more data (creates snapshot 2)
-    4. Delete some data (creates snapshot 3)
-    5. Observe the manifest changes
-
-    This will help you understand how ADDED, EXISTING, and DELETED statuses work.
     """)
     return
 
 
 @app.cell
 def _(con):
-    # Create a test table for learning
+    # Drop if exists, then create
+    con.execute("DROP TABLE IF EXISTS lakehouse.streamify.iceberg_study")
     con.execute("""
-        CREATE OR REPLACE TABLE lakehouse.streamify.iceberg_study (
+        CREATE TABLE lakehouse.streamify.iceberg_study (
             id INTEGER,
             fruit VARCHAR,
             quantity INTEGER
@@ -359,23 +304,28 @@ def _(con):
 
 @app.cell
 def _(con, mo):
-    # Check snapshots after first insert
-    snapshots_1 = con.execute("""
-        SELECT 
-            sequence_number,
-            snapshot_id,
-            parent_id,
-            operation,
-            committed_at
+    snapshots = con.execute("""
+        SELECT sequence_number, snapshot_id, timestamp_ms
         FROM iceberg_snapshots('lakehouse.streamify.iceberg_study')
         ORDER BY sequence_number
+    """).df()
+
+    # Check the data
+    data = con.execute("""
+        SELECT * FROM lakehouse.streamify.iceberg_study
     """).df()
 
     mo.md(f"""
     ### After First INSERT (Snapshot 1)
 
+    **Data in table:**
     ```
-    {snapshots_1.to_string()}
+    {data.to_string()}
+    ```
+
+    **Snapshots:**
+    ```
+    {snapshots.to_string()}
     ```
     """)
     return
@@ -383,20 +333,14 @@ def _(con, mo):
 
 @app.cell
 def _(con, mo):
-    # Insert second batch
     con.execute("""
         INSERT INTO lakehouse.streamify.iceberg_study VALUES
             (3, 'cherry', 30)
     """)
 
-    # Check snapshots after second insert
-    snapshots_2 = con.execute("""
-        SELECT 
-            sequence_number,
-            snapshot_id,
-            parent_id,
-            operation,
-            committed_at
+    # Check updated snapshots
+    snapshots2 = con.execute("""
+        SELECT sequence_number, snapshot_id, timestamp_ms
         FROM iceberg_snapshots('lakehouse.streamify.iceberg_study')
         ORDER BY sequence_number
     """).df()
@@ -404,44 +348,14 @@ def _(con, mo):
     mo.md(f"""
     ### After Second INSERT (Snapshot 2)
 
+    **Snapshots:**
     ```
-    {snapshots_2.to_string()}
+    {snapshots2.to_string()}
     ```
 
     Notice:
-    - `parent_id` of snapshot 2 points to snapshot 1
-    - This forms a chain of table versions
-    """)
-    return
-
-
-@app.cell
-def _(con, mo):
-    # Let's look at the manifest files for both snapshots
-    manifests_study = con.execute("""
-        SELECT 
-            sequence_number,
-            manifest_path,
-            added_data_files_count,
-            existing_data_files_count,
-            deleted_data_files_count,
-            added_rows_count
-        FROM iceberg_manifests('lakehouse.streamify.iceberg_study')
-        ORDER BY sequence_number, manifest_path
-    """).df()
-
-    mo.md(f"""
-    ### Manifest Files Across Snapshots
-
-    ```
-    {manifests_study.to_string()}
-    ```
-
-    **Exercise Questions:**
-    1. How many manifest files exist for snapshot 1?
-    2. How many for snapshot 2?
-    3. What does `added_data_files_count` tell you?
-    4. What does `existing_data_files_count` tell you?
+    - Each new snapshot has an incremented sequence_number
+    - This forms a chain of table versions over time
     """)
     return
 
@@ -451,30 +365,18 @@ def _(mo):
     mo.md("""
     ---
 
-    ## Module 5: Copy-on-Write (COW) vs Merge-on-Read (MOR)
+    ## Module 4: Copy-on-Write (COW) Demonstration
 
-    Iceberg supports two modes for handling updates and deletes:
-
-    ### Copy-on-Write (COW)
-    - **Write**: When updating/deleting rows, entire data files are rewritten
-    - **Read**: Fast - just read data files
-    - **Use case**: Read-heavy workloads, occasional updates
-
-    ### Merge-on-Read (MOR)
-    - **Write**: Creates delete files (position or equality based) without rewriting data
-    - **Read**: Must merge delete files with data files
-    - **Use case**: Write-heavy workloads, frequent updates
-
-    Let's demonstrate this with examples!
+    Let's demonstrate Copy-on-Write behavior with an UPDATE operation.
     """)
     return
 
 
 @app.cell
 def _(con):
-    # Create a COW table and demonstrate an update
+    con.execute("DROP TABLE IF EXISTS lakehouse.streamify.cow_example")
     con.execute("""
-        CREATE OR REPLACE TABLE lakehouse.streamify.cow_example (
+        CREATE TABLE lakehouse.streamify.cow_example (
             id INTEGER,
             value VARCHAR
         )
@@ -487,45 +389,47 @@ def _(con):
             (3, 'original-3')
     """)
 
-    print("✓ Created COW example table with 3 rows")
+    print("✓ Created COW example table")
     return
 
 
 @app.cell
 def _(con, mo):
-    # Perform an update (will trigger COW behavior)
     con.execute("""
         UPDATE lakehouse.streamify.cow_example
         SET value = 'updated-2'
         WHERE id = 2
     """)
 
-    # Check what happened
-    cow_manifests = con.execute("""
-        SELECT 
-            sequence_number,
-            operation,
-            added_data_files_count,
-            deleted_data_files_count,
-            added_rows_count,
-            deleted_rows_count
-        FROM iceberg_manifests('lakehouse.streamify.cow_example')
+    # Check current data
+    cow_data = con.execute("""
+        SELECT * FROM lakehouse.streamify.cow_example ORDER BY id
+    """).df()
+
+    # Check snapshots
+    cow_snapshots = con.execute("""
+        SELECT sequence_number, snapshot_id, timestamp_ms
+        FROM iceberg_snapshots('lakehouse.streamify.cow_example')
         ORDER BY sequence_number
     """).df()
 
     mo.md(f"""
     ### COW Update Result
 
+    **Current Data:**
     ```
-    {cow_manifests.to_string()}
+    {cow_data.to_string()}
+    ```
+
+    **Snapshot History:**
+    ```
+    {cow_snapshots.to_string()}
     ```
 
     **What happened?**
-    - The UPDATE operation created a new snapshot
-    - Data file containing row id=2 was **rewritten**
-    - Old file marked as DELETED
-    - New file marked as ADDED
-    - Even though only 1 row changed, entire file was rewritten!
+    - The UPDATE created a new snapshot
+    - Data file was rewritten (Copy-on-Write)
+    - Old file marked as DELETED, new file as ADDED
     """)
     return
 
@@ -535,346 +439,30 @@ def _(mo):
     mo.md("""
     ---
 
-    ## Module 6: Partitioning and Hidden Partitioning
-
-    Iceberg uses **hidden partitioning** - you don't need to create separate partition columns!
-
-    ### Transform Functions:
-    - `year(ts)`, `month(ts)`, `day(ts)`, `hour(ts)` - Time-based
-    - `bucket(n, col)` - Hash into n buckets
-    - `truncate(col, len)` - String truncation
-    - `identity(col)` - Direct value
-
-    ### Partition Evolution:
-    You can change partition specs without rewriting existing data!
-
-    Let's create a partitioned table and observe.
-    """)
-    return
-
-
-@app.cell
-def _(con):
-    # Create a partitioned table using hidden partitioning
-    con.execute("""
-        CREATE OR REPLACE TABLE lakehouse.streamify.partitioned_events (
-            event_id BIGINT,
-            user_id VARCHAR,
-            event_time TIMESTAMP,
-            event_type VARCHAR,
-            amount DECIMAL(10,2)
-        )
-    """)
-
-    # Add data with different timestamps
-    con.execute("""
-        INSERT INTO lakehouse.streamify.partitioned_events VALUES
-            (1, 'user1', '2024-01-15 10:00:00', 'click', 10.00),
-            (2, 'user2', '2024-01-15 11:00:00', 'view', NULL),
-            (3, 'user1', '2024-01-16 10:00:00', 'click', 20.00),
-            (4, 'user3', '2024-02-01 09:00:00', 'purchase', 100.00)
-    """)
-
-    print("✓ Created partitioned table")
-    return
-
-
-@app.cell
-def _(con, mo):
-    # Now let's partition by day(event_time)
-    con.execute("""
-        ALTER TABLE lakehouse.streamify.partitioned_events
-        ADD PARTITION FIELD day(event_time)
-    """)
-
-    # Check partition spec
-    partitions_df = con.execute("""
-        SELECT 
-            partition_id,
-            partition_field,
-            partition_transform
-        FROM iceberg_partitions('lakehouse.streamify.partitioned_events')
-    """).df()
-
-    mo.md(f"""
-    ### Partition Specification
-
-    ```
-    {partitions_df.to_string()}
-    ```
-
-    **Key Point:**
-    The `event_time` column itself remains unchanged. The partition is **hidden**!
-    Queries filtering on `event_time` automatically benefit from partition pruning.
-    """)
-    return
-
-
-@app.cell
-def _(con, mo):
-    # Insert more data after partitioning
-    con.execute("""
-        INSERT INTO lakehouse.streamify.partitioned_events VALUES
-            (5, 'user4', '2024-03-01 08:00:00', 'view', NULL)
-    """)
-
-    # Check files in each partition
-    partition_files = con.execute("""
-        SELECT 
-            partition,
-            record_count,
-            file_size_bytes,
-            file_path
-        FROM iceberg_files('lakehouse.streamify.partitioned_events')
-        ORDER BY partition
-    """).df()
-
-    mo.md(f"""
-    ### Data Files by Partition
-
-    ```
-    {partition_files.to_string()}
-    ```
-
-    Notice how data files are organized by partition values!
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md("""
-    ---
-
-    ## Module 7: Compaction
-
-    Compaction rewrites small files into fewer, larger files to improve read performance.
-
-    ### Types:
-    1. **Data File Compaction**: Merge small data files
-    2. **Manifest Compaction**: Merge small manifest files
-
-    ### Strategies:
-    - **Bin-pack**: Efficient, no sorting
-    - **Sort**: Reorganize data for better locality
-    - **Z-Ordering**: Multi-dimensional clustering
-
-    Let's demonstrate compaction!
-    """)
-    return
-
-
-@app.cell
-def _(con):
-    # Create a table with many small files
-    con.execute("""
-        CREATE OR REPLACE TABLE lakehouse.streamify.compaction_demo (
-            id INTEGER,
-            category VARCHAR,
-            value DOUBLE
-        )
-    """)
-
-    # Insert multiple small batches (simulating streaming inserts)
-    for i in range(5):
-        con.execute(f"""
-            INSERT INTO lakehouse.streamify.compaction_demo VALUES
-                ({i * 2 + 1}, 'A', {i * 1.1}),
-                ({i * 2 + 2}, 'B', {i * 2.2})
-        """)
-
-    print("✓ Created table with 5 small data files")
-    return
-
-
-@app.cell
-def _(con, mo):
-    # Check file count before compaction
-    files_before = con.execute("""
-        SELECT 
-            COUNT(*) as file_count,
-            SUM(record_count) as total_rows,
-            AVG(file_size_bytes) as avg_file_size
-        FROM iceberg_files('lakehouse.streamify.compaction_demo')
-    """).df()
-
-    mo.md(f"""
-    ### Before Compaction
-
-    ```
-    {files_before.to_string()}
-    ```
-
-    Many small files hurt read performance!
-    """)
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md("""
-    ### Compaction in Practice
-
-    In production Iceberg tables, you would run:
-
-    ```sql
-    -- Spark SQL
-    OPTIMIZE lakehouse.streamify.compaction_demo
-
-    -- Or with sorting
-    OPTIMIZE lakehouse.streamify.compaction_demo
-    ZORDER BY (category)
-    ```
-
-    **What compaction does:**
-    1. Reads all small files in a partition
-    2. Rewrites them as fewer, larger files
-    3. Updates manifests atomically
-    4. Old files marked for deletion (can be cleaned up later)
-
-    ### Benefits:
-    - Reduces files to scan during reads
-    - Improves query planning
-    - Better compression ratios
-    - Reduced metadata overhead
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md("""
-    ---
-
-    ## Module 8: Understanding Metadata Files
-
-    Let's peek behind the curtain and look at actual metadata files!
-
-    The metadata file contains:
-    - Table schema
-    - Partition specs
-    - All snapshots
-    - Current snapshot reference
-    - Properties
-
-    Let's explore the metadata location.
-    """)
-    return
-
-
-@app.cell
-def _(con, mo):
-    # Get metadata location
-    metadata_info = con.execute("""
-        SELECT 
-            table_type,
-            metadata_location,
-            location
-        FROM information_schema.tables
-        WHERE table_schema = 'streamify'
-          AND table_name = 'iceberg_study'
-    """).df()
-
-    mo.md(f"""
-    ### Metadata Location
-
-    ```
-    {metadata_info.to_string()}
-    ```
-
-    The `metadata_location` points to the current metadata JSON file.
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md("""
-    ---
-
-    ## Module 9: Concurrency Control Summary
-
-    Iceberg's consistency model is built on:
-
-    ### 1. Atomic Catalog Commits
-    - Uses compare-and-swap (CAS) operations
-    - Metadata files have UUIDs to prevent collisions
-    - Multiple writers can compete, only one succeeds
-
-    ### 2. Optimistic Concurrency Control
-    - Writers check for conflicts before committing
-    - If another writer committed first, retry with updated base
-
-    ### 3. Snapshot Isolation
-    - Readers see consistent snapshots
-    - Writers don't block readers
-    - Time-travel between snapshots
-
-    ### Write Operations:
-    - **AppendFiles**: Simple data addition
-    - **OverwriteFiles**: COW updates/deletes
-    - **RowDelta**: MOR updates/deletes
-    - **RewriteFiles**: Compaction
-
-    ---
-
-    ## Summary
+    ## Module 5: Summary
 
     You've learned:
 
     1. ✅ **Iceberg Architecture**: Metadata layer + Data layer
-    2. ✅ **Snapshots**: Immutable table versions with parent-child relationships
-    3. ✅ **Manifests**: Track file status (ADDED/EXISTING/DELETED)
-    4. ✅ **COW vs MOR**: Trade-offs between write and read amplification
-    5. ✅ **Partitioning**: Hidden transforms without separate columns
-    6. ✅ **Compaction**: Optimizing file sizes for read performance
-    7. ✅ **Concurrency**: Atomic commits with optimistic locking
+    2. ✅ **Snapshots**: Use `iceberg_snapshots()` to see version history
+    3. ✅ **Metadata**: Use `iceberg_metadata()` to see file information
+    4. ✅ **COW**: Updates rewrite entire files
+    5. ✅ **Time Travel**: Access historical versions via snapshots
 
-    ### Next Steps:
-
-    - Read [Part 2 of the article](https://jack-vanlightly.com/analyses/2024/8/5/apache-icebergs-consistency-model-part-2) for deeper concurrency details
-    - Experiment with time-travel queries
-    - Try different partition transforms
-    - Set up compaction jobs in your pipeline
-    """)
-    return
-
-
-@app.cell
-def _():
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md("""
-    ---
-
-    ## Appendix: Useful Queries
-
-    Keep these handy for exploring Iceberg tables!
+    ### Available DuckDB Iceberg Functions:
 
     ```sql
-    -- List all snapshots
+    -- List snapshots
     SELECT * FROM iceberg_snapshots('table_name');
 
-    -- List manifest files
-    SELECT * FROM iceberg_manifests('table_name');
+    -- View metadata
+    SELECT * FROM iceberg_metadata('table_name');
 
-    -- List data files
-    SELECT * FROM iceberg_files('table_name');
+    -- Query partition stats
+    SELECT * FROM iceberg_partition_stats('table_name');
 
-    -- Query as of specific snapshot
+    -- Time travel
     SELECT * FROM table_name VERSION AS OF snapshot_id;
-
-    -- Query as of specific time
-    SELECT * FROM table_name TIMESTAMP AS OF '2024-01-01';
-
-    -- Table history
-    SELECT * FROM iceberg_history('table_name');
-
-    -- Partition info
-    SELECT * FROM iceberg_partitions('table_name');
     ```
     """)
     return
