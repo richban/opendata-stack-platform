@@ -311,11 +311,6 @@ def _(mo):
 
 @app.cell
 def _(con):
-    # The catalog DOES store the metadata file location (via metadata_location property)
-    # In production: table = catalog.load_table("..."); metadata_file = table.metadata_location
-    # However, our Polaris catalog uses vended credentials which requires extra setup.
-    # For this demo, we find the metadata file via SQL from the snapshot's manifest_list path.
-
     manifest_list = con.execute("""
         SELECT manifest_list 
         FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events') 
@@ -757,6 +752,17 @@ def _(mo):
     return
 
 
+@app.cell(hide_code=True)
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        select * from lakehouse.streamify.bronze_listen_events
+        """,
+        engine=con
+    )
+    return
+
+
 @app.cell
 def _(con, manifest_file_path, mo):
     _df = mo.sql(
@@ -767,9 +773,9 @@ def _(con, manifest_file_path, mo):
             data_file.lower_bounds,
             data_file.upper_bounds
         FROM read_avro('{manifest_file_path}')
-        LIMIT 3
+        LIMIT 10
         """,
-        engine=con,
+        engine=con
     )
     return
 
@@ -929,24 +935,105 @@ def _(mo):
 
 
 @app.cell
-def _(con):
-    con.execute("""
-        INSERT INTO lakehouse.iceberg_study.study_table VALUES
-            (3, 'cherry', 30)
-    """)
-    print("✓ Inserted row 3")
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        INSERT INTO lakehouse.iceberg_study.study_table VALUES (3, 'cherry', 30)
+        """,
+        engine=con
+    )
     return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
-        SELECT sequence_number, snapshot_id, timestamp_ms
+        f"""
+        SELECT *
         FROM iceberg_snapshots('lakehouse.iceberg_study.study_table')
         ORDER BY sequence_number
         """,
-        engine=con,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        select
+        	*
+        from read_avro('s3://lakehouse/iceberg_study/study_table/metadata/snap-8107442448281716170-c1778c7d-008d-4504-811f-e22dd5f03a20.avro')
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        select
+        	data_file.file_path as data_file_path,
+            data_file.content,
+            data_file.file_format,
+            data_file.record_count,
+            data_file.file_size_in_bytes,
+            CASE 
+                WHEN status = 0 THEN 'EXISTING'
+                WHEN status = 1 THEN 'ADDED'
+                WHEN status = 2 THEN 'DELETED'
+            END as file_status,
+            *
+        from read_avro('s3://lakehouse/iceberg_study/study_table/metadata/a9298af9-25f8-49b5-919b-5255b631883a-m0.avro')
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        select * from lakehouse.iceberg_study.study_table
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        delete from lakehouse.iceberg_study.study_table where fruit = 'cherry';
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        select * from READ_PARQUET('s3://lakehouse/iceberg_study/study_table/data/0a5bb0d9-bcf9-4d57-994f-36e6dc7525f5-deletes.parquet')
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        select * from READ_PARQUET('s3://lakehouse/iceberg_study/study_table/data/019d35fa-b514-79ec-9d53-708389da0486.parquet')
+        """,
+        engine=con
     )
     return
 
@@ -976,21 +1063,24 @@ def _(mo):
 
 
 @app.cell
-def _(con):
-    con.execute("DROP TABLE IF EXISTS lakehouse.iceberg_study.cow_example")
-    con.execute("""
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        DROP TABLE IF EXISTS lakehouse.iceberg_study.cow_example;
+
         CREATE TABLE lakehouse.iceberg_study.cow_example (
             id INTEGER,
             value VARCHAR
-        )
-    """)
-    con.execute("""
+        );
+
         INSERT INTO lakehouse.iceberg_study.cow_example VALUES
             (1, 'original-1'),
             (2, 'original-2'),
             (3, 'original-3')
-    """)
-    print("✓ Created COW example table with 3 rows")
+
+        """,
+        engine=con
+    )
     return
 
 
@@ -1003,13 +1093,15 @@ def _(mo):
 
 
 @app.cell
-def _(con):
-    con.execute("""
+def _(con, mo):
+    _df = mo.sql(
+        f"""
         UPDATE lakehouse.iceberg_study.cow_example
         SET value = 'updated-2'
-        WHERE id = 2
-    """)
-    print("✓ Updated row 2")
+        WHERE id = 2;
+        """,
+        engine=con
+    )
     return
 
 
@@ -1045,12 +1137,58 @@ def _(mo):
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
-        SELECT sequence_number, snapshot_id, timestamp_ms
+        f"""
+        SELECT *
         FROM iceberg_snapshots('lakehouse.iceberg_study.cow_example')
         ORDER BY sequence_number
         """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        select * from
+        read_avro("s3://lakehouse/iceberg_study/cow_example/metadata/snap-4187410115043606791-43e6369b-a1d2-4332-9cb7-9cac20efc376.avro")
+        """,
         engine=con,
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        select
+        	data_file.file_path as data_file_path,
+            data_file.content,
+            data_file.file_format,
+            data_file.record_count,
+            data_file.file_size_in_bytes,
+            CASE 
+                WHEN status = 0 THEN 'EXISTING'
+                WHEN status = 1 THEN 'ADDED'
+                WHEN status = 2 THEN 'DELETED'
+            END as file_status,
+            *
+        from read_avro('s3://lakehouse/iceberg_study/cow_example/metadata/b80be7d0-02a6-45ec-929a-476a7c5dd427-m0.avro')
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        select * from READ_PARQUET("s3://lakehouse/iceberg_study/cow_example/data/019d3614-9a14-7e49-b1e9-94bb54d1c230.parquet")
+        """,
+        engine=con
     )
     return
 
