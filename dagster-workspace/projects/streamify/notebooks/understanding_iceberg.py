@@ -190,10 +190,26 @@ def _(mo):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### Exploring Snapshots
+
+    Let's look at the snapshots for the `bronze_listen_events` table.
+
+    The `iceberg_snapshots()` function returns:
+    - `sequence_number`: Monotonically increasing version number
+    - `snapshot_id`: Unique identifier for this snapshot
+    - `manifest_list`: Path to the manifest list file
+    - `timestamp_ms`: When the snapshot was created
+    """)
+    return
+
+
 @app.cell
 def _(con, mo):
-    # Available columns: sequence_number, snapshot_id, manifest_list, timestamp_ms
-    snapshots_df = con.execute("""
+    _df = mo.sql(
+        """
         SELECT 
             sequence_number,
             snapshot_id,
@@ -201,23 +217,9 @@ def _(con, mo):
             timestamp_ms
         FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events')
         ORDER BY timestamp_ms DESC
-    """).df()
-
-    mo.md(f"""
-    ### Table: `bronze_listen_events` Snapshots
-
-    Each row represents a snapshot (version) of the table:
-
-    ```
-    {snapshots_df.to_string()}
-    ```
-
-    **Key Fields:**
-    - `sequence_number`: Monotonically increasing version number
-    - `snapshot_id`: Unique identifier for this snapshot
-    - `manifest_list`: Path to the manifest list file
-    - `timestamp_ms`: When the snapshot was created
-    """)
+        """,
+        engine=con,
+    )
     return
 
 
@@ -240,7 +242,8 @@ def _(mo):
 
 @app.cell
 def _(con, mo):
-    metadata_df = con.execute("""
+    _df = mo.sql(
+        """
         SELECT 
             manifest_path,
             status,
@@ -249,15 +252,15 @@ def _(con, mo):
             record_count
         FROM iceberg_metadata('lakehouse.streamify.bronze_listen_events')
         LIMIT 10
-    """).df()
+        """,
+        engine=con,
+    )
+    return
 
-    mo.md(f"""
-    ### Iceberg Metadata Files
 
-    ```
-    {metadata_df.to_string()}
-    ```
-
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
     **Key Insights:**
     - `status`: Shows if file is ADDED, EXISTING, or DELETED
     - `manifest_path`: References the manifest containing this file
@@ -275,13 +278,14 @@ def _(mo):
     ## Module 3: Hands-On Exercise - Creating Snapshots
 
     Let's create our own table and observe how snapshots are created!
+
+    First, we'll create a test table and insert some data:
     """)
     return
 
 
 @app.cell
 def _(con):
-    # Drop if exists, then create
     con.execute("DROP TABLE IF EXISTS lakehouse.streamify.iceberg_study")
     con.execute("""
         CREATE TABLE lakehouse.streamify.iceberg_study (
@@ -290,69 +294,85 @@ def _(con):
             quantity INTEGER
         )
     """)
-
-    # Insert first batch
     con.execute("""
         INSERT INTO lakehouse.streamify.iceberg_study VALUES
             (1, 'apple', 10),
             (2, 'banana', 20)
     """)
-
     print("✓ Created table and inserted first 2 rows")
     return
 
 
-@app.cell
-def _(con, mo):
-    snapshots = con.execute("""
-        SELECT sequence_number, snapshot_id, timestamp_ms
-        FROM iceberg_snapshots('lakehouse.streamify.iceberg_study')
-        ORDER BY sequence_number
-    """).df()
-
-    # Check the data
-    data = con.execute("""
-        SELECT * FROM lakehouse.streamify.iceberg_study
-    """).df()
-
-    mo.md(f"""
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
     ### After First INSERT (Snapshot 1)
 
-    **Data in table:**
-    ```
-    {data.to_string()}
-    ```
-
-    **Snapshots:**
-    ```
-    {snapshots.to_string()}
-    ```
+    Now let's check the data and snapshots:
     """)
     return
 
 
 @app.cell
 def _(con, mo):
+    _df = mo.sql(
+        """
+        SELECT * FROM lakehouse.streamify.iceberg_study
+        """,
+        engine=con,
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        """
+        SELECT sequence_number, snapshot_id, timestamp_ms
+        FROM iceberg_snapshots('lakehouse.streamify.iceberg_study')
+        ORDER BY sequence_number
+        """,
+        engine=con,
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### After Second INSERT (Snapshot 2)
+
+    Let's insert more data and see how the snapshot chain grows:
+    """)
+    return
+
+
+@app.cell
+def _(con):
     con.execute("""
         INSERT INTO lakehouse.streamify.iceberg_study VALUES
             (3, 'cherry', 30)
     """)
+    print("✓ Inserted row 3")
+    return
 
-    # Check updated snapshots
-    snapshots2 = con.execute("""
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        """
         SELECT sequence_number, snapshot_id, timestamp_ms
         FROM iceberg_snapshots('lakehouse.streamify.iceberg_study')
         ORDER BY sequence_number
-    """).df()
+        """,
+        engine=con,
+    )
+    return
 
-    mo.md(f"""
-    ### After Second INSERT (Snapshot 2)
 
-    **Snapshots:**
-    ```
-    {snapshots2.to_string()}
-    ```
-
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
     Notice:
     - Each new snapshot has an incremented sequence_number
     - This forms a chain of table versions over time
@@ -368,6 +388,8 @@ def _(mo):
     ## Module 4: Copy-on-Write (COW) Demonstration
 
     Let's demonstrate Copy-on-Write behavior with an UPDATE operation.
+
+    First, create a test table:
     """)
     return
 
@@ -381,51 +403,80 @@ def _(con):
             value VARCHAR
         )
     """)
-
     con.execute("""
         INSERT INTO lakehouse.streamify.cow_example VALUES
             (1, 'original-1'),
             (2, 'original-2'),
             (3, 'original-3')
     """)
+    print("✓ Created COW example table with 3 rows")
+    return
 
-    print("✓ Created COW example table")
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    Now perform an UPDATE operation:
+    """)
     return
 
 
 @app.cell
-def _(con, mo):
+def _(con):
     con.execute("""
         UPDATE lakehouse.streamify.cow_example
         SET value = 'updated-2'
         WHERE id = 2
     """)
+    print("✓ Updated row 2")
+    return
 
-    # Check current data
-    cow_data = con.execute("""
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### COW Update Result
+
+    Let's check the current data:
+    """)
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        """
         SELECT * FROM lakehouse.streamify.cow_example ORDER BY id
-    """).df()
+        """,
+        engine=con,
+    )
+    return
 
-    # Check snapshots
-    cow_snapshots = con.execute("""
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    And the snapshot history:
+    """)
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        """
         SELECT sequence_number, snapshot_id, timestamp_ms
         FROM iceberg_snapshots('lakehouse.streamify.cow_example')
         ORDER BY sequence_number
-    """).df()
+        """,
+        engine=con,
+    )
+    return
 
-    mo.md(f"""
-    ### COW Update Result
 
-    **Current Data:**
-    ```
-    {cow_data.to_string()}
-    ```
-
-    **Snapshot History:**
-    ```
-    {cow_snapshots.to_string()}
-    ```
-
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
     **What happened?**
     - The UPDATE created a new snapshot
     - Data file was rewritten (Copy-on-Write)
