@@ -12,7 +12,6 @@ def _():
 
     import duckdb
     import marimo as mo
-    import sqlalchemy
 
     from pyiceberg.catalog.rest import RestCatalog
 
@@ -223,8 +222,8 @@ def _(mo):
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
-        SELECT 
+        f"""
+        SELECT
             sequence_number,
             snapshot_id,
             manifest_list,
@@ -312,9 +311,9 @@ def _(mo):
 @app.cell
 def _(con):
     manifest_list = con.execute("""
-        SELECT manifest_list 
-        FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events') 
-        ORDER BY timestamp_ms DESC 
+        SELECT manifest_list
+        FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events')
+        ORDER BY timestamp_ms DESC
         LIMIT 1
     """).fetchone()[0]
 
@@ -418,7 +417,7 @@ def _(con, metadata_file_path, mo):
 def _(con, metadata_file_path, mo):
     _df = mo.sql(
         f"""
-        SELECT 
+        SELECT
             "format-version" as format_version,
             "table-uuid" as table_uuid,
             location,
@@ -466,8 +465,8 @@ def _(mo):
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
-        SELECT 
+        f"""
+        SELECT
             sequence_number,
             snapshot_id,
             manifest_list,
@@ -510,9 +509,9 @@ def _(mo):
 def _(con):
     # Get the manifest list path from the latest snapshot
     manifest_list_path = con.execute("""
-        SELECT manifest_list 
-        FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events') 
-        ORDER BY timestamp_ms DESC 
+        SELECT manifest_list
+        FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events')
+        ORDER BY timestamp_ms DESC
         LIMIT 1
     """).fetchone()[0]
     print(f"Manifest list: {manifest_list_path}")
@@ -523,7 +522,7 @@ def _(con):
 def _(con, manifest_list_path, mo):
     _df = mo.sql(
         f"""
-        SELECT 
+        SELECT
             manifest_path,
             manifest_length,
             sequence_number,
@@ -573,8 +572,8 @@ def _(mo):
 def _(con, manifest_list_path):
     # Get the first manifest file path from the manifest list
     manifest_file_path = con.execute(f"""
-        SELECT manifest_path 
-        FROM read_avro('{manifest_list_path}') 
+        SELECT manifest_path
+        FROM read_avro('{manifest_list_path}')
         LIMIT 1
     """).fetchone()[0]
     print(f"Manifest file: {manifest_file_path}")
@@ -585,7 +584,7 @@ def _(con, manifest_list_path):
 def _(con, manifest_file_path, mo):
     _df = mo.sql(
         f"""
-        SELECT 
+        SELECT
             status,
             snapshot_id,
             sequence_number,
@@ -636,13 +635,13 @@ def _(mo):
 def _(con, manifest_file_path, mo):
     _df = mo.sql(
         f"""
-        SELECT 
+        SELECT
             data_file.file_path as data_file_path,
             data_file.content,
             data_file.file_format,
             data_file.record_count,
             data_file.file_size_in_bytes,
-            CASE 
+            CASE
                 WHEN status = 0 THEN 'EXISTING'
                 WHEN status = 1 THEN 'ADDED'
                 WHEN status = 2 THEN 'DELETED'
@@ -758,7 +757,7 @@ def _(con, mo):
         f"""
         select * from lakehouse.streamify.bronze_listen_events
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -767,7 +766,7 @@ def _(con, mo):
 def _(con, manifest_file_path, mo):
     _df = mo.sql(
         f"""
-        SELECT 
+        SELECT
             data_file.file_path,
             data_file.record_count,
             data_file.lower_bounds,
@@ -775,7 +774,7 @@ def _(con, manifest_file_path, mo):
         FROM read_avro('{manifest_file_path}')
         LIMIT 10
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -801,12 +800,12 @@ def _(mo):
 def _(con, manifest_file_path, mo):
     _df = mo.sql(
         f"""
-        SELECT 
+        SELECT
             data_file.file_path,
             data_file.record_count,
             data_file.lower_bounds,
             data_file.upper_bounds,
-            CASE 
+            CASE
                 WHEN data_file.record_count > 1000 THEN 'Large file'
                 ELSE 'Small file'
             END as file_size_category
@@ -874,7 +873,7 @@ def _(mo):
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         DROP TABLE IF EXISTS lakehouse.iceberg_study.study_table;
         CREATE TABLE lakehouse.iceberg_study.study_table (
             id INTEGER,
@@ -903,7 +902,7 @@ def _(mo):
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         SELECT * FROM lakehouse.iceberg_study.study_table
         """,
         engine=con,
@@ -914,7 +913,7 @@ def _(con, mo):
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         SELECT sequence_number, snapshot_id, timestamp_ms
         FROM iceberg_snapshots('lakehouse.iceberg_study.study_table')
         ORDER BY sequence_number
@@ -940,7 +939,7 @@ def _(con, mo):
         f"""
         INSERT INTO lakehouse.iceberg_study.study_table VALUES (3, 'cherry', 30)
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -953,7 +952,7 @@ def _(con, mo):
         FROM iceberg_snapshots('lakehouse.iceberg_study.study_table')
         ORDER BY sequence_number
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -966,7 +965,7 @@ def _(con, mo):
         	*
         from read_avro('s3://lakehouse/iceberg_study/study_table/metadata/snap-8107442448281716170-c1778c7d-008d-4504-811f-e22dd5f03a20.avro')
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -981,7 +980,7 @@ def _(con, mo):
             data_file.file_format,
             data_file.record_count,
             data_file.file_size_in_bytes,
-            CASE 
+            CASE
                 WHEN status = 0 THEN 'EXISTING'
                 WHEN status = 1 THEN 'ADDED'
                 WHEN status = 2 THEN 'DELETED'
@@ -989,7 +988,7 @@ def _(con, mo):
             *
         from read_avro('s3://lakehouse/iceberg_study/study_table/metadata/a9298af9-25f8-49b5-919b-5255b631883a-m0.avro')
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1000,7 +999,7 @@ def _(con, mo):
         f"""
         select * from lakehouse.iceberg_study.study_table
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1011,7 +1010,7 @@ def _(con, mo):
         f"""
         delete from lakehouse.iceberg_study.study_table where fruit = 'cherry';
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1022,7 +1021,7 @@ def _(con, mo):
         f"""
         select * from READ_PARQUET('s3://lakehouse/iceberg_study/study_table/data/0a5bb0d9-bcf9-4d57-994f-36e6dc7525f5-deletes.parquet')
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1033,7 +1032,7 @@ def _(con, mo):
         f"""
         select * from READ_PARQUET('s3://lakehouse/iceberg_study/study_table/data/019d35fa-b514-79ec-9d53-708389da0486.parquet')
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1053,9 +1052,9 @@ def _(mo):
     mo.md("""
     ---
 
-    ## Module 4: Copy-on-Write (COW) Demonstration
+    ## Module 4: Merge-on-Read (MOR) Demonstration
 
-    Let's demonstrate Copy-on-Write behavior with an UPDATE operation.
+    Let's demonstrate Merge-on-Read (default) behavior with an UPDATE operation.
 
     First, create a test table:
     """)
@@ -1066,29 +1065,20 @@ def _(mo):
 def _(con, mo):
     _df = mo.sql(
         f"""
-        DROP TABLE IF EXISTS lakehouse.iceberg_study.cow_example;
+        DROP TABLE IF EXISTS lakehouse.iceberg_study.mor_example;
 
-        CREATE TABLE lakehouse.iceberg_study.cow_example (
+        CREATE TABLE lakehouse.iceberg_study.mor_example (
             id INTEGER,
             value VARCHAR
         );
 
-        INSERT INTO lakehouse.iceberg_study.cow_example VALUES
+        INSERT INTO lakehouse.iceberg_study.mor_example VALUES
             (1, 'original-1'),
             (2, 'original-2'),
             (3, 'original-3')
-
         """,
         engine=con
     )
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md("""
-    Now perform an UPDATE operation:
-    """)
     return
 
 
@@ -1096,7 +1086,7 @@ def _(mo):
 def _(con, mo):
     _df = mo.sql(
         f"""
-        UPDATE lakehouse.iceberg_study.cow_example
+        UPDATE lakehouse.iceberg_study.mor_example
         SET value = 'updated-2'
         WHERE id = 2;
         """,
@@ -1105,32 +1095,14 @@ def _(con, mo):
     return
 
 
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md("""
-    ### COW Update Result
-
-    Let's check the current data:
-    """)
-    return
-
-
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
-        SELECT * FROM lakehouse.iceberg_study.cow_example ORDER BY id
+        f"""
+        SELECT * FROM lakehouse.iceberg_study.mor_example ORDER BY id
         """,
-        engine=con,
+        engine=con
     )
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md("""
-    And the snapshot history:
-    """)
     return
 
 
@@ -1139,7 +1111,7 @@ def _(con, mo):
     _df = mo.sql(
         f"""
         SELECT *
-        FROM iceberg_snapshots('lakehouse.iceberg_study.cow_example')
+        FROM iceberg_snapshots('lakehouse.iceberg_study.mor_example')
         ORDER BY sequence_number
         """,
         engine=con
@@ -1169,7 +1141,7 @@ def _(con, mo):
             data_file.file_format,
             data_file.record_count,
             data_file.file_size_in_bytes,
-            CASE 
+            CASE
                 WHEN status = 0 THEN 'EXISTING'
                 WHEN status = 1 THEN 'ADDED'
                 WHEN status = 2 THEN 'DELETED'
@@ -1177,7 +1149,7 @@ def _(con, mo):
             *
         from read_avro('s3://lakehouse/iceberg_study/cow_example/metadata/b80be7d0-02a6-45ec-929a-476a7c5dd427-m0.avro')
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1188,7 +1160,7 @@ def _(con, mo):
         f"""
         select * from READ_PARQUET("s3://lakehouse/iceberg_study/cow_example/data/019d3614-9a14-7e49-b1e9-94bb54d1c230.parquet")
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1198,7 +1170,7 @@ def _(mo):
     mo.md("""
     **What happened?**
     - The UPDATE created a new snapshot
-    - Data file was rewritten (Copy-on-Write)
+    - Data file was rewritten (MoR)
     - Old file marked as DELETED, new file as ADDED
     """)
     return
@@ -1206,34 +1178,114 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
+    mo.md(r"""
+    # COW Demo
+    """)
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        DROP TABLE IF EXISTS lakehouse.iceberg_study.cow_demo;
+
+        CREATE TABLE lakehouse.iceberg_study.cow_demo (
+            id INTEGER,
+            value VARCHAR
+        ) WITH (
+            'write.update.mode' = 'copy-on-write',
+            'write.delete.mode' = 'copy-on-write',
+            'write.merge.mode' = 'copy-on-write'
+        );
+
+        INSERT INTO lakehouse.iceberg_study.cow_demo VALUES
+            (1, 'original-1'),
+            (2, 'original-2'),
+            (3, 'original-3');
+        """,
+        engine=con,
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
     mo.md("""
-    ---
+    Now perform an UPDATE operation to trigger COW behavior:
+    """)
+    return
 
-    ## Module 5: Summary
 
-    You've learned:
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        UPDATE lakehouse.iceberg_study.cow_demo
+        SET value = 'updated-2'
+        WHERE id = 2;
+        """,
+        engine=con,
+    )
+    return
 
-    1. ✅ **Iceberg Architecture**: Metadata layer + Data layer
-    2. ✅ **Snapshots**: Use `iceberg_snapshots()` to see version history
-    3. ✅ **Metadata**: Use `iceberg_metadata()` to see file information
-    4. ✅ **COW**: Updates rewrite entire files
-    5. ✅ **Time Travel**: Access historical versions via snapshots
 
-    ### Available DuckDB Iceberg Functions:
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### COW Update Result
 
-    ```sql
-    -- List snapshots
-    SELECT * FROM iceberg_snapshots('table_name');
+    Let's check the current data:
+    """)
+    return
 
-    -- View metadata
-    SELECT * FROM iceberg_metadata('table_name');
 
-    -- Query partition stats
-    SELECT * FROM iceberg_partition_stats('table_name');
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        """
+        SELECT * FROM lakehouse.iceberg_study.cow_demo ORDER BY id
+        """,
+        engine=con,
+    )
+    return
 
-    -- Time travel
-    SELECT * FROM table_name VERSION AS OF snapshot_id;
-    ```
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    And the snapshot history:
+    """)
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        """
+        SELECT sequence_number, snapshot_id, timestamp_ms
+        FROM iceberg_snapshots('lakehouse.iceberg_study.cow_demo')
+        ORDER BY sequence_number
+        """,
+        engine=con,
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    **What happened in COW:**
+    - The UPDATE created a new snapshot
+    - The entire data file was **rewritten** with all 3 rows
+    - Row 2 has the updated value, rows 1 and 3 are unchanged copies
+    - Old file marked as DELETED (status 2), new file marked as ADDED (status 1)
+    - No delete files created - just one new complete data file containing all rows
+
+    Compare this to MOR (Module 4) which would create:
+    - A positional delete file marking row 2 as deleted
+    - A new data file with only the updated row
+    - On read: must merge original + deletes + updates
     """)
     return
 
