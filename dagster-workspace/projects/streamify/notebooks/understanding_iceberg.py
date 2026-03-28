@@ -655,7 +655,7 @@ def _(con, manifest_file_path, mo):
         FROM read_avro('{manifest_file_path}')
         LIMIT 5
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -707,6 +707,146 @@ def _(mo):
     2. **Copy-on-Write**: Updates create new snapshots with new data files
     3. **Time Travel**: You can query any snapshot by its ID
     4. **Atomic**: All changes are atomic at the snapshot level
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ---
+
+    ## I/O Cost Analysis & Optimization Strategies
+
+    ### Understanding the I/O Chain
+
+    Every query follows this I/O chain:
+
+    ```
+    Query → Metadata File → Manifest List → Manifest(s) → Data File(s)
+    ```
+
+    **Minimum I/Os for a query:**
+    1. Read metadata.json (1 I/O)
+    2. Read manifest-list.avro (1 I/O)
+    3. Read manifest-N.avro file(s) (N I/Os)
+    4. Read data-XXX.parquet file(s) (M I/Os)
+
+    **Total: 2 + N + M I/O operations**
+
+    ### The Hidden Cost
+
+    - **JSON parsing**: Metadata files can be MBs (especially with many snapshots)
+    - **Multiple hops**: Even a simple query might touch 5-10 files before actual data
+    - **Avro decoding**: Each manifest needs to be parsed
+
+    ### The Solution: Statistics-Based Pruning
+
+    **Manifest files contain min/max statistics for each column**, allowing the query engine to **skip data files entirely** without reading them!
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### Demonstration: Statistics-Based Pruning
+
+    Let's look at the **lower_bounds** and **upper_bounds** in manifest entries. These statistics allow Iceberg to skip files that don't contain relevant data.
+    """)
+    return
+
+
+@app.cell
+def _(con, manifest_file_path, mo):
+    _df = mo.sql(
+        f"""
+        SELECT 
+            data_file.file_path,
+            data_file.record_count,
+            data_file.lower_bounds,
+            data_file.upper_bounds
+        FROM read_avro('{manifest_file_path}')
+        LIMIT 3
+        """,
+        engine=con,
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    **How Pruning Works:**
+
+    Suppose you query: `WHERE user_id = 5000 AND timestamp > '2024-02-01'`
+
+    Iceberg checks each manifest entry's bounds:
+    - File A: user_id range [1000-9999], timestamp [Jan 1-31] → **SKIP!** (timestamp too old)
+    - File B: user_id range [100-999], timestamp [Feb 1-28] → **SKIP!** (user_id out of range)
+    - File C: user_id range [4000-6000], timestamp [Feb 1-28] → **READ!** (might contain data)
+
+    **Without reading any Parquet files**, Iceberg eliminated 2 out of 3 files!
+    """)
+    return
+
+
+@app.cell
+def _(con, manifest_file_path, mo):
+    _df = mo.sql(
+        f"""
+        SELECT 
+            data_file.file_path,
+            data_file.record_count,
+            data_file.lower_bounds,
+            data_file.upper_bounds,
+            CASE 
+                WHEN data_file.record_count > 1000 THEN 'Large file'
+                ELSE 'Small file'
+            END as file_size_category
+        FROM read_avro('{manifest_file_path}')
+        ORDER BY data_file.record_count DESC
+        LIMIT 5
+        """,
+        engine=con,
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("""
+    ### Real-World I/O Costs
+
+    **Scenario: Table with 1000 data files, 50 snapshots**
+
+    | Query Type | I/Os | Optimization |
+    |------------|------|--------------|
+    | **Full table scan** | 1 + 1 + 10 + 1000 = **1012 I/Os** | None |
+    | **With good predicates** | 1 + 1 + 10 + 20 = **32 I/Os** | Statistics prune 98% |
+    | **With caching** | 0 + 0 + 0 + 20 = **20 I/Os** | Metadata cached in memory |
+
+    ### Optimization Strategies
+
+    1. **Metadata Caching**: Keep metadata.json in memory (changes infrequently)
+    2. **Manifest Caching**: Cache manifest files
+    3. **Compaction**: Merge small files to reduce manifest size
+    4. **Partitioning**: Organize data to maximize pruning
+    5. **Predicate Pushdown**: Push filters as deep as possible
+
+    ### The Tradeoff
+
+    ```
+    Cost:  Extra I/O for metadata + manifests
+    Benefit:
+      ✅ Time travel (query any historical snapshot)
+      ✅ Atomic commits (all-or-nothing writes)
+      ✅ Schema evolution (add columns without rewriting)
+      ✅ Hidden partitioning (transparent optimization)
+      ✅ Avoid full table scans via statistics
+    ```
+
+    **Bottom Line**: For analytical workloads (batch processing, large scans), the benefits outweigh the costs. For high-frequency, low-latency OLTP, consider alternatives.
     """)
     return
 
