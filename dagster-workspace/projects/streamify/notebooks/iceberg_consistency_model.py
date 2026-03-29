@@ -37,6 +37,7 @@ def _():
         create_spark_session,
         get_minio_config,
         get_polaris_config,
+        get_s3_store
     )
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -47,6 +48,7 @@ def _():
         create_duckdb_connection,
         create_iceberg_catalog,
         create_spark_session,
+        get_s3_store,
         mo,
     )
 
@@ -80,6 +82,12 @@ def _(create_duckdb_connection):
 def _(create_spark_session):
     spark = create_spark_session()
     return (spark,)
+
+
+@app.cell
+def _(get_s3_store):
+    store = get_s3_store()
+    return
 
 
 @app.cell(hide_code=True)
@@ -510,6 +518,34 @@ def _(con, mo):
 
 
 @app.cell(hide_code=True)
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        select * from read_avro("s3://lakehouse/iceberg_study/partitioned_inventory/metadata/snap-1803696753865083741-1-87ec7ebf-36a0-4b18-b149-b2a43f64d745.avro")
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        select 
+            CASE
+                WHEN status = 0 THEN 'EXISTING'
+                WHEN status = 1 THEN 'ADDED'
+                WHEN status = 2 THEN 'DELETED'
+            END as file_status,
+            *, data_file.content, data_file.file_path from read_avro("s3://lakehouse/iceberg_study/partitioned_inventory/metadata/87ec7ebf-36a0-4b18-b149-b2a43f64d745-m0.avro")
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     **Writer A committed successfully!**
@@ -792,6 +828,23 @@ def _(con, mo):
 
 
 @app.cell
+def _(con, mo):
+    _df = mo.sql(
+        f"""
+        SELECT
+            sequence_number,
+            snapshot_id,
+            manifest_list,
+            timestamp_ms
+        FROM iceberg_snapshots('lakehouse.iceberg_study.cow_overwrite_demo')
+        ORDER BY sequence_number
+        """,
+        engine=con
+    )
+    return
+
+
+@app.cell
 def _(mo):
     mo.md("""
     **Now let's perform an UPDATE operation (triggers COW OverwriteFiles):**
@@ -838,7 +891,7 @@ def _(con, mo):
             snapshot_id,
             manifest_list,
             timestamp_ms
-        FROM iceberg_snapshots('lakehouse.iceberg_study.partitioned_inventory')
+        FROM iceberg_snapshots('lakehouse.iceberg_study.cow_overwrite_demo')
         ORDER BY sequence_number
         """,
         engine=con
