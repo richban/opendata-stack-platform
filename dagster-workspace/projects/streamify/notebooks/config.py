@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 import duckdb
 
+from obstore.store import S3Store
 from pyiceberg.catalog.rest import RestCatalog
 
 # Configure module logger
@@ -82,6 +83,20 @@ def get_minio_config() -> MinioConfig:
         secret_key=secret_key,
     )
 
+
+
+def get_s3_store():
+    access_key = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
+    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
+
+    store = S3Store(
+        "lakehouse",
+        access_key_id=access_key,
+        secret_access_key=secret_key,
+        endpoint_url="http://localhost:9000",
+    )
+
+    return store
 
 def create_duckdb_connection(
     polaris: PolarisConfig | None = None,
@@ -197,3 +212,30 @@ def create_iceberg_catalog(
     logger.info("Catalog initialized successfully")
 
     return catalog
+
+
+def create_spark_session(
+    spark_connect_uri: str = "sc://localhost:15002",
+) -> SparkSession:
+    """Create Spark session connecting to remote Spark Connect server.
+
+    The Spark Connect server is pre-configured with Iceberg catalog settings
+    in docker-compose.yml, so the client only needs to connect via remote().
+
+    Args:
+        spark_connect_uri: Spark Connect server URI (default: sc://localhost:15002)
+
+    Returns:
+        SparkSession connected to the remote server with Iceberg catalog ready.
+    """
+    from pyspark.sql import SparkSession
+
+    logger.info("Connecting to Spark Connect server at %s...", spark_connect_uri)
+
+    # Just connect to the remote server - catalog is already configured server-side
+    spark = SparkSession.builder.remote(spark_connect_uri).getOrCreate()
+
+    logger.info("Spark session created successfully")
+    logger.info("Spark UI: http://localhost:4041")
+
+    return spark
