@@ -8,9 +8,9 @@ app = marimo.App(width="medium", app_title="Understanding Iceberg")
 def _():
     import logging
     import sys
+
     from pathlib import Path
 
-    import duckdb
     import marimo as mo
 
     sys.path.insert(0, str(Path(__file__).parent))
@@ -33,16 +33,9 @@ def _():
 
 @app.cell
 def _():
-    from obstore.store import S3Store
 
-    store = S3Store(
-        "lakehouse",
-        access_key_id="minioadmin",
-        secret_access_key="minioadmin",
-        endpoint_url="http://localhost:9000",
-    )
-    return
-
+    store = get_s3_store()
+    return store,
 
 @app.cell
 def _(create_iceberg_catalog):
@@ -61,7 +54,6 @@ def _(catalog):
         print("✓ Created namespace: iceberg_study")
     else:
         print("✓ Namespace already exists: iceberg_study")
-    return
 
 
 @app.cell
@@ -88,7 +80,6 @@ def _(mo):
 
     Let's begin!
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -111,7 +102,6 @@ def _(mo):
     4. New metadata file (listing all snapshots)
     5. Atomic commit to catalog (compare-and-swap)
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -127,13 +117,12 @@ def _(mo):
     - `manifest_list`: Path to the manifest list file
     - `timestamp_ms`: When the snapshot was created
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT
             sequence_number,
             snapshot_id,
@@ -144,7 +133,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -160,7 +148,6 @@ def _(mo):
     Catalog → Metadata File → Snapshots → Manifest Lists → Manifest Files → Data Files
     ```
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -175,7 +162,6 @@ def _(mo):
 
     We've already connected to the Polaris catalog. Let's list what it contains:
     """)
-    return
 
 
 @app.cell
@@ -199,7 +185,6 @@ def _(catalog, mo):
 
     The catalog stores the pointer to the **current metadata file** for each table.
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -216,7 +201,6 @@ def _(mo):
 
     Let's find the metadata file location and examine it:
     """)
-    return
 
 
 @app.cell
@@ -253,7 +237,6 @@ def _(metadata_file_path, mo):
 
     This JSON file contains the complete table history and current state.
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -264,7 +247,6 @@ def _(mo):
     **Important**: Every time a commit happens (INSERT, UPDATE, DELETE), Iceberg creates a **NEW metadata file**!
     The catalog simply updates its pointer to the latest one. Let's see all metadata files:
     """)
-    return
 
 
 @app.cell
@@ -282,7 +264,6 @@ def _(con, metadata_file_path, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -294,7 +275,6 @@ def _(mo):
     - Old metadata files are kept for time-travel and auditing
     - This is how Iceberg achieves **atomic commits** and **snapshot isolation**
     """)
-    return
 
 
 @app.cell
@@ -321,7 +301,6 @@ def _(con, metadata_file_path, mo):
 
     *(Showing first 3000 characters - the full file contains {len(pretty_json)} characters)*
     """)
-    return
 
 
 @app.cell
@@ -341,7 +320,6 @@ def _(con, metadata_file_path, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -353,7 +331,6 @@ def _(mo):
     - `num_snapshots`: Total number of snapshots in history
     - `location`: Base location of the table
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -370,13 +347,12 @@ def _(mo):
 
     Let's see all snapshots for our table:
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT
             sequence_number,
             snapshot_id,
@@ -387,7 +363,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -398,7 +373,6 @@ def _(mo):
     - The `manifest_list` column points to an Avro file containing all manifests for that snapshot
     - Snapshots form an immutable chain - you can time-travel to any snapshot!
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -413,7 +387,6 @@ def _(mo):
 
     Let's explore the manifest list from the latest snapshot:
     """)
-    return
 
 
 @app.cell
@@ -446,7 +419,6 @@ def _(con, manifest_list_path, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -460,7 +432,6 @@ def _(mo):
     - `deleted_files_count`: Files marked for deletion
     - `added_rows_count`: Total rows in added files
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -476,7 +447,6 @@ def _(mo):
 
     Let's peek inside one manifest file:
     """)
-    return
 
 
 @app.cell
@@ -508,7 +478,6 @@ def _(con, manifest_file_path, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -523,7 +492,6 @@ def _(mo):
     - `data_file.record_count`: Number of rows
     - `data_file.file_size_in_bytes`: File size
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -539,7 +507,6 @@ def _(mo):
     - **EXISTING** (carried over from previous snapshots)
     - **DELETED** (removed in this snapshot - COW pattern)
     """)
-    return
 
 
 @app.cell
@@ -562,7 +529,6 @@ def _(con, manifest_file_path, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -613,7 +579,6 @@ def _(mo):
     3. **Time Travel**: You can query any snapshot by its ID
     4. **Atomic**: All changes are atomic at the snapshot level
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -649,7 +614,6 @@ def _(mo):
 
     **Manifest files contain min/max statistics for each column**, allowing the query engine to **skip data files entirely** without reading them!
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -659,18 +623,16 @@ def _(mo):
 
     Let's look at the **lower_bounds** and **upper_bounds** in manifest entries. These statistics allow Iceberg to skip files that don't contain relevant data.
     """)
-    return
 
 
 @app.cell(hide_code=True)
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from lakehouse.streamify.bronze_listen_events
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
@@ -687,7 +649,6 @@ def _(con, manifest_file_path, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -704,7 +665,6 @@ def _(mo):
 
     **Without reading any Parquet files**, Iceberg eliminated 2 out of 3 files!
     """)
-    return
 
 
 @app.cell
@@ -726,7 +686,6 @@ def _(con, manifest_file_path, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -764,7 +723,6 @@ def _(mo):
 
     **Bottom Line**: For analytical workloads (batch processing, large scans), the benefits outweigh the costs. For high-frequency, low-latency OLTP, consider alternatives.
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -778,13 +736,12 @@ def _(mo):
 
     First, we'll create the `iceberg_study` namespace and a test table:
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         DROP TABLE IF EXISTS lakehouse.iceberg_study.study_table;
         CREATE TABLE lakehouse.iceberg_study.study_table (
             id INTEGER,
@@ -797,7 +754,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -807,31 +763,28 @@ def _(mo):
 
     Now let's check the data and snapshots:
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT * FROM lakehouse.iceberg_study.study_table
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT sequence_number, snapshot_id, timestamp_ms
         FROM iceberg_snapshots('lakehouse.iceberg_study.study_table')
         ORDER BY sequence_number
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -841,50 +794,46 @@ def _(mo):
 
     Let's insert more data and see how the snapshot chain grows:
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         INSERT INTO lakehouse.iceberg_study.study_table VALUES (3, 'cherry', 30)
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT *
         FROM iceberg_snapshots('lakehouse.iceberg_study.study_table')
         ORDER BY sequence_number
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         select
         	*
         from read_avro('s3://lakehouse/iceberg_study/study_table/metadata/snap-8107442448281716170-c1778c7d-008d-4504-811f-e22dd5f03a20.avro')
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         select
         	data_file.file_path as data_file_path,
             data_file.content,
@@ -901,51 +850,46 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from lakehouse.iceberg_study.study_table
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         delete from lakehouse.iceberg_study.study_table where fruit = 'cherry';
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from READ_PARQUET('s3://lakehouse/iceberg_study/study_table/data/0a5bb0d9-bcf9-4d57-994f-36e6dc7525f5-deletes.parquet')
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from READ_PARQUET('s3://lakehouse/iceberg_study/study_table/data/019d35fa-b514-79ec-9d53-708389da0486.parquet')
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -955,7 +899,6 @@ def _(mo):
     - Each new snapshot has an incremented sequence_number
     - This forms a chain of table versions over time
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -969,13 +912,12 @@ def _(mo):
 
     First, create a test table:
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         DROP TABLE IF EXISTS lakehouse.iceberg_study.mor_example;
 
         CREATE TABLE lakehouse.iceberg_study.mor_example (
@@ -990,62 +932,57 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         UPDATE lakehouse.iceberg_study.mor_example
         SET value = 'updated-2'
         WHERE id = 2;
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT * FROM lakehouse.iceberg_study.mor_example ORDER BY id
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT *
         FROM iceberg_snapshots('lakehouse.iceberg_study.mor_example')
         ORDER BY sequence_number
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from
         read_avro("s3://lakehouse/iceberg_study/cow_example/metadata/snap-4187410115043606791-43e6369b-a1d2-4332-9cb7-9cac20efc376.avro")
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         select
         	data_file.file_path as data_file_path,
             data_file.content,
@@ -1062,18 +999,16 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from READ_PARQUET("s3://lakehouse/iceberg_study/cow_example/data/019d3614-9a14-7e49-b1e9-94bb54d1c230.parquet")
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -1084,7 +1019,6 @@ def _(mo):
     - Data file was rewritten (MoR)
     - Old file marked as DELETED, new file as ADDED
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -1092,13 +1026,12 @@ def _(mo):
     mo.md(r"""
     # COW Demo
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         DROP TABLE IF EXISTS lakehouse.iceberg_study.cow_demo;
 
         CREATE TABLE lakehouse.iceberg_study.cow_demo (
@@ -1117,7 +1050,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -1125,20 +1057,18 @@ def _(mo):
     mo.md("""
     Now perform an UPDATE operation to trigger COW behavior:
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         UPDATE lakehouse.iceberg_study.cow_demo
         SET value = 'updated-2'
         WHERE id = 2;
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -1148,18 +1078,16 @@ def _(mo):
 
     Let's check the current data:
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT * FROM lakehouse.iceberg_study.cow_demo ORDER BY id
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -1167,20 +1095,18 @@ def _(mo):
     mo.md("""
     And the snapshot history:
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT sequence_number, snapshot_id, timestamp_ms
         FROM iceberg_snapshots('lakehouse.iceberg_study.cow_demo')
         ORDER BY sequence_number
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -1198,7 +1124,6 @@ def _(mo):
     - A new data file with only the updated row
     - On read: must merge original + deletes + updates
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -1206,7 +1131,6 @@ def _(mo):
     mo.md(r"""
 
     """)
-    return
 
 
 if __name__ == "__main__":
