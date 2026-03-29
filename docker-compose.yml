@@ -253,6 +253,18 @@ services:
           --conf spark.executor.cores=2 \
           --conf spark.jars.ivy=/root/.ivy2 \
           --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions \
+          --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog \
+          --conf spark.sql.catalog.lakehouse.type=rest \
+          --conf spark.sql.catalog.lakehouse.uri=http://polaris:8181/api/catalog \
+          --conf spark.sql.catalog.lakehouse.warehouse=lakehouse \
+          --conf spark.sql.catalog.lakehouse.credential=$${POLARIS_CLIENT_ID}:$${POLARIS_CLIENT_SECRET} \
+          --conf spark.sql.catalog.lakehouse.scope=PRINCIPAL_ROLE:ALL \
+          --conf spark.sql.catalog.lakehouse.token-refresh-enabled=true \
+          --conf spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000 \
+          --conf spark.sql.catalog.lakehouse.s3.access-key-id=minioadmin \
+          --conf spark.sql.catalog.lakehouse.s3.secret-access-key=minioadmin \
+          --conf spark.sql.catalog.lakehouse.s3.path-style-access=true \
+          --conf spark.sql.defaultCatalog=lakehouse \
           --conf spark.hadoop.fs.s3a.access.key=minioadmin \
           --conf spark.hadoop.fs.s3a.secret.key=minioadmin \
           --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 \
@@ -268,6 +280,8 @@ services:
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ENDPOINT_URL: http://minio:9000
+      POLARIS_CLIENT_ID: ${POLARIS_CLIENT_ID}
+      POLARIS_CLIENT_SECRET: ${POLARIS_CLIENT_SECRET}
     ports:
       - "15002:15002"
       - "4041:4040"
