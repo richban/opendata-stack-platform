@@ -8,9 +8,11 @@ import os
 from dataclasses import dataclass
 
 import duckdb
+import ibis
 
 from obstore.store import S3Store
 from pyiceberg.catalog.rest import RestCatalog
+from pyspark.sql import SparkSession
 
 # Configure module logger
 logger = logging.getLogger(__name__)
@@ -84,7 +86,6 @@ def get_minio_config() -> MinioConfig:
     )
 
 
-
 def get_s3_store():
     access_key = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
     secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
@@ -97,6 +98,7 @@ def get_s3_store():
     )
 
     return store
+
 
 def create_duckdb_connection(
     polaris: PolarisConfig | None = None,
@@ -216,26 +218,32 @@ def create_iceberg_catalog(
 
 def create_spark_session(
     spark_connect_uri: str = "sc://localhost:15002",
-) -> SparkSession:
-    """Create Spark session connecting to remote Spark Connect server.
+) -> tuple[SparkSession, ibis.BaseBackend]:
+    """Create Spark session and Ibis connection to remote Spark Connect server.
 
     The Spark Connect server is pre-configured with Iceberg catalog settings
     in docker-compose.yml, so the client only needs to connect via remote().
+    The Polaris catalog 'lakehouse' is already configured server-side.
 
     Args:
         spark_connect_uri: Spark Connect server URI (default: sc://localhost:15002)
 
     Returns:
-        SparkSession connected to the remote server with Iceberg catalog ready.
+        Tuple of (SparkSession, IbisSparkBackend) connected to the remote server
+        with Iceberg catalog ready.
     """
     from pyspark.sql import SparkSession
 
     logger.info("Connecting to Spark Connect server at %s...", spark_connect_uri)
 
-    # Just connect to the remote server - catalog is already configured server-side
+    # Connect to the remote server - catalog is already configured server-side
     spark = SparkSession.builder.remote(spark_connect_uri).getOrCreate()
 
-    logger.info("Spark session created successfully")
+    # Create Ibis connection from the Spark session
+    logger.info("Creating Ibis PySpark connection...")
+    spark_conn = ibis.pyspark.connect(spark)
+
+    logger.info("Spark session and Ibis connection created successfully")
     logger.info("Spark UI: http://localhost:4041")
 
-    return spark
+    return spark, spark_conn
