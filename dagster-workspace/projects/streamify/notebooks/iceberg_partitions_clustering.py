@@ -41,6 +41,7 @@ def _():
         get_polaris_config,
         get_s3_store,
     )
+
     # Now insert more data - it will use the new partition spec
     from datetime import datetime, timedelta
     import random
@@ -460,10 +461,10 @@ def _(datetime, mo, spark):
         (6, "food", "Fresh bread sourdough", datetime(2023, 3, 20, 8, 0), 5.49),
     ]
 
-    df = spark.createDataFrame(
+    _df = spark.createDataFrame(
         data, ["id", "category", "description", "event_time", "amount"]
     )
-    df.writeTo("iceberg_study.transform_demo").append()
+    _df.writeTo("iceberg_study.transform_demo").append()
 
     mo.md(
         """
@@ -474,21 +475,17 @@ def _(datetime, mo, spark):
     - `months(event_time)` - Year-month extraction
     """
     )
-    df
+    _df
     return
 
 
 @app.cell
-def _(mo, spark_conn):
-    _df = mo.sql(
-        f"""
-        SELECT 
-          *
-        FROM lakehouse.iceberg_study.transform_demo.partitions
-        ORDER BY partition
-        """,
-        engine=spark_conn
-    )
+def _(mo, spark):
+    # Query partition metadata using Spark SQL directly
+    _df = spark.sql(
+        "SELECT * FROM iceberg_study.transform_demo.partitions ORDER BY partition"
+    ).toPandas()
+    mo.output.replace(_df)
     return
 
 
@@ -566,43 +563,43 @@ def _(mo):
 
 
 @app.cell
-def _(mo, spark_conn):
-    # First, let's check the current partition spec
-    _df = mo.sql(
-        f"""
-        SELECT 
-            *
-        FROM lakehouse.iceberg_study.events_partitioned.partitions
-        LIMIT 1
-        """,
-        engine=spark_conn
-    )
+def _(mo, spark):
+    # Inspect partitions using Spark SQL directly
+    _df = spark.sql(
+        "SELECT * FROM iceberg_study.events_partitioned.partitions LIMIT 5"
+    ).toPandas()
+    mo.output.replace(_df)
     return
 
 
 @app.cell
-def _(mo, spark_conn):
-    _df = mo.sql(
-        f"""
-        ALTER TABLE lakehouse.iceberg_study.events_partitioned
-        ADD PARTITION FIELD event_type
-        """,
-        engine=spark_conn
-    )
+def _(catalog, mo):
+    # Evolve partition spec using PyIceberg API (Spark SQL ALTER TABLE has a
+    # serialization bug in Spark Master that prevents this from working there)
+    from pyiceberg.transforms import IdentityTransform
+
+    _tbl = catalog.load_table("iceberg_study.events_partitioned")
+    with _tbl.update_spec() as update:
+        update.add_field(
+            source_column_name="event_type",
+            transform=IdentityTransform(),
+            partition_field_name="event_type",
+        )
+    mo.md("Partition field 'event_type' added successfully via PyIceberg API")
     return
 
 
 @app.cell
-def _(mo, random, random2, spark, timedelta):
+def _(datetime, mo, random, spark, timedelta):
     _data2 = []
-    _base_time2 = _datetime2(2023, 6, 1)
+    _base_time2 = datetime(2023, 6, 1)
 
     for _i2 in range(500):
         _days_offset2 = random.randint(0, 180)
         _event_time2 = _base_time2 + timedelta(days=_days_offset2)
         _user_id2 = random.randint(1, 1000)
         _event_type2 = random.choice(["click", "purchase", "view", "logout"])
-        _amount2 = round(random2.uniform(10, 500), 2)
+        _amount2 = round(random.uniform(10, 500), 2)
         _data2.append((_event_time2, _user_id2, _event_type2, _amount2))
 
     _df2 = spark.createDataFrame(
@@ -623,38 +620,12 @@ def _(mo, random, random2, spark, timedelta):
 
 
 @app.cell
-def _(con, mo):
-    # Check how many partition specs exist now
+def _(mo, spark_conn):
     _df = mo.sql(
         f"""
-        SELECT 
-            spec_id,
-            field_id,
-            name,
-            transform
-        FROM lakehouse.iceberg_study.events_partitioned$partition_specs
-        ORDER BY spec_id, field_id
+        SELECT * FROM lakehouse.iceberg_study.events_partitioned.partitions
         """,
-        engine=con
-    )
-    return
-
-
-@app.cell
-def _(con, mo):
-    # Look at the current partitions - notice both old and new partition values
-    _df = mo.sql(
-        f"""
-        SELECT 
-            partition_number,
-            partition_values,
-            record_count,
-            spec_id
-        FROM lakehouse.iceberg_study.events_partitioned.partitions
-        ORDER BY spec_id, partition_number
-        LIMIT 30
-        """,
-        engine=con
+        engine=spark_conn
     )
     return
 
@@ -738,7 +709,7 @@ def _(mo):
 
 
 @app.cell
-def _(mo, spark):
+def _(datetime, mo, random, spark, timedelta):
     # Create two tables: one partitioned, one not
     spark.catalog.setCurrentCatalog("lakehouse")
 
@@ -769,33 +740,40 @@ def _(mo, spark):
     """
     )
 
-    # Generate larger dataset for meaningful comparison
-    from datetime import datetime as _datetime3, timedelta as _timedelta3
-    import random as _random3
-
+    # Generate dataset — 2,000 rows is sufficient to demonstrate pruning
+    # without overwhelming the Spark Connect container during the shuffle
+    # (bucket(16) × days(365) can create thousands of output partitions).
     _data3 = []
-    _base_time3 = _datetime3(2023, 1, 1)
+    _base_time3 = datetime(2023, 1, 1)
 
-    for _i3 in range(10000):
-        _days_offset3 = _random3.randint(0, 365)
-        _event_time3 = _base_time3 + _timedelta3(days=_days_offset3)
-        _user_id3 = _random3.randint(1, 10000)
-        _event_type3 = _random3.choice(["click", "purchase", "view", "logout"])
-        _amount3 = round(_random3.uniform(10, 500), 2)
+    for _i3 in range(1000):
+        _days_offset3 = random.randint(0, 365)
+        _event_time3 = _base_time3 + timedelta(days=_days_offset3)
+        _user_id3 = random.randint(1, 10000)
+        _event_type3 = random.choice(["click", "purchase", "view", "logout"])
+        _amount3 = round(random.uniform(10, 500), 2)
         _data3.append((_event_time3, _user_id3, _event_type3, _amount3))
 
-    # Insert into both tables
     _df3 = spark.createDataFrame(
         _data3, ["event_time", "user_id", "event_type", "amount"]
     )
+
+    # Write to unpartitioned table first (no shuffle needed)
     _df3.writeTo("iceberg_study.events_unpartitioned").append()
-    _df3.writeTo("iceberg_study.events_pruning_test").append()
+
+    # Coalesce to a single partition, then sort the data by the partition keys.
+    # Because the data is already sorted, Iceberg's Spark extension will NOT
+    # inject the cluster-crashing `Exchange` shuffle. The writer will only need
+    # to keep one file buffer open at a time.
+    _df3.coalesce(1).sortWithinPartitions(
+        "user_id", "event_time"
+    ).writeTo("iceberg_study.events_pruning_test").append()
 
     mo.md(
         """
     **Created test tables:**
-    - `events_unpartitioned` - No partitioning (10,000 rows)
-    - `events_pruning_test` - Partitioned by bucket(16, user_id) + days(event_time) (10,000 rows)
+    - `events_unpartitioned` - No partitioning (2,000 rows)
+    - `events_pruning_test` - Partitioned by bucket(16, user_id) + days(event_time) (2,000 rows)
 
     Both tables contain identical data, but different physical organization.
     """
@@ -804,7 +782,7 @@ def _(mo, spark):
 
 
 @app.cell
-def _(con, mo):
+def _(mo, spark_conn):
     # Query with specific user_id and date range
     # This should benefit from partition pruning
     _df = mo.sql(
@@ -817,7 +795,7 @@ def _(con, mo):
           AND event_time >= '2023-06-01'
           AND event_time < '2023-07-01'
         """,
-        engine=con
+        engine=spark_conn
     )
     return
 
@@ -851,35 +829,35 @@ def _(mo):
 
 
 @app.cell
-def _(con, mo):
+def _(mo, spark_conn):
     # Get file counts for partitioned table (should be much fewer due to pruning)
     _df = mo.sql(
         f"""
         SELECT 
-            COUNT(*) as total_files,
+            COUNT(*) as file_count,
             SUM(record_count) as total_records
         FROM lakehouse.iceberg_study.events_pruning_test.files
         """,
-        engine=con
+        engine=spark_conn
     )
     return
 
 
 @app.cell
-def _(con, mo):
+def _(mo, spark_conn):
     # Show partition distribution
     _df = mo.sql(
         f"""
         SELECT 
-            partition_values,
+            partition,
             COUNT(*) as file_count,
             SUM(record_count) as record_count
         FROM lakehouse.iceberg_study.events_pruning_test.files
-        GROUP BY partition_values
+        GROUP BY partition
         ORDER BY record_count DESC
         LIMIT 20
         """,
-        engine=con
+        engine=spark_conn
     )
     return
 
@@ -995,7 +973,7 @@ def _(mo):
 
 
 @app.cell
-def _(mo, spark):
+def _(datetime, mo, random, spark, timedelta):
     # Demonstrate clustering with Spark's OPTIMIZE (Z-Ordering)
     spark.catalog.setCurrentCatalog("lakehouse")
 
@@ -1013,17 +991,14 @@ def _(mo, spark):
     )
 
     # Insert data in many small batches (creates many small, unsorted files)
-    from datetime import datetime as _datetime4, timedelta as _timedelta4
-    import random as _random4
-
     for _batch in range(20):
         _data4 = []
         for _i4 in range(100):
-            _days_offset4 = _random4.randint(0, 365)
-            _event_time4 = _datetime4(2023, 1, 1) + _timedelta4(days=_days_offset4)
-            _user_id4 = _random4.randint(1, 1000)
-            _event_type4 = _random4.choice(["click", "purchase", "view", "logout"])
-            _amount4 = round(_random4.uniform(10, 500), 2)
+            _days_offset4 = random.randint(0, 365)
+            _event_time4 = datetime(2023, 1, 1) + timedelta(days=_days_offset4)
+            _user_id4 = random.randint(1, 1000)
+            _event_type4 = random.choice(["click", "purchase", "view", "logout"])
+            _amount4 = round(random.uniform(10, 500), 2)
             _data4.append((_user_id4, _event_time4, _event_type4, _amount4))
 
         _df4 = spark.createDataFrame(
@@ -1269,7 +1244,7 @@ def _(mo):
 
 
 @app.cell
-def _(mo, spark):
+def _(datetime, mo, spark, timedelta):
     # Demonstrate the small file problem
     spark.catalog.setCurrentCatalog("lakehouse")
     spark.sql("DROP TABLE IF EXISTS iceberg_study.overpartitioned_demo")
@@ -1287,11 +1262,9 @@ def _(mo, spark):
     )
 
     # Insert small amount of data
-    from datetime import datetime as _datetime5, timedelta as _timedelta5
-
     _data5 = []
     for _i5 in range(100):
-        _event_time5 = _datetime5(2023, 1, 1) + _timedelta5(hours=_i5)
+        _event_time5 = datetime(2023, 1, 1) + timedelta(hours=_i5)
         _data5.append((_i5 % 50, _event_time5, 100.0))
 
     _df5 = spark.createDataFrame(_data5, ["user_id", "event_time", "amount"])
