@@ -41,6 +41,9 @@ def _():
         get_polaris_config,
         get_s3_store,
     )
+    # Now insert more data - it will use the new partition spec
+    from datetime import datetime, timedelta
+    import random
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -53,6 +56,8 @@ def _():
         datetime,
         get_s3_store,
         mo,
+        random,
+        timedelta,
     )
 
 
@@ -212,7 +217,7 @@ def _(mo):
 
 
 @app.cell
-def _(mo, spark):
+def _(datetime, mo, random, spark, timedelta):
     # Set the current catalog to lakehouse
     spark.catalog.setCurrentCatalog("lakehouse")
 
@@ -234,20 +239,16 @@ def _(mo, spark):
     """
     )
 
-    # Insert sample data across different time periods and users
-    from datetime import datetime as _datetime, timedelta as _timedelta
-    import random as _random
-
     _data = []
-    _base_time = _datetime(2023, 1, 1)
+    _base_time = datetime(2023, 1, 1)
 
     for _i in range(1000):
         # Spread data across 2 years
-        _days_offset = _random.randint(0, 730)
-        _event_time = _base_time + _timedelta(days=_days_offset)
-        _user_id = _random.randint(1, 1000)
-        _event_type = _random.choice(["click", "purchase", "view", "logout"])
-        _amount = round(_random.uniform(10, 500), 2)
+        _days_offset = random.randint(0, 730)
+        _event_time = _base_time + timedelta(days=_days_offset)
+        _user_id = random.randint(1, 1000)
+        _event_type = random.choice(["click", "purchase", "view", "logout"])
+        _amount = round(random.uniform(10, 500), 2)
         _data.append((_event_time, _user_id, _event_type, _amount))
 
     _df = spark.createDataFrame(_data, ["event_time", "user_id", "event_type", "amount"])
@@ -266,14 +267,14 @@ def _(mo, spark):
 
 
 @app.cell
-def _(con, mo):
+def _(mo, spark_conn):
     _df = mo.sql(
         f"""
         SELECT *
         FROM lakehouse.iceberg_study.events_partitioned
         LIMIT 10
         """,
-        engine=con
+        engine=spark_conn
     )
     return
 
@@ -390,9 +391,9 @@ def _(mo):
     Transform Results:
     ┌─────────────────────────────────────────────────────────────┐
     │ years(event_time)  → 2023                                   │
-    │ months(event_time) → 2023-07 (stored as 2023*12 + 7 = 24391)│
-    │ days(event_time)   → 2023-07-15 (stored as epoch days)      │
-    │ hours(event_time)  → 2023-07-15 14:00 (stored as epoch hours)│
+    │ months(event_time) → 2023-07 (stored as months since 1970-01 = 642)│
+    │ days(event_time)   → 2023-07-15 (stored as days since 1970-01-01) │
+    │ hours(event_time)  → 2023-07-15 14:00 (stored as hours since 1970-01-01 00:00)│
     └─────────────────────────────────────────────────────────────┘
     ```
 
@@ -437,14 +438,26 @@ def _(datetime, mo, spark):
             1,
             "electronics",
             "Smartphone model XYZ2023ABC",
-            datetime.datetime(2023, 1, 15, 10, 30),
+            datetime(2023, 1, 15, 10, 30),
             999.99,
         ),
-        (2, "electronics", "Laptop model ABC", datetime.datetime(2023, 1, 20, 14, 0), 1299.99),
-        (3, "clothing", "T-shirt cotton", datetime.datetime(2023, 2, 1, 9, 0), 29.99),
-        (4, "clothing", "Jeans denim blue", datetime.datetime(2023, 2, 15, 16, 30), 79.99),
-        (5, "food", "Organic apples 1kg", datetime.datetime(2023, 3, 10, 11, 0), 4.99),
-        (6, "food", "Fresh bread sourdough", datetime.datetime(2023, 3, 20, 8, 0), 5.49),
+        (
+            2,
+            "electronics",
+            "Laptop model ABC",
+            datetime(2023, 1, 20, 14, 0),
+            1299.99,
+        ),
+        (3, "clothing", "T-shirt cotton", datetime(2023, 2, 1, 9, 0), 29.99),
+        (
+            4,
+            "clothing",
+            "Jeans denim blue",
+            datetime(2023, 2, 15, 16, 30),
+            79.99,
+        ),
+        (5, "food", "Organic apples 1kg", datetime(2023, 3, 10, 11, 0), 4.99),
+        (6, "food", "Fresh bread sourdough", datetime(2023, 3, 20, 8, 0), 5.49),
     ]
 
     df = spark.createDataFrame(
@@ -486,7 +499,7 @@ def _(mo):
     1. Each partition shows the actual partition values (not the source values)
     2. `bucket(8, id)` shows bucket numbers (0-7)
     3. `truncate(10, description)` shows first 10 chars
-    4. `months(event_time)` shows year-month as integers (24385 = 2023-02)
+    4. `months(event_time)` shows months since 1970-01 (e.g., 637 = 2023-02)
     5. Identity transform shows the actual category values
 
     This is **hidden partitioning** - partition values are derived, not stored in the data!
@@ -553,47 +566,43 @@ def _(mo):
 
 
 @app.cell
-def _(con, mo):
+def _(mo, spark_conn):
     # First, let's check the current partition spec
     _df = mo.sql(
         f"""
         SELECT 
-            field_id,
-            name,
-            transform,
-            source_id
+            *
         FROM lakehouse.iceberg_study.events_partitioned.partitions
         LIMIT 1
         """,
-        engine=con
+        engine=spark_conn
     )
     return
 
 
 @app.cell
-def _(mo, spark):
-    # Let's add event_type as a new partition field
-    # This demonstrates partition evolution
-    spark.sql(
-        """
-        ALTER TABLE iceberg_study.events_partitioned
+def _(mo, spark_conn):
+    _df = mo.sql(
+        f"""
+        ALTER TABLE lakehouse.iceberg_study.events_partitioned
         ADD PARTITION FIELD event_type
-    """
+        """,
+        engine=spark_conn
     )
+    return
 
-    # Now insert more data - it will use the new partition spec
-    from datetime import datetime as _datetime2, timedelta as _timedelta2
-    import random as _random2
 
+@app.cell
+def _(mo, random, random2, spark, timedelta):
     _data2 = []
     _base_time2 = _datetime2(2023, 6, 1)
 
     for _i2 in range(500):
-        _days_offset2 = _random2.randint(0, 180)
-        _event_time2 = _base_time2 + _timedelta2(days=_days_offset2)
-        _user_id2 = _random2.randint(1, 1000)
-        _event_type2 = _random2.choice(["click", "purchase", "view", "logout"])
-        _amount2 = round(_random2.uniform(10, 500), 2)
+        _days_offset2 = random.randint(0, 180)
+        _event_time2 = _base_time2 + timedelta(days=_days_offset2)
+        _user_id2 = random.randint(1, 1000)
+        _event_type2 = random.choice(["click", "purchase", "view", "logout"])
+        _amount2 = round(random2.uniform(10, 500), 2)
         _data2.append((_event_time2, _user_id2, _event_type2, _amount2))
 
     _df2 = spark.createDataFrame(
