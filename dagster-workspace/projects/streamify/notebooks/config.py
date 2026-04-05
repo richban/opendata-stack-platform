@@ -187,19 +187,26 @@ def create_duckdb_connection(
 
 def create_iceberg_catalog(
     polaris: PolarisConfig | None = None,
+    minio: MinioConfig | None = None,
 ) -> RestCatalog:
     """Create PyIceberg REST catalog connection.
 
     Args:
         polaris: Polaris configuration. Uses environment variables if not provided.
+        minio: MinIO configuration for S3 credentials. Uses environment variables if not provided.
 
     Returns:
         Configured PyIceberg RestCatalog.
     """
     if polaris is None:
         polaris = get_polaris_config()
+    if minio is None:
+        minio = get_minio_config()
 
     logger.info("Creating PyIceberg REST catalog '%s'...", polaris.catalog)
+
+    # Configure S3 endpoint (remove protocol prefix)
+    s3_endpoint = minio.endpoint.replace("http://", "").replace("https://", "")
 
     catalog = RestCatalog(
         name=polaris.catalog,
@@ -208,6 +215,22 @@ def create_iceberg_catalog(
             "warehouse": polaris.catalog,
             "credential": f"{polaris.client_id}:{polaris.client_secret}",
             "scope": "PRINCIPAL_ROLE:ALL",
+            # S3 configuration for MinIO - use static credentials, disable vending.
+            "s3.endpoint": minio.endpoint,
+            "s3.access-key-id": minio.access_key,
+            "s3.secret-access-key": minio.secret_key,
+            "s3.remote-signing-enabled": "false",
+            # MinIO requires path-style access (localhost:9000/bucket) instead
+            # of virtual-hosted-style (bucket.localhost:9000) which would fail
+            # DNS resolution.
+            "s3.path-style-access": "true",
+            # Disable credential vending: PyIceberg sends
+            # "X-Iceberg-Access-Delegation: vended-credentials" by default,
+            # which causes Polaris to attempt STS token generation.
+            # MinIO does not support STS, so we override the header to an empty
+            # string to suppress the request entirely and fall back to the
+            # static s3.* credentials configured above.
+            "header.X-Iceberg-Access-Delegation": "",
         },
     )
 

@@ -7,6 +7,7 @@ perform aggregations, and write to Gold tables for downstream analytics.
 from __future__ import annotations
 
 import dagster as dg
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import avg, col, count, countDistinct, date_trunc, when
 

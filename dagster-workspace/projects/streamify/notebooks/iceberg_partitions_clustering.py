@@ -758,6 +758,13 @@ def _(datetime, mo, random, spark, timedelta):
         _data3, ["event_time", "user_id", "event_type", "amount"]
     )
 
+    # Add guaranteed rows matching the partition pruning test query
+    _data3.extend([
+        (datetime(2023, 6, 15, 12, 0), 42, "click", 99.99),
+        (datetime(2023, 6, 18, 14, 30), 42, "view", 15.50),
+        (datetime(2023, 6, 25, 9, 15), 42, "purchase", 250.00)
+    ])
+
     # Write to unpartitioned table first (no shuffle needed)
     _df3.writeTo("iceberg_study.events_unpartitioned").append()
 
@@ -1020,7 +1027,7 @@ def _(datetime, mo, random, spark, timedelta):
 
 
 @app.cell
-def _(con, mo):
+def _(mo, spark_conn):
     # Check file count before clustering
     _df = mo.sql(
         f"""
@@ -1031,7 +1038,7 @@ def _(con, mo):
             MAX(record_count) as max_rows
         FROM lakehouse.iceberg_study.clustering_demo.files
         """,
-        engine=con
+        engine=spark_conn
     )
     return
 
@@ -1044,10 +1051,10 @@ def _(mo, spark):
         """
         CALL lakehouse.system.rewrite_data_files(
             table => 'iceberg_study.clustering_demo',
+            strategy => 'sort',
+            sort_order => 'user_id ASC NULLS LAST, event_time ASC NULLS LAST',
             options => map(
-                'min-input-files', '2',
-                'max-output-file-size-in-bytes', '134217728',
-                'target-file-size-in-bytes', '67108864'
+                'min-input-files', '2'
             )
         )
     """
@@ -1066,7 +1073,7 @@ def _(mo, spark):
 
 
 @app.cell
-def _(con, mo):
+def _(mo, spark_conn):
     # Check file count after clustering
     _df = mo.sql(
         f"""
@@ -1077,7 +1084,7 @@ def _(con, mo):
             MAX(record_count) as max_rows
         FROM lakehouse.iceberg_study.clustering_demo.files
         """,
-        engine=con
+        engine=spark_conn
     )
     return
 
@@ -1109,7 +1116,7 @@ def _(mo):
 
 
 @app.cell
-def _(con, mo):
+def _(mo, spark_conn):
     # Examine the column statistics in file metadata
     _df = mo.sql(
         f"""
@@ -1121,7 +1128,7 @@ def _(con, mo):
         FROM lakehouse.iceberg_study.clustering_demo.files
         LIMIT 5
         """,
-        engine=con
+        engine=spark_conn
     )
     return
 
@@ -1257,7 +1264,7 @@ def _(datetime, mo, spark, timedelta):
             event_time TIMESTAMP,
             amount DOUBLE
         ) USING ICEBERG
-        PARTITIONED BY (days(event_time), hours(event_time))
+        PARTITIONED BY (bucket(10, user_id), hours(event_time))
     """
     )
 
@@ -1273,7 +1280,7 @@ def _(datetime, mo, spark, timedelta):
     mo.md(
         """
     **Created over-partitioned table:**
-    - Partitioned by `days(event_time)` AND `hours(event_time)`
+    - Partitioned by `bucket(10, user_id)` AND `hours(event_time)`
     - Only 100 rows of data
     - Results in many tiny partitions
     """
@@ -1282,17 +1289,17 @@ def _(datetime, mo, spark, timedelta):
 
 
 @app.cell
-def _(con, mo):
+def _(mo, spark_conn):
     _df = mo.sql(
         f"""
         SELECT 
-            COUNT(DISTINCT partition_number) as partition_count,
+            COUNT(*) as partition_count,
             AVG(record_count) as avg_rows_per_partition,
             MIN(record_count) as min_rows,
             MAX(record_count) as max_rows
         FROM lakehouse.iceberg_study.overpartitioned_demo.partitions
         """,
-        engine=con
+        engine=spark_conn
     )
     return
 
@@ -1419,6 +1426,22 @@ def _(mo):
     | `$snapshots` | Table snapshot history |
     | `$manifests` | Manifest file list |
     """)
+    return
+
+
+@app.cell
+def _(mo, spark_conn):
+    _df = mo.sql(
+        f"""
+        SELECT * FROM lakehouse.iceberg_study.events_partitioned
+        """,
+        engine=spark_conn
+    )
+    return
+
+
+@app.cell
+def _():
     return
 
 
