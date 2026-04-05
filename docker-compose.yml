@@ -171,13 +171,13 @@ services:
       start_period: 30s
 
   # ---------------------------------------------------------------------------
-  # Spark 4.1.1 — Scala 2.13, Java 21
+  # Spark 4.0.2 — Scala 2.13, Java 21
   # Iceberg 1.10.1 (iceberg-spark-runtime-4.0_2.13) — latest stable for Spark 4
   # Hadoop AWS 3.4.1 — matches Spark 4.x bundled Hadoop
   # ---------------------------------------------------------------------------
 
   spark-master:
-    image: apache/spark:4.1.1
+    image: apache/spark:4.0.2
     command: /opt/spark/sbin/start-master.sh -h spark-master
     environment:
       SPARK_NO_DAEMONIZE: "true"
@@ -195,15 +195,15 @@ services:
       - ./dagster-workspace/projects/streamify:/opt/streamify
 
   spark-worker:
-    image: apache/spark:4.1.1
+    image: apache/spark:4.0.2
     user: root
     command: /opt/spark/sbin/start-worker.sh spark://spark-master:7077
     depends_on:
       - spark-master
     environment:
       SPARK_NO_DAEMONIZE: "true"
-      SPARK_WORKER_MEMORY: 4G
-      SPARK_WORKER_CORES: 4
+      SPARK_WORKER_MEMORY: 12G
+      SPARK_WORKER_CORES: 8
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: ${AWS_REGION:-us-east-1}
@@ -215,7 +215,7 @@ services:
       - ./dagster-workspace/projects/streamify:/opt/streamify
 
   spark-connect:
-    image: apache/spark:4.1.1
+    image: apache/spark:4.0.2
     user: root
     entrypoint: /bin/bash
     command:
@@ -230,7 +230,7 @@ services:
         org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.1,\
         org.apache.iceberg:iceberg-aws-bundle:1.10.1,\
         org.apache.hadoop:hadoop-aws:3.4.1,\
-        org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.1"
+        org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.2"
 
         # 1. Pre-download packages via a throwaway SparkPi run so the ivy cache
         #    is warm before the Connect server starts.
@@ -248,9 +248,9 @@ services:
         /opt/spark/sbin/start-connect-server.sh \
           --packages "$$PACKAGES" \
           --conf spark.driver.host=spark-connect \
-          --conf spark.driver.memory=2g \
-          --conf spark.executor.memory=2g \
-          --conf spark.executor.cores=2 \
+          --conf spark.driver.memory=4g \
+          --conf spark.executor.memory=8g \
+          --conf spark.executor.cores=8 \
           --conf spark.jars.ivy=/root/.ivy2 \
           --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions \
           --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog \
