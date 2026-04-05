@@ -6,7 +6,7 @@ dependencies = [
     "dagster==1.12.3",
     "dagster-aws==0.28.3",
     "boto3>=1.35.0",
-    "pyspark==4.1.1",
+    "pyspark==4.0.2",
     "kafka-python==2.0.2",
     "pyiceberg[pyarrow]==0.8.1",
     "pandas>=1.0.5",
@@ -17,6 +17,10 @@ dependencies = [
     "dagster-pipes>=1.12.3",
     "zstandard>=0.25.0",
     "marimo>=0.21.1",
+    "python-lsp-server>=1.14.0",
+    "ty>=0.0.26",
+    "obstore>=0.9.2",
+    "ibis-framework[duckdb,pyspark]>=12.0.0",
 ]
 
 [dependency-groups]
