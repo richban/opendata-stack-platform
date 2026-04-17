@@ -12,22 +12,26 @@ def _():
 
     from pathlib import Path
 
+    import marimo as mo
     import pyspark.sql.functions as F
     import pyspark.sql.types as T
 
     from delta.tables import DeltaTable
+    from pyspark.sql import DataFrame
 
     sys.path.insert(0, str(Path(__file__).parent))
 
     from config import create_delta_spark_session, get_s3_store
 
     return (
+        DataFrame,
         DeltaTable,
         F,
         T,
         create_delta_spark_session,
         dt,
         get_s3_store,
+        mo,
         random,
     )
 
@@ -38,17 +42,21 @@ def _(create_delta_spark_session, get_s3_store):
     spark, conn = create_delta_spark_session("s3a://lakehouse/delta")
 
     # Ensure the Spark catalog is set up for S3 path-based tables.
-    spark.sql("CREATE DATABASE IF NOT EXISTS delta LOCATION 's3a://lakehouse/delta'")
-    return (spark,)
+    # spark.sql("CREATE DATABASE IF NOT EXISTS delta LOCATION 's3a://lakehouse/delta'")
+    return conn, spark
+
+
+@app.cell
+def _(conn):
+    conn.list_databases()
+    return
 
 
 @app.cell
 def _(T):
     schema = T.StructType(
         [
-            T.StructField(
-                "estimation_mode", T(), False
-            ),  # A=annual or M=monthly
+            T.StructField("estimation_mode", T.StringType(), False),
             T.StructField("account_id", T.StringType(), False),  # natural key
             T.StructField("year", T.IntegerType(), False),  # year in question
             T.StructField("month", T.DateType(), True),  # null when estimation_mode='A'
@@ -84,57 +92,116 @@ def _(make_batch):
 
 
 @app.cell
-def _():
+def _(DeltaTable, schema, spark):
     bronze_path = "s3a://lakehouse/delta/bronze_estimates"
+
+    def init_bronze():
+        DeltaTable.createIfNotExists(spark) \
+            .location(bronze_path) \
+            .tableName("bronze_estimates") \
+            .addColumns(schema) \
+            .execute()
+        return bronze_path
 
     def append_bronze(df):
         df.write.format("delta").mode("append").save(bronze_path)
         return bronze_path
 
-    return (append_bronze,)
+    return append_bronze, init_bronze
 
 
 @app.cell
-def _(append_bronze, batch_1):
+def _(append_bronze, batch_1, init_bronze):
+    init_bronze()
     append_bronze(batch_1)
+    return
 
 
 @app.cell
-def _(DeltaTable, F, schema, spark):
+def _(batch_1):
+    batch_1
+    return
+
+
+@app.cell
+def _(bronze_estimates, conn, mo):
+    _df = mo.sql(
+        f"""
+        select * from bronze_estimates
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
+def _(DataFrame, DeltaTable, F, schema, spark):
+
     silver_path = "s3a://lakehouse/delta/silver_estimates"
 
     def init_silver():
-        DeltaTable.createIfNotExists(spark) \
-            .location(silver_path) \
-            .addColumns(schema) \
-            .property("delta.enableChangeDataFeed", "true") \
-            .execute()
+        DeltaTable.createIfNotExists(spark).location(silver_path).addColumns(
+            schema
+        ).property("delta.enableChangeDataFeed", "true").execute()
         return silver_path
 
+    def detect_mode_switch(source_df: DataFrame, target_df: DataFrame) -> DataFrame:
+        """
+        Find existing target (Silver) rows that must be deleted because the
+        estimation mode for their business context changed in the incoming batch.
+
+        """
+        # Deduplicated source keys: one row per exact natural key in the batch
+        source_keys = source_df.select(
+            "account_id", "year", "currency", "estimation_mode"
+        ).distinct().withColumnRenamed("estimation_mode", "src_mode")
+        # Keep target rows that share the context BUT whose mode differs from source
+        return target_df.join(
+            source_keys, ["account_id", "year", "currency"], "inner"
+        ).filter(F.col("estimation_mode") != F.col("src_mode")).drop("src_mode")
+
     def merge_to_silver(batch_df):
-        # Step 1: identify business contexts touched by this batch
+        """
+        Atomically merge one batch into Silver using tombstones for mode switches.
+
+        Behaviour:
+          * Same mode, same row     -> UPDATE (idempotent re-run)
+          * Same mode, new row      -> INSERT
+          * Mode switch (A <-> M)   -> DELETE old grain, INSERT new grain
+        """
+        # Read existing Silver rows for the business contexts touched by this batch.
         contexts = batch_df.select("account_id", "year", "currency").distinct()
 
-        # Step 2: build tombstones for any existing silver rows in those contexts.
-        # We read the current silver state and tag every matched row for deletion.
-        silver_existing = (
-            spark.read.format("delta")
-            .load(silver_path)
-            .join(contexts, ["account_id", "year", "currency"])
-            .withColumn("_delete_flag", F.lit(True))
-        )
+        try:
+            silver_existing = (
+                spark.read.format("delta")
+                .load(silver_path)
+                .join(contexts, ["account_id", "year", "currency"])
+            )
+        except Exception:
+            # Table doesn't exist yet (first batch).
+            silver_existing = None
 
-        # Step 3: prepare incoming rows (no tombstone flag)
+        # Generate tombstones only when a mode switch occurs.
+        tombstones = None
+        if silver_existing is not None:
+            switch_rows = detect_mode_switch(batch_df, silver_existing)
+            if not switch_rows.isEmpty():
+                # Tag these rows so the MERGE knows to delete them.
+                tombstones = switch_rows.withColumn("_delete_flag", F.lit(True))
+
+        # Tag incoming rows as normal (not tombstones).
         incoming = batch_df.withColumn("_delete_flag", F.lit(False))
 
-        # Step 4: union tombstones + incoming, then atomic MERGE.
-        if silver_existing is not None:
-            merge_source = silver_existing.unionByName(incoming, allowMissingColumns=True)
+        # Build the unified merge source: tombstones + incoming batch rows.
+        if tombstones is not None:
+            merge_source = tombstones.unionByName(incoming, allowMissingColumns=True)
         else:
             merge_source = incoming
 
+        # Single atomic MERGE transaction.
+        # NULL-safe handling for month is required because annual rows have NULL.
         delta_table = DeltaTable.forPath(spark, silver_path)
-
         (
             delta_table.alias("t")
             .merge(
@@ -150,7 +217,7 @@ def _(DeltaTable, F, schema, spark):
             .whenNotMatchedInsertAll(condition="s._delete_flag = false")
             .execute()
         )
-        return silver_path
+        return delta_table
 
     return init_silver, merge_to_silver, silver_path
 
@@ -158,7 +225,14 @@ def _(DeltaTable, F, schema, spark):
 @app.cell
 def _(batch_1, init_silver, merge_to_silver):
     init_silver()
-    merge_to_silver(batch_1)
+    silver_table = merge_to_silver(batch_1)
+    return (silver_table,)
+
+
+@app.cell
+def _(silver_table):
+    silver_table.history()
+    return
 
 
 @app.cell
@@ -173,7 +247,6 @@ def _(dt, make_batch):
             ("M", str(1).zfill(4), 2026, dt.date(2026, 3, 1), "USD", 3100.0),
             ("A", str(4).zfill(4), 2026, None, "USD", 15000.0),
         ],
-        batch_id="B002",
     )
     return (batch_2,)
 
@@ -182,6 +255,7 @@ def _(dt, make_batch):
 def _(append_bronze, batch_2, merge_to_silver):
     append_bronze(batch_2)
     merge_to_silver(batch_2)
+    return
 
 
 @app.cell
@@ -190,6 +264,7 @@ def _(silver_path, spark):
         spark.read.format("delta").load(silver_path).orderBy("account_id", "month")
     )
     silver_df.show(truncate=False)
+    return
 
 
 @app.cell
@@ -204,6 +279,7 @@ def _(silver_path, spark):
         .orderBy("_commit_version", "account_id", "month")
     )
     cdf_df.show(truncate=False)
+    return
 
 
 @app.cell
@@ -218,11 +294,19 @@ def _(spark):
         .mode("overwrite")
         .save()
     )
+    return
 
 
 @app.cell
 def _():
     return
+
+
+@app.cell
+def _():
+    import marimo as mo
+
+    return (mo,)
 
 
 if __name__ == "__main__":
