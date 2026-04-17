@@ -270,3 +270,60 @@ def create_spark_session(
     logger.info("Spark UI: http://localhost:4041")
 
     return spark, spark_conn
+
+
+def create_delta_spark_session(
+    warehouse_dir: str,
+    app_name: str = "delta-local",
+) -> tuple[SparkSession, ibis.BaseBackend]:
+    """Create a local Spark session configured for Delta Lake on MinIO via S3A.
+
+    This bypasses Polaris/Iceberg entirely and writes Delta tables directly to
+    the provided S3A path using static MinIO credentials.
+
+    Args:
+        warehouse_dir: Root path for the Spark warehouse (e.g. "s3a://lakehouse/delta").
+                       This is set as spark.sql.warehouse.dir.
+        app_name: Spark application name.
+
+    Returns:
+        Tuple of (SparkSession, IbisPySparkBackend) ready for Delta operations.
+    """
+    minio = get_minio_config()
+
+    logger.info("Creating local Delta Spark session (warehouse_dir=%s)...", warehouse_dir)
+
+    builder = (
+        SparkSession.Builder()
+        .master("local[*]")
+        .appName(app_name)
+        .config(
+            "spark.jars.packages",
+            "io.delta:delta-spark_4.0_2.13:4.2.0,"
+            "org.apache.hadoop:hadoop-aws:3.4.1,"
+            "com.amazonaws:aws-java-sdk-bundle:1.12.262",
+        )
+        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+        .config(
+            "spark.sql.catalog.spark_catalog",
+            "org.apache.spark.sql.delta.catalog.DeltaCatalog",
+        )
+        .config("spark.databricks.delta.schema.autoMerge.enabled", "true")
+        .config("spark.sql.warehouse.dir", warehouse_dir)
+        .config("spark.ui.enabled", "true")
+        .config("spark.hadoop.fs.s3a.endpoint", minio.endpoint)
+        .config("spark.hadoop.fs.s3a.access.key", minio.access_key)
+        .config("spark.hadoop.fs.s3a.secret.key", minio.secret_key)
+        .config("spark.hadoop.fs.s3a.path.style.access", "true")
+        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
+        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+    )
+
+    spark = builder.getOrCreate()
+
+    logger.info("Creating Ibis PySpark connection...")
+    spark_conn = ibis.pyspark.connect(spark)
+
+    logger.info("Delta Spark session and Ibis connection created successfully")
+
+    return spark, spark_conn
