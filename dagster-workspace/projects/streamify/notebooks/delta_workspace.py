@@ -9,6 +9,7 @@ def _():
     import datetime as dt
     import random
     import sys
+    import uuid
 
     from pathlib import Path
 
@@ -33,6 +34,7 @@ def _():
         get_s3_store,
         mo,
         random,
+        uuid
     )
 
 
@@ -49,7 +51,6 @@ def _(create_delta_spark_session, get_s3_store):
 @app.cell
 def _(conn):
     conn.list_databases()
-    return
 
 
 @app.cell
@@ -62,19 +63,30 @@ def _(T):
             T.StructField("month", T.DateType(), True),  # null when estimation_mode='A'
             T.StructField("currency", T.StringType(), False),
             T.StructField("estimate", T.DoubleType(), False),
-            T.StructField("inserted_at", T.TimestampType(), False),
-            T.StructField("batch_id", T.StringType(), False),
         ]
     )
-    return (schema,)
+
+    bronze_schema = T.StructType([
+            *schema.fields,
+            T.StructField("inserted_at", T.TimestampType(), False),
+            T.StructField("batch_id", T.StringType(), False),
+            T.StructField("event_id", T.StringType(), False),
+        ]
+    )
+    silver_schema = T.StructType([
+        *schema.fields,
+        T.StructField("updated_at", T.TimestampType(), False),
+        T.StructField("event_id", T.StringType(), False),
+        ]
+    )
+    return (schema, bronze_schema, silver_schema)
 
 
 @app.cell
-def _(dt, random, schema, spark):
+def _(dt, random, schema, spark, uuid):
     def make_batch(rows):
         batch_id = str(random.randint(0, 9999)).zfill(4)
-        now = dt.datetime.now()
-        data = [(*row, now, batch_id) for row in rows]
+        data = [(*row, None, batch_id, str(uuid.uuid4())) for row in rows]
         return spark.createDataFrame(data, schema=schema)
 
     return (make_batch,)
@@ -96,11 +108,9 @@ def _(DeltaTable, schema, spark):
     bronze_path = "s3a://lakehouse/delta/bronze_estimates"
 
     def init_bronze():
-        DeltaTable.createIfNotExists(spark) \
-            .location(bronze_path) \
-            .tableName("bronze_estimates") \
-            .addColumns(schema) \
-            .execute()
+        DeltaTable.createIfNotExists(spark).location(bronze_path).tableName(
+            "bronze_estimates"
+        ).addColumns(schema).execute()
         return bronze_path
 
     def append_bronze(df):
@@ -114,24 +124,21 @@ def _(DeltaTable, schema, spark):
 def _(append_bronze, batch_1, init_bronze):
     init_bronze()
     append_bronze(batch_1)
-    return
 
 
 @app.cell
 def _(batch_1):
     batch_1
-    return
 
 
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from bronze_estimates
         """,
-        engine=conn
+        engine=conn,
     )
-    return
 
 
 @app.cell
@@ -140,9 +147,9 @@ def _(DataFrame, DeltaTable, F, schema, spark):
     silver_path = "s3a://lakehouse/delta/silver_estimates"
 
     def init_silver():
-        DeltaTable.createIfNotExists(spark).tableName("silver_estimates").location(silver_path).addColumns(
-            schema
-        ).property("delta.enableChangeDataFeed", "true").execute()
+        DeltaTable.createIfNotExists(spark).tableName("silver_estimates").location(
+            silver_path
+        ).addColumns(schema).property("delta.enableChangeDataFeed", "true").execute()
         return silver_path
 
     def detect_mode_switch(source_df: DataFrame, target_df: DataFrame) -> DataFrame:
@@ -152,13 +159,17 @@ def _(DataFrame, DeltaTable, F, schema, spark):
 
         """
         # Deduplicated source keys: one row per exact natural key in the batch
-        source_keys = source_df.select(
-            "account_id", "year", "currency", "estimation_mode"
-        ).distinct().withColumnRenamed("estimation_mode", "src_mode")
+        source_keys = (
+            source_df.select("account_id", "year", "currency", "estimation_mode")
+            .distinct()
+            .withColumnRenamed("estimation_mode", "src_mode")
+        )
         # Keep target rows that share the context BUT whose mode differs from source
-        return target_df.join(
-            source_keys, ["account_id", "year", "currency"], "inner"
-        ).filter(F.col("estimation_mode") != F.col("src_mode")).drop("src_mode")
+        return (
+            target_df.join(source_keys, ["account_id", "year", "currency"], "inner")
+            .filter(F.col("estimation_mode") != F.col("src_mode"))
+            .drop("src_mode")
+        )
 
     def merge_to_silver(batch_df):
         """
@@ -187,7 +198,8 @@ def _(DataFrame, DeltaTable, F, schema, spark):
         merge_source = tombstones.unionByName(incoming, allowMissingColumns=True)
 
         # Single atomic MERGE transaction.
-        # NULL-safe handling for month is required because annual rows have NULL.
+        # Explicit column mappings ensure the temporary _delete_flag never
+        # leaks into the Silver table schema.
         delta_table = DeltaTable.forPath(spark, silver_path)
         (
             delta_table.alias("t")
@@ -200,8 +212,29 @@ def _(DataFrame, DeltaTable, F, schema, spark):
                    AND (t.month = s.month OR (t.month IS NULL AND s.month IS NULL))""",
             )
             .whenMatchedDelete(condition="s._delete_flag = true")
-            .whenMatchedUpdateAll(condition="s._delete_flag = false")
-            .whenNotMatchedInsertAll(condition="s._delete_flag = false")
+            .whenMatchedUpdate(
+                condition="s._delete_flag = false AND t.estimate <> s.estimate",
+                set={
+                    "estimate": "s.estimate",
+                    "updated_at": "current_timestamp()",
+                    "batch_id": "s.batch_id",
+                    "event_id": "s.event_id",
+                },
+            )
+            .whenNotMatchedInsert(
+                condition="s._delete_flag = false",
+                values={
+                    "estimation_mode": "s.estimation_mode",
+                    "account_id": "s.account_id",
+                    "year": "s.year",
+                    "month": "s.month",
+                    "currency": "s.currency",
+                    "estimate": "s.estimate",
+                    "updated_at": "current_timestamp()",
+                    "batch_id": "s.batch_id",
+                    "event_id": "s.event_id",
+                },
+            )
             .execute()
         )
         return delta_table
@@ -219,18 +252,16 @@ def _(batch_1, init_silver, merge_to_silver):
 @app.cell
 def _(silver_table):
     silver_table.history()
-    return
 
 
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_estimates
         """,
-        engine=conn
+        engine=conn,
     )
-    return
 
 
 @app.cell
@@ -253,7 +284,6 @@ def _(dt, make_batch):
 def _(append_bronze, batch_2, merge_to_silver):
     append_bronze(batch_2)
     merge_to_silver(batch_2)
-    return
 
 
 @app.cell
@@ -262,7 +292,6 @@ def _(silver_path, spark):
         spark.read.format("delta").load(silver_path).orderBy("account_id", "month")
     )
     silver_df.show(truncate=False)
-    return
 
 
 @app.cell
@@ -277,7 +306,6 @@ def _(silver_path, spark):
         .orderBy("_commit_version", "account_id", "month")
     )
     cdf_df.show(truncate=False)
-    return
 
 
 @app.cell
@@ -292,7 +320,6 @@ def _(spark):
         .mode("overwrite")
         .save()
     )
-    return
 
 
 @app.cell
