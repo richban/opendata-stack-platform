@@ -140,7 +140,7 @@ def _(DataFrame, DeltaTable, F, schema, spark):
     silver_path = "s3a://lakehouse/delta/silver_estimates"
 
     def init_silver():
-        DeltaTable.createIfNotExists(spark).location(silver_path).addColumns(
+        DeltaTable.createIfNotExists(spark).tableName("silver_estimates").location(silver_path).addColumns(
             schema
         ).property("delta.enableChangeDataFeed", "true").execute()
         return silver_path
@@ -172,32 +172,19 @@ def _(DataFrame, DeltaTable, F, schema, spark):
         # Read existing Silver rows for the business contexts touched by this batch.
         contexts = batch_df.select("account_id", "year", "currency").distinct()
 
-        try:
-            silver_existing = (
-                spark.read.format("delta")
-                .load(silver_path)
-                .join(contexts, ["account_id", "year", "currency"])
-            )
-        except Exception:
-            # Table doesn't exist yet (first batch).
-            silver_existing = None
+        silver_existing = (
+            spark.read.format("delta")
+            .load(silver_path)
+            .join(contexts, ["account_id", "year", "currency"])
+        )
 
-        # Generate tombstones only when a mode switch occurs.
-        tombstones = None
-        if silver_existing is not None:
-            switch_rows = detect_mode_switch(batch_df, silver_existing)
-            if not switch_rows.isEmpty():
-                # Tag these rows so the MERGE knows to delete them.
-                tombstones = switch_rows.withColumn("_delete_flag", F.lit(True))
+        switch_rows = detect_mode_switch(batch_df, silver_existing)
+        tombstones = switch_rows.withColumn("_delete_flag", F.lit(True))
 
         # Tag incoming rows as normal (not tombstones).
         incoming = batch_df.withColumn("_delete_flag", F.lit(False))
 
-        # Build the unified merge source: tombstones + incoming batch rows.
-        if tombstones is not None:
-            merge_source = tombstones.unionByName(incoming, allowMissingColumns=True)
-        else:
-            merge_source = incoming
+        merge_source = tombstones.unionByName(incoming, allowMissingColumns=True)
 
         # Single atomic MERGE transaction.
         # NULL-safe handling for month is required because annual rows have NULL.
@@ -232,6 +219,17 @@ def _(batch_1, init_silver, merge_to_silver):
 @app.cell
 def _(silver_table):
     silver_table.history()
+    return
+
+
+@app.cell
+def _(conn, mo, silver_estimates):
+    _df = mo.sql(
+        f"""
+        select * from silver_estimates
+        """,
+        engine=conn
+    )
     return
 
 
