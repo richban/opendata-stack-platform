@@ -82,7 +82,16 @@ def _(T):
             T.StructField("event_id", T.StringType(), False),
         ]
     )
-    return bronze_schema, silver_schema
+    gold_schema = T.StructType(
+        [
+            *schema.fields,
+            T.StructField("event_id", T.StringType(), False),
+            T.StructField("last_calculated_at", T.TimestampType(), False),
+            T.StructField("computed_estimate", T.DoubleType(), False),
+            T.StructField("model_version", T.StringType(), False),
+        ]
+    )
+    return bronze_schema, gold_schema, silver_schema
 
 
 @app.cell
@@ -251,8 +260,79 @@ def _(DataFrame, DeltaTable, F, silver_schema, spark):
 
 
 @app.cell
-def _(batch_1, init_silver, merge_to_silver):
+def _(DeltaTable, F, gold_schema, silver_path, spark):
+    gold_path = "s3a://lakehouse/delta/gold_estimates"
+
+    def init_gold():
+        DeltaTable.createIfNotExists(spark).tableName("gold_estimates").location(
+            gold_path
+        ).addColumns(gold_schema).execute()
+        return gold_path
+
+    def run_gold_pipeline(starting_version=0):
+        """Manual batch trigger: read Silver CDF, hydrate context, compute, MERGE to Gold."""
+        cdf_df = (
+            spark.read.format("delta")
+            .option("readChangeFeed", "true")
+            .option("startingVersion", starting_version)
+            .load(silver_path)
+        )
+
+        if cdf_df.isEmpty():
+            print("No CDF changes to process.")
+            return None
+
+        # Extract changed business context keys
+        changed_keys = cdf_df.select("account_id", "year", "currency").distinct()
+
+        # Hydrate: pull full current context from Silver
+        full_context = (
+            spark.read.format("delta")
+            .load(silver_path)
+            .join(changed_keys, ["account_id", "year", "currency"], "left_semi")
+        )
+
+        # Black box: placeholder calculation (constant multiplier)
+        computed = (
+            full_context.withColumn("computed_estimate", F.col("estimate") * F.lit(1.5))
+            .withColumn("model_version", F.lit("v0.1.0-placeholder"))
+            .withColumn("last_calculated_at", F.current_timestamp())
+        )
+
+        # MERGE into Gold on natural key, but only if Silver event changed
+        delta_table = DeltaTable.forPath(spark, gold_path)
+        (
+            delta_table.alias("t")
+            .merge(
+                computed.alias("s"),
+                """t.account_id = s.account_id
+                   AND t.year = s.year
+                   AND t.currency = s.currency
+                   AND t.estimation_mode = s.estimation_mode
+                   AND (t.month = s.month OR (t.month IS NULL AND s.month IS NULL))""",
+            )
+            .whenMatchedUpdate(
+                condition="t.event_id <> s.event_id",
+                set={
+                    "estimate": "s.estimate",
+                    "event_id": "s.event_id",
+                    "last_calculated_at": "s.last_calculated_at",
+                    "computed_estimate": "s.computed_estimate",
+                    "model_version": "s.model_version",
+                },
+            )
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
+        return computed
+
+    return init_gold, run_gold_pipeline
+
+
+@app.cell
+def _(batch_1, init_gold, init_silver, merge_to_silver):
     init_silver()
+    init_gold()
     silver_table = merge_to_silver(batch_1)
     return (silver_table,)
 
@@ -410,18 +490,25 @@ def _(conn, mo, silver_estimates):
     return
 
 
-@app.cell
-def _(silver_path, spark):
+app._unparsable_cell(
+    r"""
     # Demonstrate downstream consumption of the Silver CDF.
     # This shows every row that changed in Silver across all versions.
-    cdf_df = (
-        spark.read.format("delta")
-        .option("readChangeFeed", "true")
-        .option("startingVersion", 0)
-        .load(silver_path)
-        .orderBy("_commit_version", "account_id", "month")
-    )
-    cdf_df.show(truncate=False)
+        cdf_df = (
+            spark.read.format("delta")
+            .option("readChangeFeed", "true")
+            .option("startingVersion", 0)
+            .load(silver_path)
+            .orderBy("_commit_version", "account_id", "month")
+        )
+    """,
+    name="_"
+)
+
+
+@app.cell
+def _(cdf_df):
+    cdf_df
     return
 
 
@@ -441,32 +528,19 @@ def _(spark):
 
 
 @app.cell
-def _():
+def _(run_gold_pipeline):
+    gold_df = run_gold_pipeline(starting_version=0)
     return
 
 
 @app.cell
-def _():
-    return
-
-
-@app.cell
-def _():
-    return
-
-
-@app.cell
-def _():
-    return
-
-
-@app.cell
-def _():
-    return
-
-
-@app.cell
-def _():
+def _(conn, gold_estimates, mo):
+    _df = mo.sql(
+        f"""
+        select * from gold_estimates
+        """,
+        engine=conn
+    )
     return
 
 
