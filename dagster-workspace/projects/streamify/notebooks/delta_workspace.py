@@ -34,7 +34,7 @@ def _():
         get_s3_store,
         mo,
         random,
-        uuid
+        uuid,
     )
 
 
@@ -51,6 +51,7 @@ def _(create_delta_spark_session, get_s3_store):
 @app.cell
 def _(conn):
     conn.list_databases()
+    return
 
 
 @app.cell
@@ -66,28 +67,30 @@ def _(T):
         ]
     )
 
-    bronze_schema = T.StructType([
+    bronze_schema = T.StructType(
+        [
             *schema.fields,
-            T.StructField("inserted_at", T.TimestampType(), False),
+            T.StructField("inserted_at", T.TimestampType(), True),
             T.StructField("batch_id", T.StringType(), False),
             T.StructField("event_id", T.StringType(), False),
         ]
     )
-    silver_schema = T.StructType([
-        *schema.fields,
-        T.StructField("updated_at", T.TimestampType(), False),
-        T.StructField("event_id", T.StringType(), False),
+    silver_schema = T.StructType(
+        [
+            *schema.fields,
+            T.StructField("updated_at", T.TimestampType(), False),
+            T.StructField("event_id", T.StringType(), False),
         ]
     )
-    return (schema, bronze_schema, silver_schema)
+    return bronze_schema, silver_schema
 
 
 @app.cell
-def _(dt, random, schema, spark, uuid):
+def _(bronze_schema, random, spark, uuid):
     def make_batch(rows):
         batch_id = str(random.randint(0, 9999)).zfill(4)
         data = [(*row, None, batch_id, str(uuid.uuid4())) for row in rows]
-        return spark.createDataFrame(data, schema=schema)
+        return spark.createDataFrame(data, schema=bronze_schema)
 
     return (make_batch,)
 
@@ -104,17 +107,19 @@ def _(make_batch):
 
 
 @app.cell
-def _(DeltaTable, schema, spark):
+def _(DeltaTable, F, bronze_schema, spark):
     bronze_path = "s3a://lakehouse/delta/bronze_estimates"
 
     def init_bronze():
         DeltaTable.createIfNotExists(spark).location(bronze_path).tableName(
             "bronze_estimates"
-        ).addColumns(schema).execute()
+        ).addColumns(bronze_schema).execute()
         return bronze_path
 
     def append_bronze(df):
-        df.write.format("delta").mode("append").save(bronze_path)
+        df.withColumn("inserted_at", F.current_timestamp()).write.format("delta").mode(
+            "append"
+        ).save(bronze_path)
         return bronze_path
 
     return append_bronze, init_bronze
@@ -124,32 +129,37 @@ def _(DeltaTable, schema, spark):
 def _(append_bronze, batch_1, init_bronze):
     init_bronze()
     append_bronze(batch_1)
+    return
 
 
 @app.cell
 def _(batch_1):
     batch_1
+    return
 
 
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        """
+        f"""
         select * from bronze_estimates
         """,
-        engine=conn,
+        engine=conn
     )
+    return
 
 
 @app.cell
-def _(DataFrame, DeltaTable, F, schema, spark):
+def _(DataFrame, DeltaTable, F, silver_schema, spark):
 
     silver_path = "s3a://lakehouse/delta/silver_estimates"
 
     def init_silver():
         DeltaTable.createIfNotExists(spark).tableName("silver_estimates").location(
             silver_path
-        ).addColumns(schema).property("delta.enableChangeDataFeed", "true").execute()
+        ).addColumns(silver_schema).property(
+            "delta.enableChangeDataFeed", "true"
+        ).execute()
         return silver_path
 
     def detect_mode_switch(source_df: DataFrame, target_df: DataFrame) -> DataFrame:
@@ -213,11 +223,10 @@ def _(DataFrame, DeltaTable, F, schema, spark):
             )
             .whenMatchedDelete(condition="s._delete_flag = true")
             .whenMatchedUpdate(
-                condition="s._delete_flag = false AND t.estimate <> s.estimate",
+                condition="s._delete_flag = false",
                 set={
                     "estimate": "s.estimate",
                     "updated_at": "current_timestamp()",
-                    "batch_id": "s.batch_id",
                     "event_id": "s.event_id",
                 },
             )
@@ -231,7 +240,6 @@ def _(DataFrame, DeltaTable, F, schema, spark):
                     "currency": "s.currency",
                     "estimate": "s.estimate",
                     "updated_at": "current_timestamp()",
-                    "batch_id": "s.batch_id",
                     "event_id": "s.event_id",
                 },
             )
@@ -252,16 +260,18 @@ def _(batch_1, init_silver, merge_to_silver):
 @app.cell
 def _(silver_table):
     silver_table.history()
+    return
 
 
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        """
+        f"""
         select * from silver_estimates
         """,
-        engine=conn,
+        engine=conn
     )
+    return
 
 
 @app.cell
@@ -284,14 +294,120 @@ def _(dt, make_batch):
 def _(append_bronze, batch_2, merge_to_silver):
     append_bronze(batch_2)
     merge_to_silver(batch_2)
+    return
 
 
 @app.cell
-def _(silver_path, spark):
-    silver_df = (
-        spark.read.format("delta").load(silver_path).orderBy("account_id", "month")
+def _(bronze_estimates, conn, mo):
+    _df = mo.sql(
+        f"""
+        select * from bronze_estimates
+        """,
+        engine=conn
     )
-    silver_df.show(truncate=False)
+    return
+
+
+@app.cell
+def _(conn, mo, silver_estimates):
+    _df = mo.sql(
+        f"""
+        select * from silver_estimates;
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
+def _(dt, make_batch):
+    batch_3 = make_batch(
+        [
+            # Mutate estimate for the exising
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 9999.0),
+            # add a new estimate for the same business context April
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 4, 1), "USD", 3100.0),
+            # mutate existing annual estimate
+            ("A", str(4).zfill(4), 2026, None, "USD", 9999.0),
+        ],
+    )
+    return (batch_3,)
+
+
+@app.cell
+def _(append_bronze, batch_3, merge_to_silver):
+    append_bronze(batch_3)
+    merge_to_silver(batch_3)
+    return
+
+
+@app.cell
+def _(bronze_estimates, conn, mo):
+    _df = mo.sql(
+        f"""
+        select * from bronze_estimates
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
+def _(conn, mo, silver_estimates):
+    _df = mo.sql(
+        f"""
+        SELECT * from silver_estimates
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
+def _(append_bronze, dt, make_batch, merge_to_silver):
+    # add new estimates monthly for the given context
+    batch_m = make_batch(
+        [
+            ("M", str(99).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 9999.0),
+            ("M", str(99).zfill(4), 2026, dt.date(2026, 4, 1), "USD", 9999.0),
+        ]
+    )
+
+    # test M -> A change
+    batch_a = make_batch(
+        [
+            ("A", str(99).zfill(4), 2026, None, "USD", 1000.0),
+        ]
+    )
+
+    append_bronze(batch_m)
+    merge_to_silver(batch_m)
+
+    append_bronze(batch_a)
+    merge_to_silver(batch_a)
+    return
+
+
+@app.cell
+def _(bronze_estimates, conn, mo):
+    _df = mo.sql(
+        f"""
+        select * from bronze_estimates
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
+def _(conn, mo, silver_estimates):
+    _df = mo.sql(
+        f"""
+        select * from silver_estimates
+        """,
+        engine=conn
+    )
+    return
 
 
 @app.cell
@@ -306,6 +422,7 @@ def _(silver_path, spark):
         .orderBy("_commit_version", "account_id", "month")
     )
     cdf_df.show(truncate=False)
+    return
 
 
 @app.cell
@@ -320,6 +437,7 @@ def _(spark):
         .mode("overwrite")
         .save()
     )
+    return
 
 
 @app.cell
@@ -329,9 +447,32 @@ def _():
 
 @app.cell
 def _():
-    import marimo as mo
+    return
 
-    return (mo,)
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
+    return
 
 
 if __name__ == "__main__":
