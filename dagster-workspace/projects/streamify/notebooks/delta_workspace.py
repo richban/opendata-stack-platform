@@ -150,10 +150,10 @@ def _(batch_1):
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from bronze_estimates
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -267,23 +267,11 @@ def _(DeltaTable, F, gold_schema, silver_path, spark):
         DeltaTable.createIfNotExists(spark).tableName("gold_estimates").location(
             gold_path
         ).addColumns(gold_schema).execute()
-        return gold_path
 
-    def run_gold_pipeline(starting_version=0):
-        """Manual batch trigger: read Silver CDF, hydrate context, compute, MERGE to Gold."""
-        cdf_df = (
-            spark.read.format("delta")
-            .option("readChangeFeed", "true")
-            .option("startingVersion", starting_version)
-            .load(silver_path)
-        )
-
-        if cdf_df.isEmpty():
-            print("No CDF changes to process.")
-            return None
-
-        # Extract changed business context keys
-        changed_keys = cdf_df.select("account_id", "year", "currency").distinct()
+    def propagate_to_gold(batch_df, batch_id):
+        """ForeachBatch callback: hydrate changed contexts and MERGE into Gold."""
+        # Extract changed business context keys from CDF batch
+        changed_keys = batch_df.select("account_id", "year", "currency").distinct()
 
         # Hydrate: pull full current context from Silver
         full_context = (
@@ -324,9 +312,29 @@ def _(DeltaTable, F, gold_schema, silver_path, spark):
             .whenNotMatchedInsertAll()
             .execute()
         )
-        return computed
 
-    return init_gold, run_gold_pipeline
+    def start_gold_pipeline():
+        """Run Structured Streaming in batch mode (availableNow=True).
+
+        Spark manages the checkpoint internally so only new CDF changes
+        are processed on each invocation.
+        """
+        checkpoint_dir = "s3a://lakehouse/delta/checkpoints/gold"
+
+        query = (
+            spark.readStream.format("delta")
+            .option("readChangeFeed", "true")
+            .load(silver_path)
+            .writeStream.foreachBatch(propagate_to_gold)
+            .option("checkpointLocation", checkpoint_dir)
+            .trigger(availableNow=True)
+            .start()
+        )
+
+        query.awaitTermination()
+        return query
+
+    return gold_path, init_gold, start_gold_pipeline
 
 
 @app.cell
@@ -346,10 +354,10 @@ def _(silver_table):
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_estimates
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -380,10 +388,10 @@ def _(append_bronze, batch_2, merge_to_silver):
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from bronze_estimates
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -391,10 +399,10 @@ def _(bronze_estimates, conn, mo):
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_estimates;
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -424,10 +432,10 @@ def _(append_bronze, batch_3, merge_to_silver):
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from bronze_estimates
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -435,10 +443,10 @@ def _(bronze_estimates, conn, mo):
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
+        """
         SELECT * from silver_estimates
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -471,10 +479,10 @@ def _(append_bronze, dt, make_batch, merge_to_silver):
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from bronze_estimates
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -482,33 +490,26 @@ def _(bronze_estimates, conn, mo):
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_estimates
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
 
-app._unparsable_cell(
-    r"""
+@app.cell
+def _(silver_path, spark):
     # Demonstrate downstream consumption of the Silver CDF.
     # This shows every row that changed in Silver across all versions.
-        cdf_df = (
-            spark.read.format("delta")
-            .option("readChangeFeed", "true")
-            .option("startingVersion", 0)
-            .load(silver_path)
-            .orderBy("_commit_version", "account_id", "month")
-        )
-    """,
-    name="_"
-)
-
-
-@app.cell
-def _(cdf_df):
-    cdf_df
+    cdf_df = (
+        spark.read.format("delta")
+        .option("readChangeFeed", "true")
+        .option("startingVersion", 0)
+        .load(silver_path)
+        .orderBy("_commit_version", "account_id", "month")
+    )
+    cdf_df.show(truncate=False)
     return
 
 
@@ -528,19 +529,16 @@ def _(spark):
 
 
 @app.cell
-def _(run_gold_pipeline):
-    gold_df = run_gold_pipeline(starting_version=0)
+def _(init_gold, start_gold_pipeline):
+    init_gold()
+    query = start_gold_pipeline()
     return
 
 
 @app.cell
-def _(conn, gold_estimates, mo):
-    _df = mo.sql(
-        f"""
-        select * from gold_estimates
-        """,
-        engine=conn
-    )
+def _(gold_path, spark):
+    gold_df = spark.read.format("delta").load(gold_path).orderBy("account_id", "month")
+    gold_df.show(truncate=False)
     return
 
 
