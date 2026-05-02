@@ -722,22 +722,35 @@ def _(
         )
 
     def start_gold_pipeline():
-        """Run Structured Streaming in batch mode (availableNow=True)."""
-        checkpoint_dir = "s3a://lakehouse/delta/checkpoints/gold_unified"
+        """Run Structured Streaming in batch mode (availableNow=True).
 
-        # For MVP, we trigger on estimate changes
-        query = (
-            spark.readStream.format("delta")
-            .option("readChangeFeed", "true")
-            .load(silver_estimate_path)
-            .writeStream.foreachBatch(propagate_to_gold)
-            .option("checkpointLocation", checkpoint_dir)
-            .trigger(availableNow=True)
-            .start()
-        )
+        Listens to both silver_estimates and silver_ledger for changes.
+        Runs sequentially to avoid concurrent MERGE conflicts on Gold table.
+        """
+        def run_stream(source_path, checkpoint_suffix):
+            """Start a streaming query for a given source path."""
+            checkpoint_dir = f"s3a://lakehouse/delta/checkpoints/gold_unified_{checkpoint_suffix}"
 
-        query.awaitTermination()
-        return query
+            query = (
+                spark.readStream.format("delta")
+                .option("readChangeFeed", "true")
+                .load(source_path)
+                .writeStream.foreachBatch(propagate_to_gold)
+                .option("checkpointLocation", checkpoint_dir)
+                .trigger(availableNow=True)
+                .start()
+            )
+            return query
+
+        # Run estimate stream first
+        estimate_query = run_stream(silver_estimate_path, "estimates")
+        estimate_query.awaitTermination()
+
+        # Then run ledger stream
+        ledger_query = run_stream(silver_ledger_path, "ledger")
+        ledger_query.awaitTermination()
+
+        return estimate_query, ledger_query
 
     return (
         calculate_unified_cashflow,
@@ -752,7 +765,7 @@ def _(
 def _(init_control, init_gold, start_gold_pipeline):
     init_control()
     init_gold()
-    query = start_gold_pipeline()
+    estimate_query, ledger_query = start_gold_pipeline()
     return
 
 
