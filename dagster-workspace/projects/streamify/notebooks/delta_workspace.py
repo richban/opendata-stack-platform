@@ -111,7 +111,7 @@ def _(T):
         ]
     )
 
-    # --- Gold Schema (new) ---
+    # --- Gold Schema (enhanced) ---
     gold_schema = T.StructType(
         [
             T.StructField("account_id", T.StringType(), False),
@@ -121,13 +121,25 @@ def _(T):
             T.StructField("amount", T.DoubleType(), False),
             T.StructField("is_settled", T.BooleanType(), False),
             T.StructField("source", T.StringType(), False),
+            T.StructField("source_quality", T.StringType(), False),
             T.StructField("last_calculated_at", T.TimestampType(), False),
             T.StructField("model_version", T.StringType(), False),
+        ]
+    )
+
+    # --- Control Table Schema ---
+    control_schema = T.StructType(
+        [
+            T.StructField("account_id", T.StringType(), False),
+            T.StructField("year", T.IntegerType(), False),
+            T.StructField("holdback_date", T.DateType(), False),
+            T.StructField("updated_at", T.TimestampType(), False),
         ]
     )
     return (
         bronze_estimate_schema,
         bronze_ledger_schema,
+        control_schema,
         gold_schema,
         silver_estimate_schema,
         silver_ledger_schema,
@@ -417,7 +429,7 @@ def _(
     DataFrame,
     DeltaTable,
     F,
-    T,
+    control_schema,
     dt,
     gold_schema,
     silver_estimate_path,
@@ -425,15 +437,23 @@ def _(
     spark,
 ):
     gold_path = "s3a://lakehouse/delta/gold_unified_cashflow"
+    control_path = "s3a://lakehouse/delta/control_holdback_dates"
 
     def init_gold():
         DeltaTable.createIfNotExists(spark).tableName("gold_unified_cashflow").location(
             gold_path
         ).addColumns(gold_schema).execute()
 
-    def calculate_unified_cashflow(holdback_date: dt.date) -> DataFrame:
+    def init_control():
+        DeltaTable.createIfNotExists(spark).tableName("control_holdback_dates").location(
+            control_path
+        ).addColumns(control_schema).execute()
+
+    def calculate_unified_cashflow(
+        account_id: str, year: int, holdback_date: dt.date
+    ) -> DataFrame:
         """
-        Calculate the unified cashflow for all accounts at a given holdback date.
+        Calculate the unified cashflow for a single account at a given holdback date.
 
         Logic:
         - For months <= holdback: Use ledger actuals (sum of Cedent + Adjustment + Accrual)
@@ -441,9 +461,17 @@ def _(
           - Monthly mode: Use the specific monthly estimate
           - Annual mode: Linearly distribute remaining target
         """
-        # Read current silver data
-        silver_estimates = spark.read.format("delta").load(silver_estimate_path)
-        silver_ledger = spark.read.format("delta").load(silver_ledger_path)
+        # Read current silver data for this account only
+        silver_estimates = (
+            spark.read.format("delta")
+            .load(silver_estimate_path)
+            .filter((F.col("account_id") == account_id) & (F.col("year") == year))
+        )
+        silver_ledger = (
+            spark.read.format("delta")
+            .load(silver_ledger_path)
+            .filter((F.col("account_id") == account_id) & (F.col("year") == year))
+        )
 
         # Aggregate ledger by account/year/month
         ledger_monthly = (
@@ -451,13 +479,14 @@ def _(
             .agg(F.sum("amount").alias("ledger_amount"))
         )
 
-        # Get all account/year combinations from estimates
+        # Get account/year/currency from estimates
         accounts = silver_estimates.select("account_id", "year", "currency").distinct()
 
-        # Generate all months for the year
-        months_df = spark.createDataFrame(
-            [(dt.date(2026, m, 1),) for m in range(1, 13)],
-            T.StructType([T.StructField("month", T.DateType(), False)])
+        # Generate all months for the year using Spark SQL sequence
+        months_df = spark.sql(
+            f"""SELECT explode(sequence(
+                to_date('{year}-01-01'), to_date('{year}-12-01'), interval 1 month
+            )) as month"""
         )
 
         # Cross join accounts with months to get full grid
@@ -468,7 +497,7 @@ def _(
             ledger_monthly,
             ["account_id", "year", "month"],
             "left"
-        ).fillna(0, subset=["ledger_amount"])
+        )
 
         # Join with estimates - drop month from estimates to avoid ambiguity
         with_estimates = with_ledger.join(
@@ -489,18 +518,24 @@ def _(
             settled_actuals,
             ["account_id", "year"],
             "left"
-        ).fillna(0, subset=["total_settled"])
+        )
 
         # Calculate remaining months
         holdback_month = holdback_date.month
         remaining_months = 12 - holdback_month
 
-        # Calculate unified amount
+        # Calculate unified amount with source quality
         def calc_amount():
-            # Settled period: use ledger amount
+            # Settled period: use ledger amount if present, otherwise fallback
             settled = F.when(
-                F.col("month") <= holdback_date,
+                (F.col("month") <= holdback_date) & (F.col("ledger_amount").isNotNull()),
                 F.col("ledger_amount")
+            )
+
+            # Fallback for missing ledger before holdback
+            settled_fallback = F.when(
+                (F.col("month") <= holdback_date) & (F.col("ledger_amount").isNull()),
+                F.lit(0.0)
             )
 
             # Projected period
@@ -519,7 +554,11 @@ def _(
                 )
             )
 
-            return settled.otherwise(monthly_proj.otherwise(annual_proj))
+            return settled.otherwise(
+                settled_fallback.otherwise(
+                    monthly_proj.otherwise(annual_proj)
+                )
+            )
 
         # Determine source
         def calc_source():
@@ -527,6 +566,13 @@ def _(
                 F.col("month") <= holdback_date,
                 F.lit("ledger")
             ).otherwise(F.lit("estimate"))
+
+        # Determine source quality
+        def calc_source_quality():
+            return F.when(
+                (F.col("month") <= holdback_date) & (F.col("ledger_amount").isNull()),
+                F.lit("ESTIMATE_FALLBACK")
+            ).otherwise(F.lit("CONFIRMED"))
 
         # Determine if settled
         def calc_is_settled():
@@ -536,10 +582,11 @@ def _(
             with_settled
             .withColumn("amount", calc_amount())
             .withColumn("source", calc_source())
+            .withColumn("source_quality", calc_source_quality())
             .withColumn("is_settled", calc_is_settled())
             .withColumn("holdback_date", F.lit(holdback_date))
             .withColumn("last_calculated_at", F.current_timestamp())
-            .withColumn("model_version", F.lit("1"))
+            .withColumn("model_version", F.lit("2"))
             .select(
                 "account_id",
                 "year",
@@ -548,6 +595,7 @@ def _(
                 "amount",
                 "is_settled",
                 "source",
+                "source_quality",
                 "last_calculated_at",
                 "model_version",
             )
@@ -555,38 +603,57 @@ def _(
 
         return result
 
+    def get_holdback_dates() -> DataFrame:
+        """Read holdback dates from control table or use defaults."""
+        try:
+            return spark.read.format("delta").load(control_path)
+        except Exception:
+            # Return empty DataFrame with correct schema if table doesn't exist
+            return spark.createDataFrame([], control_schema)
+
     def propagate_to_gold(batch_df, batch_id):
         """ForeachBatch callback: recalculate Gold for changed contexts."""
         # Extract changed business context keys from CDF batch
-        changed_keys = batch_df.select("account_id", "year").distinct()
+        changed_keys = batch_df.select("account_id", "year").distinct().collect()
 
-        # For MVP, we recalculate ALL contexts with a default holdback date
-        # In production, holdback_date would come from a config table per account
-        default_holdback = dt.date(2026, 3, 31)
+        # Get holdback dates from control table
+        holdback_df = get_holdback_dates()
 
-        # Calculate unified cashflow
-        unified_df = calculate_unified_cashflow(default_holdback)
+        # Process each changed account independently
+        for row in changed_keys:
+            account_id = row.account_id
+            year = row.year
 
-        # Filter to only changed contexts
-        filtered_df = unified_df.join(
-            changed_keys,
-            ["account_id", "year"],
-            "inner"
-        )
+            # Look up holdback date for this account
+            account_holdback = holdback_df.filter(
+                (F.col("account_id") == account_id) & (F.col("year") == year)
+            ).collect()
 
-        # Wipe and replace for affected accounts
-        # First, delete existing rows for these accounts
-        delta_table = DeltaTable.forPath(spark, gold_path)
+            if account_holdback:
+                holdback_date = account_holdback[0].holdback_date
+            else:
+                # Default holdback date if not in control table
+                holdback_date = dt.date(2026, 3, 31)
 
-        # Get account list for deletion
-        accounts_to_update = [row.account_id for row in changed_keys.collect()]
-        if accounts_to_update:
-            delta_table.delete(
-                F.col("account_id").isin(accounts_to_update)
+            # Calculate unified cashflow for this account
+            unified_df = calculate_unified_cashflow(account_id, year, holdback_date)
+
+            # Use MERGE for atomic upsert instead of delete + append
+            delta_table = DeltaTable.forPath(spark, gold_path)
+
+            (
+                delta_table.alias("t")
+                .merge(
+                    unified_df.alias("s"),
+                    """t.account_id = s.account_id
+                       AND t.year = s.year
+                       AND t.month = s.month
+                       AND t.holdback_date = s.holdback_date""",
+                )
+                .whenMatchedUpdateAll()
+                .whenNotMatchedInsertAll()
+                .execute()
             )
-
-        # Insert new calculations
-        filtered_df.write.format("delta").mode("append").save(gold_path)
 
     def start_gold_pipeline():
         """Run Structured Streaming in batch mode (availableNow=True)."""
@@ -609,13 +676,15 @@ def _(
     return (
         calculate_unified_cashflow,
         gold_path,
+        init_control,
         init_gold,
         start_gold_pipeline,
     )
 
 
 @app.cell
-def _(init_gold, start_gold_pipeline):
+def _(init_control, init_gold, start_gold_pipeline):
+    init_control()
     init_gold()
     query = start_gold_pipeline()
     return
@@ -634,7 +703,7 @@ def _(F, calculate_unified_cashflow, dt):
     # For Account 1: Annual target = 12000, Settled = 2400, Remaining = 9600
     # For 9 months: 9600/9 = 1066.67 per month
     _test_holdback = dt.date(2026, 3, 31)
-    _test_df = calculate_unified_cashflow(_test_holdback)
+    _test_df = calculate_unified_cashflow("0001", 2026, _test_holdback)
 
     # Filter for Account 1
     _account_1 = _test_df.filter(F.col("account_id") == "0001")
@@ -655,9 +724,9 @@ def _(F, calculate_unified_cashflow, dt):
     """Test 2: Idempotency - Re-running calculation produces same results"""
     _test_holdback = dt.date(2026, 3, 31)
 
-    # Run calculation twice
-    _df1 = calculate_unified_cashflow(_test_holdback)
-    _df2 = calculate_unified_cashflow(_test_holdback)
+    # Run calculation twice for same account
+    _df1 = calculate_unified_cashflow("0001", 2026, _test_holdback)
+    _df2 = calculate_unified_cashflow("0001", 2026, _test_holdback)
 
     # Compare row counts
     count1 = _df1.count()
@@ -677,10 +746,10 @@ def _(F, calculate_unified_cashflow, dt):
 def _(F, calculate_unified_cashflow, dt):
     """Test 3: Bitemporal Support - Different holdback dates produce different results"""
     # March holdback
-    march_df = calculate_unified_cashflow(dt.date(2026, 3, 31))
+    march_df = calculate_unified_cashflow("0001", 2026, dt.date(2026, 3, 31))
 
     # June holdback
-    june_df = calculate_unified_cashflow(dt.date(2026, 6, 30))
+    june_df = calculate_unified_cashflow("0001", 2026, dt.date(2026, 6, 30))
 
     # Get Account 1 projections for April (month 4)
     april_march = march_df.filter(
@@ -741,7 +810,7 @@ def _(append_bronze_estimates, batch_2, merge_estimates_to_silver):
 def _(F, calculate_unified_cashflow, dt):
     """Test 4 (continued): Monthly Mode - Direct monthly estimates used"""
     _test_holdback = dt.date(2026, 3, 31)
-    _test_df = calculate_unified_cashflow(_test_holdback)
+    _test_df = calculate_unified_cashflow("0001", 2026, _test_holdback)
 
     # For Account 1 in Monthly mode:
     # - Jan-Mar: Ledger actuals (800 each)
