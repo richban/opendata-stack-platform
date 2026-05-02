@@ -56,170 +56,238 @@ def _(conn):
 
 @app.cell
 def _(T):
-    schema = T.StructType(
+    # --- Estimate Schemas (existing) ---
+    estimate_schema = T.StructType(
         [
             T.StructField("estimation_mode", T.StringType(), False),
-            T.StructField("account_id", T.StringType(), False),  # natural key
-            T.StructField("year", T.IntegerType(), False),  # year in question
-            T.StructField("month", T.DateType(), True),  # null when estimation_mode='A'
+            T.StructField("account_id", T.StringType(), False),
+            T.StructField("year", T.IntegerType(), False),
+            T.StructField("month", T.DateType(), True),
             T.StructField("currency", T.StringType(), False),
             T.StructField("estimate", T.DoubleType(), False),
         ]
     )
 
-    bronze_schema = T.StructType(
+    bronze_estimate_schema = T.StructType(
         [
-            *schema.fields,
+            *estimate_schema.fields,
             T.StructField("inserted_at", T.TimestampType(), True),
             T.StructField("batch_id", T.StringType(), False),
             T.StructField("event_id", T.StringType(), False),
         ]
     )
-    silver_schema = T.StructType(
+    silver_estimate_schema = T.StructType(
         [
-            *schema.fields,
+            *estimate_schema.fields,
             T.StructField("updated_at", T.TimestampType(), False),
             T.StructField("event_id", T.StringType(), False),
         ]
     )
+
+    # --- Ledger Schemas (new) ---
+    ledger_schema = T.StructType(
+        [
+            T.StructField("account_id", T.StringType(), False),
+            T.StructField("year", T.IntegerType(), False),
+            T.StructField("month", T.DateType(), False),
+            T.StructField("amount", T.DoubleType(), False),
+            T.StructField("type", T.StringType(), False),
+        ]
+    )
+
+    bronze_ledger_schema = T.StructType(
+        [
+            *ledger_schema.fields,
+            T.StructField("inserted_at", T.TimestampType(), True),
+            T.StructField("batch_id", T.StringType(), False),
+            T.StructField("event_id", T.StringType(), False),
+        ]
+    )
+    silver_ledger_schema = T.StructType(
+        [
+            *ledger_schema.fields,
+            T.StructField("updated_at", T.TimestampType(), False),
+            T.StructField("event_id", T.StringType(), False),
+        ]
+    )
+
+    # --- Gold Schema (new) ---
     gold_schema = T.StructType(
         [
-            *schema.fields,
-            T.StructField("event_id", T.StringType(), False),
+            T.StructField("account_id", T.StringType(), False),
+            T.StructField("year", T.IntegerType(), False),
+            T.StructField("month", T.DateType(), False),
+            T.StructField("holdback_date", T.DateType(), False),
+            T.StructField("amount", T.DoubleType(), False),
+            T.StructField("is_settled", T.BooleanType(), False),
+            T.StructField("source", T.StringType(), False),
             T.StructField("last_calculated_at", T.TimestampType(), False),
-            T.StructField("computed_estimate", T.DoubleType(), False),
             T.StructField("model_version", T.StringType(), False),
         ]
     )
-    return bronze_schema, gold_schema, silver_schema
+    return (
+        bronze_estimate_schema,
+        bronze_ledger_schema,
+        gold_schema,
+        silver_estimate_schema,
+        silver_ledger_schema,
+    )
 
 
 @app.cell
-def _(bronze_schema, random, spark, uuid):
-    def make_batch(rows):
+def _(bronze_estimate_schema, bronze_ledger_schema, random, spark, uuid):
+    def make_estimate_batch(rows):
         batch_id = str(random.randint(0, 9999)).zfill(4)
         data = [(*row, None, batch_id, str(uuid.uuid4())) for row in rows]
-        return spark.createDataFrame(data, schema=bronze_schema)
+        return spark.createDataFrame(data, schema=bronze_estimate_schema)
 
-    return (make_batch,)
+    def make_ledger_batch(rows):
+        batch_id = str(random.randint(0, 9999)).zfill(4)
+        data = [(*row, None, batch_id, str(uuid.uuid4())) for row in rows]
+        return spark.createDataFrame(data, schema=bronze_ledger_schema)
+
+    return make_estimate_batch, make_ledger_batch
 
 
 @app.cell
-def _(make_batch):
-    batch_1 = make_batch(
+def _(make_estimate_batch):
+    # Batch 1: Two accounts in Annual mode for 2026
+    batch_1 = make_estimate_batch(
         [
-            ("A", str(1).zfill(4), 2026, None, "USD", 10000.0),
-            ("A", str(2).zfill(4), 2026, None, "USD", 12000.0),
+            ("A", str(1).zfill(4), 2026, None, "USD", 12000.0),
+            ("A", str(2).zfill(4), 2026, None, "USD", 24000.0),
         ],
     )
     return (batch_1,)
 
 
 @app.cell
-def _(DeltaTable, F, bronze_schema, spark):
-    bronze_path = "s3a://lakehouse/delta/bronze_estimates"
+def _(dt, make_ledger_batch):
+    # Mock Ledger for Account 1: 3 months at $800/month = $2400 total
+    # This leaves $9600 for 9 remaining months = $1066.67/month
+    ledger_batch_1 = make_ledger_batch(
+        [
+            (str(1).zfill(4), 2026, dt.date(2026, 1, 1), 800.0, "Cedent"),
+            (str(1).zfill(4), 2026, dt.date(2026, 2, 1), 800.0, "Cedent"),
+            (str(1).zfill(4), 2026, dt.date(2026, 3, 1), 800.0, "Cedent"),
+        ]
+    )
 
-    def init_bronze():
-        DeltaTable.createIfNotExists(spark).location(bronze_path).tableName(
+    # Mock Ledger for Account 2: 3 months at $1500/month = $4500 total
+    # This leaves $19500 for 9 remaining months = $2166.67/month
+    ledger_batch_2 = make_ledger_batch(
+        [
+            (str(2).zfill(4), 2026, dt.date(2026, 1, 1), 1500.0, "Cedent"),
+            (str(2).zfill(4), 2026, dt.date(2026, 2, 1), 1500.0, "Adjustment"),
+            (str(2).zfill(4), 2026, dt.date(2026, 3, 1), 1500.0, "Accrual"),
+        ]
+    )
+    return ledger_batch_1, ledger_batch_2
+
+
+@app.cell
+def _(DeltaTable, F, bronze_estimate_schema, bronze_ledger_schema, spark):
+    bronze_estimate_path = "s3a://lakehouse/delta/bronze_estimates"
+    bronze_ledger_path = "s3a://lakehouse/delta/bronze_ledger"
+
+    def init_bronze_estimates():
+        DeltaTable.createIfNotExists(spark).location(bronze_estimate_path).tableName(
             "bronze_estimates"
-        ).addColumns(bronze_schema).execute()
-        return bronze_path
+        ).addColumns(bronze_estimate_schema).execute()
+        return bronze_estimate_path
 
-    def append_bronze(df):
+    def init_bronze_ledger():
+        DeltaTable.createIfNotExists(spark).location(bronze_ledger_path).tableName(
+            "bronze_ledger"
+        ).addColumns(bronze_ledger_schema).execute()
+        return bronze_ledger_path
+
+    def append_bronze_estimates(df):
         df.withColumn("inserted_at", F.current_timestamp()).write.format("delta").mode(
             "append"
-        ).save(bronze_path)
-        return bronze_path
+        ).save(bronze_estimate_path)
+        return bronze_estimate_path
 
-    return append_bronze, init_bronze
+    def append_bronze_ledger(df):
+        df.withColumn("inserted_at", F.current_timestamp()).write.format("delta").mode(
+            "append"
+        ).save(bronze_ledger_path)
+        return bronze_ledger_path
 
-
-@app.cell
-def _(append_bronze, batch_1, init_bronze):
-    init_bronze()
-    append_bronze(batch_1)
-    return
-
-
-@app.cell
-def _(batch_1):
-    batch_1
-    return
-
-
-@app.cell
-def _(bronze_estimates, conn, mo):
-    _df = mo.sql(
-        """
-        select * from bronze_estimates
-        """,
-        engine=conn,
+    return (
+        append_bronze_estimates,
+        append_bronze_ledger,
+        init_bronze_estimates,
+        init_bronze_ledger,
     )
+
+
+@app.cell
+def _(
+    append_bronze_estimates,
+    append_bronze_ledger,
+    batch_1,
+    init_bronze_estimates,
+    init_bronze_ledger,
+    ledger_batch_1,
+    ledger_batch_2,
+):
+    # Initialize and populate Bronze tables
+    init_bronze_estimates()
+    init_bronze_ledger()
+
+    append_bronze_estimates(batch_1)
+    append_bronze_ledger(ledger_batch_1)
+    append_bronze_ledger(ledger_batch_2)
     return
 
 
 @app.cell
-def _(DataFrame, DeltaTable, F, silver_schema, spark):
+def _(DataFrame, DeltaTable, F, silver_estimate_schema, spark):
+    silver_estimate_path = "s3a://lakehouse/delta/silver_estimates"
 
-    silver_path = "s3a://lakehouse/delta/silver_estimates"
-
-    def init_silver():
+    def init_silver_estimates():
         DeltaTable.createIfNotExists(spark).tableName("silver_estimates").location(
-            silver_path
-        ).addColumns(silver_schema).property(
+            silver_estimate_path
+        ).addColumns(silver_estimate_schema).property(
             "delta.enableChangeDataFeed", "true"
         ).execute()
-        return silver_path
+        return silver_estimate_path
 
     def detect_mode_switch(source_df: DataFrame, target_df: DataFrame) -> DataFrame:
         """
         Find existing target (Silver) rows that must be deleted because the
         estimation mode for their business context changed in the incoming batch.
-
         """
-        # Deduplicated source keys: one row per exact natural key in the batch
         source_keys = (
             source_df.select("account_id", "year", "currency", "estimation_mode")
             .distinct()
             .withColumnRenamed("estimation_mode", "src_mode")
         )
-        # Keep target rows that share the context BUT whose mode differs from source
         return (
             target_df.join(source_keys, ["account_id", "year", "currency"], "inner")
             .filter(F.col("estimation_mode") != F.col("src_mode"))
             .drop("src_mode")
         )
 
-    def merge_to_silver(batch_df):
+    def merge_estimates_to_silver(batch_df):
         """
         Atomically merge one batch into Silver using tombstones for mode switches.
-
-        Behaviour:
-          * Same mode, same row     -> UPDATE (idempotent re-run)
-          * Same mode, new row      -> INSERT
-          * Mode switch (A <-> M)   -> DELETE old grain, INSERT new grain
         """
-        # Read existing Silver rows for the business contexts touched by this batch.
         contexts = batch_df.select("account_id", "year", "currency").distinct()
 
         silver_existing = (
             spark.read.format("delta")
-            .load(silver_path)
+            .load(silver_estimate_path)
             .join(contexts, ["account_id", "year", "currency"])
         )
 
         switch_rows = detect_mode_switch(batch_df, silver_existing)
         tombstones = switch_rows.withColumn("_delete_flag", F.lit(True))
-
-        # Tag incoming rows as normal (not tombstones).
         incoming = batch_df.withColumn("_delete_flag", F.lit(False))
-
         merge_source = tombstones.unionByName(incoming, allowMissingColumns=True)
 
-        # Single atomic MERGE transaction.
-        # Explicit column mappings ensure the temporary _delete_flag never
-        # leaks into the Silver table schema.
-        delta_table = DeltaTable.forPath(spark, silver_path)
+        delta_table = DeltaTable.forPath(spark, silver_estimate_path)
         (
             delta_table.alias("t")
             .merge(
@@ -256,75 +324,279 @@ def _(DataFrame, DeltaTable, F, silver_schema, spark):
         )
         return delta_table
 
-    return init_silver, merge_to_silver, silver_path
+    return (
+        init_silver_estimates,
+        merge_estimates_to_silver,
+        silver_estimate_path,
+    )
 
 
 @app.cell
-def _(DeltaTable, F, gold_schema, silver_path, spark):
-    gold_path = "s3a://lakehouse/delta/gold_estimates"
+def _(DeltaTable, silver_ledger_schema, spark):
+    silver_ledger_path = "s3a://lakehouse/delta/silver_ledger"
 
-    def init_gold():
-        DeltaTable.createIfNotExists(spark).tableName("gold_estimates").location(
-            gold_path
-        ).addColumns(gold_schema).execute()
+    def init_silver_ledger():
+        try:
+            DeltaTable.createIfNotExists(spark).tableName("silver_ledger").location(
+                silver_ledger_path
+            ).addColumns(silver_ledger_schema).property(
+                "delta.enableChangeDataFeed", "true"
+            ).execute()
+        except Exception:
+            # Table already exists with different schema, ignore
+            raise
+        return silver_ledger_path
 
-    def propagate_to_gold(batch_df, batch_id):
-        """ForeachBatch callback: hydrate changed contexts and MERGE into Gold."""
-        # Extract changed business context keys from CDF batch
-        changed_keys = batch_df.select("account_id", "year", "currency").distinct()
+    def merge_ledger_to_silver(batch_df):
+        """
+        Atomically merge ledger data into Silver.
+        Deduplicates on account_id + year + month + type.
+        """
+        # Add updated_at timestamp if not present
+        from pyspark.sql import functions as F
+        batch_df = batch_df.withColumn("updated_at", F.current_timestamp())
 
-        # Hydrate: pull full current context from Silver
-        full_context = (
-            spark.read.format("delta")
-            .load(silver_path)
-            .join(changed_keys, ["account_id", "year", "currency"], "left_semi")
-        )
-
-        # Black box: placeholder calculation (constant multiplier)
-        computed = (
-            full_context.withColumn("computed_estimate", F.col("estimate") * F.lit(1.5))
-            .withColumn("model_version", F.lit("v0.1.0-placeholder"))
-            .withColumn("last_calculated_at", F.current_timestamp())
-        )
-
-        # MERGE into Gold on natural key, but only if Silver event changed
-        delta_table = DeltaTable.forPath(spark, gold_path)
+        delta_table = DeltaTable.forPath(spark, silver_ledger_path)
         (
             delta_table.alias("t")
             .merge(
-                computed.alias("s"),
+                batch_df.alias("s"),
                 """t.account_id = s.account_id
                    AND t.year = s.year
-                   AND t.currency = s.currency
-                   AND t.estimation_mode = s.estimation_mode
-                   AND (t.month = s.month OR (t.month IS NULL AND s.month IS NULL))""",
+                   AND t.month = s.month
+                   AND t.type = s.type""",
             )
             .whenMatchedUpdate(
-                condition="t.event_id <> s.event_id",
                 set={
-                    "estimate": "s.estimate",
+                    "amount": "s.amount",
+                    "updated_at": "s.updated_at",
                     "event_id": "s.event_id",
-                    "last_calculated_at": "s.last_calculated_at",
-                    "computed_estimate": "s.computed_estimate",
-                    "model_version": "s.model_version",
                 },
             )
             .whenNotMatchedInsertAll()
             .execute()
         )
+        return delta_table
+
+    return init_silver_ledger, merge_ledger_to_silver, silver_ledger_path
+
+
+@app.cell
+def _(
+    batch_1,
+    init_silver_estimates,
+    init_silver_ledger,
+    ledger_batch_1,
+    ledger_batch_2,
+    merge_estimates_to_silver,
+    merge_ledger_to_silver,
+):
+    # Initialize Silver tables and merge initial data
+    init_silver_estimates()
+    init_silver_ledger()
+
+    merge_estimates_to_silver(batch_1)
+    merge_ledger_to_silver(ledger_batch_1)
+    merge_ledger_to_silver(ledger_batch_2)
+    return
+
+
+@app.cell
+def _(conn, mo, silver_ledger):
+    _df = mo.sql(
+        f"""
+        select * from silver_ledger
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
+def _(
+    DataFrame,
+    DeltaTable,
+    F,
+    T,
+    dt,
+    gold_schema,
+    silver_estimate_path,
+    silver_ledger_path,
+    spark,
+):
+    gold_path = "s3a://lakehouse/delta/gold_unified_cashflow"
+
+    def init_gold():
+        DeltaTable.createIfNotExists(spark).tableName("gold_unified_cashflow").location(
+            gold_path
+        ).addColumns(gold_schema).execute()
+
+    def calculate_unified_cashflow(holdback_date: dt.date) -> DataFrame:
+        """
+        Calculate the unified cashflow for all accounts at a given holdback date.
+
+        Logic:
+        - For months <= holdback: Use ledger actuals (sum of Cedent + Adjustment + Accrual)
+        - For months > holdback:
+          - Monthly mode: Use the specific monthly estimate
+          - Annual mode: Linearly distribute remaining target
+        """
+        # Read current silver data
+        silver_estimates = spark.read.format("delta").load(silver_estimate_path)
+        silver_ledger = spark.read.format("delta").load(silver_ledger_path)
+
+        # Aggregate ledger by account/year/month
+        ledger_monthly = (
+            silver_ledger.groupBy("account_id", "year", "month")
+            .agg(F.sum("amount").alias("ledger_amount"))
+        )
+
+        # Get all account/year combinations from estimates
+        accounts = silver_estimates.select("account_id", "year", "currency").distinct()
+
+        # Generate all months for the year
+        months_df = spark.createDataFrame(
+            [(dt.date(2026, m, 1),) for m in range(1, 13)],
+            T.StructType([T.StructField("month", T.DateType(), False)])
+        )
+
+        # Cross join accounts with months to get full grid
+        full_grid = accounts.crossJoin(months_df)
+
+        # Join with ledger data
+        with_ledger = full_grid.join(
+            ledger_monthly,
+            ["account_id", "year", "month"],
+            "left"
+        ).fillna(0, subset=["ledger_amount"])
+
+        # Join with estimates - drop month from estimates to avoid ambiguity
+        with_estimates = with_ledger.join(
+            silver_estimates.drop("month"),
+            ["account_id", "year", "currency"],
+            "left"
+        )
+
+        # Calculate settled actuals per account (sum up to holdback)
+        settled_actuals = (
+            ledger_monthly.filter(F.col("month") <= holdback_date)
+            .groupBy("account_id", "year")
+            .agg(F.sum("ledger_amount").alias("total_settled"))
+        )
+
+        # Join settled actuals back
+        with_settled = with_estimates.join(
+            settled_actuals,
+            ["account_id", "year"],
+            "left"
+        ).fillna(0, subset=["total_settled"])
+
+        # Calculate remaining months
+        holdback_month = holdback_date.month
+        remaining_months = 12 - holdback_month
+
+        # Calculate unified amount
+        def calc_amount():
+            # Settled period: use ledger amount
+            settled = F.when(
+                F.col("month") <= holdback_date,
+                F.col("ledger_amount")
+            )
+
+            # Projected period
+            # Monthly mode: use estimate directly
+            monthly_proj = F.when(
+                (F.col("month") > holdback_date) & (F.col("estimation_mode") == "M"),
+                F.col("estimate")
+            )
+
+            # Annual mode: linear distribution
+            annual_proj = F.when(
+                (F.col("month") > holdback_date) & (F.col("estimation_mode") == "A"),
+                F.greatest(
+                    F.lit(0),
+                    (F.col("estimate") - F.col("total_settled")) / F.lit(remaining_months)
+                )
+            )
+
+            return settled.otherwise(monthly_proj.otherwise(annual_proj))
+
+        # Determine source
+        def calc_source():
+            return F.when(
+                F.col("month") <= holdback_date,
+                F.lit("ledger")
+            ).otherwise(F.lit("estimate"))
+
+        # Determine if settled
+        def calc_is_settled():
+            return F.col("month") <= holdback_date
+
+        result = (
+            with_settled
+            .withColumn("amount", calc_amount())
+            .withColumn("source", calc_source())
+            .withColumn("is_settled", calc_is_settled())
+            .withColumn("holdback_date", F.lit(holdback_date))
+            .withColumn("last_calculated_at", F.current_timestamp())
+            .withColumn("model_version", F.lit("1"))
+            .select(
+                "account_id",
+                "year",
+                "month",
+                "holdback_date",
+                "amount",
+                "is_settled",
+                "source",
+                "last_calculated_at",
+                "model_version",
+            )
+        )
+
+        return result
+
+    def propagate_to_gold(batch_df, batch_id):
+        """ForeachBatch callback: recalculate Gold for changed contexts."""
+        # Extract changed business context keys from CDF batch
+        changed_keys = batch_df.select("account_id", "year").distinct()
+
+        # For MVP, we recalculate ALL contexts with a default holdback date
+        # In production, holdback_date would come from a config table per account
+        default_holdback = dt.date(2026, 3, 31)
+
+        # Calculate unified cashflow
+        unified_df = calculate_unified_cashflow(default_holdback)
+
+        # Filter to only changed contexts
+        filtered_df = unified_df.join(
+            changed_keys,
+            ["account_id", "year"],
+            "inner"
+        )
+
+        # Wipe and replace for affected accounts
+        # First, delete existing rows for these accounts
+        delta_table = DeltaTable.forPath(spark, gold_path)
+
+        # Get account list for deletion
+        accounts_to_update = [row.account_id for row in changed_keys.collect()]
+        if accounts_to_update:
+            delta_table.delete(
+                F.col("account_id").isin(accounts_to_update)
+            )
+
+        # Insert new calculations
+        filtered_df.write.format("delta").mode("append").save(gold_path)
 
     def start_gold_pipeline():
-        """Run Structured Streaming in batch mode (availableNow=True).
+        """Run Structured Streaming in batch mode (availableNow=True)."""
+        checkpoint_dir = "s3a://lakehouse/delta/checkpoints/gold_unified"
 
-        Spark manages the checkpoint internally so only new CDF changes
-        are processed on each invocation.
-        """
-        checkpoint_dir = "s3a://lakehouse/delta/checkpoints/gold"
-
+        # For MVP, we trigger on estimate changes
         query = (
             spark.readStream.format("delta")
             .option("readChangeFeed", "true")
-            .load(silver_path)
+            .load(silver_estimate_path)
             .writeStream.foreachBatch(propagate_to_gold)
             .option("checkpointLocation", checkpoint_dir)
             .trigger(availableNow=True)
@@ -334,40 +606,120 @@ def _(DeltaTable, F, gold_schema, silver_path, spark):
         query.awaitTermination()
         return query
 
-    return gold_path, init_gold, start_gold_pipeline
-
-
-@app.cell
-def _(batch_1, init_gold, init_silver, merge_to_silver):
-    init_silver()
-    init_gold()
-    silver_table = merge_to_silver(batch_1)
-    return (silver_table,)
-
-
-@app.cell
-def _(silver_table):
-    silver_table.history()
-    return
-
-
-@app.cell
-def _(conn, mo, silver_estimates):
-    _df = mo.sql(
-        """
-        select * from silver_estimates
-        """,
-        engine=conn,
+    return (
+        calculate_unified_cashflow,
+        gold_path,
+        init_gold,
+        start_gold_pipeline,
     )
+
+
+@app.cell
+def _(init_gold, start_gold_pipeline):
+    init_gold()
+    query = start_gold_pipeline()
     return
 
 
 @app.cell
-def _(dt, make_batch):
+def _(gold_path, spark):
+    gold_df = spark.read.format("delta").load(gold_path).orderBy("account_id", "month")
+    gold_df.show(truncate=False)
+    return
+
+
+@app.cell
+def _(F, calculate_unified_cashflow, dt):
+    """Test 1: Accurate Totals for Annual Mode"""
+    # For Account 1: Annual target = 12000, Settled = 2400, Remaining = 9600
+    # For 9 months: 9600/9 = 1066.67 per month
+    _test_holdback = dt.date(2026, 3, 31)
+    _test_df = calculate_unified_cashflow(_test_holdback)
+
+    # Filter for Account 1
+    _account_1 = _test_df.filter(F.col("account_id") == "0001")
+
+    # Calculate total
+    total = _account_1.agg(F.sum("amount").alias("total")).collect()[0].total
+
+    # Should equal the annual target (12000) minus any rounding
+    # Allow small tolerance for floating point
+    assert abs(total - 12000.0) < 0.01, f"Expected 12000.0, got {total}"
+
+    print(f"✓ Test 1 Passed: Annual total = {total} (expected ~12000)")
+    return
+
+
+@app.cell
+def _(F, calculate_unified_cashflow, dt):
+    """Test 2: Idempotency - Re-running calculation produces same results"""
+    _test_holdback = dt.date(2026, 3, 31)
+
+    # Run calculation twice
+    _df1 = calculate_unified_cashflow(_test_holdback)
+    _df2 = calculate_unified_cashflow(_test_holdback)
+
+    # Compare row counts
+    count1 = _df1.count()
+    count2 = _df2.count()
+    assert count1 == count2, f"Row count mismatch: {count1} vs {count2}"
+
+    # Compare sums
+    sum1 = _df1.agg(F.sum("amount").alias("s")).collect()[0].s
+    sum2 = _df2.agg(F.sum("amount").alias("s")).collect()[0].s
+    assert abs(sum1 - sum2) < 0.01, f"Sum mismatch: {sum1} vs {sum2}"
+
+    print(f"✓ Test 2 Passed: Idempotency verified ({count1} rows, sum={sum1})")
+    return
+
+
+@app.cell
+def _(F, calculate_unified_cashflow, dt):
+    """Test 3: Bitemporal Support - Different holdback dates produce different results"""
+    # March holdback
+    march_df = calculate_unified_cashflow(dt.date(2026, 3, 31))
+
+    # June holdback
+    june_df = calculate_unified_cashflow(dt.date(2026, 6, 30))
+
+    # Get Account 1 projections for April (month 4)
+    april_march = march_df.filter(
+        (F.col("account_id") == "0001") & (F.col("month") == dt.date(2026, 4, 1))
+    ).collect()
+
+    april_june = june_df.filter(
+        (F.col("account_id") == "0001") & (F.col("month") == dt.date(2026, 4, 1))
+    ).collect()
+
+    # In March holdback, April is projected
+    assert len(april_march) == 1, "April should exist in March holdback"
+    assert april_march[0].is_settled == False, "April should be projected in March holdback"
+
+    # In June holdback, April is settled
+    assert len(april_june) == 1, "April should exist in June holdback"
+    assert april_june[0].is_settled == True, "April should be settled in June holdback"
+
+    print("✓ Test 3 Passed: Bitemporal support verified")
+    print(f"  March holdback: April amount = {april_march[0].amount}, settled = {april_march[0].is_settled}")
+    print(f"  June holdback: April amount = {april_june[0].amount}, settled = {april_june[0].is_settled}")
+    return
+
+
+@app.cell
+def _():
+    """Test 4: Monthly Mode - Direct monthly estimates used"""
+    # First, create a monthly estimate batch
+    # This will be tested after we add monthly estimates
+    print("✓ Test 4: Monthly mode test (run after adding monthly estimates)")
+    return
+
+
+@app.cell
+def _(dt, make_estimate_batch):
     # Batch 2: change account 0001 from annual to monthly (grain switch A -> M)
     # Keep account 0002 unchanged (but we don't include it in this batch)
     # Add a new account 0004 as annual.
-    batch_2 = make_batch(
+    batch_2 = make_estimate_batch(
         [
             ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 3000.0),
             ("M", str(1).zfill(4), 2026, dt.date(2026, 2, 1), "USD", 3200.0),
@@ -379,19 +731,49 @@ def _(dt, make_batch):
 
 
 @app.cell
-def _(append_bronze, batch_2, merge_to_silver):
-    append_bronze(batch_2)
-    merge_to_silver(batch_2)
+def _(append_bronze_estimates, batch_2, merge_estimates_to_silver):
+    append_bronze_estimates(batch_2)
+    merge_estimates_to_silver(batch_2)
+    return
+
+
+@app.cell
+def _(F, calculate_unified_cashflow, dt):
+    """Test 4 (continued): Monthly Mode - Direct monthly estimates used"""
+    _test_holdback = dt.date(2026, 3, 31)
+    _test_df = calculate_unified_cashflow(_test_holdback)
+
+    # For Account 1 in Monthly mode:
+    # - Jan-Mar: Ledger actuals (800 each)
+    # - Apr-Dec: Monthly estimates (1300, 1400, 1500, ...)
+
+    _account_1 = _test_df.filter(F.col("account_id") == "0001").orderBy("month")
+
+    # Check January (settled)
+    jan = _account_1.filter(F.col("month") == dt.date(2026, 1, 1)).collect()[0]
+    assert jan.is_settled == True, "January should be settled"
+    assert jan.source == "ledger", "January source should be ledger"
+    assert jan.amount == 800.0, f"January amount should be 800, got {jan.amount}"
+
+    # Check April (projected)
+    apr = _account_1.filter(F.col("month") == dt.date(2026, 4, 1)).collect()[0]
+    assert apr.is_settled == False, "April should be projected"
+    assert apr.source == "estimate", "April source should be estimate"
+    assert apr.amount == 3100.0, f"April amount should be 3100, got {apr.amount}"
+
+    print("✓ Test 4 Passed: Monthly mode uses direct estimates")
+    print(f"  January: {jan.amount} (settled={jan.is_settled})")
+    print(f"  April: {apr.amount} (settled={apr.is_settled})")
     return
 
 
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        """
+        f"""
         select * from bronze_estimates
         """,
-        engine=conn,
+        engine=conn
     )
     return
 
@@ -399,17 +781,17 @@ def _(bronze_estimates, conn, mo):
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        """
+        f"""
         select * from silver_estimates;
         """,
-        engine=conn,
+        engine=conn
     )
     return
 
 
 @app.cell
-def _(dt, make_batch):
-    batch_3 = make_batch(
+def _(dt, make_estimate_batch):
+    batch_3 = make_estimate_batch(
         [
             # Mutate estimate for the exising
             ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 9999.0),
@@ -423,19 +805,19 @@ def _(dt, make_batch):
 
 
 @app.cell
-def _(append_bronze, batch_3, merge_to_silver):
-    append_bronze(batch_3)
-    merge_to_silver(batch_3)
+def _(append_bronze_estimates, batch_3, merge_estimates_to_silver):
+    append_bronze_estimates(batch_3)
+    merge_estimates_to_silver(batch_3)
     return
 
 
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        """
+        f"""
         select * from bronze_estimates
         """,
-        engine=conn,
+        engine=conn
     )
     return
 
@@ -443,18 +825,23 @@ def _(bronze_estimates, conn, mo):
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        """
+        f"""
         SELECT * from silver_estimates
         """,
-        engine=conn,
+        engine=conn
     )
     return
 
 
 @app.cell
-def _(append_bronze, dt, make_batch, merge_to_silver):
+def _(
+    append_bronze_estimates,
+    dt,
+    make_estimate_batch,
+    merge_estimates_to_silver,
+):
     # add new estimates monthly for the given context
-    batch_m = make_batch(
+    batch_m = make_estimate_batch(
         [
             ("M", str(99).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 9999.0),
             ("M", str(99).zfill(4), 2026, dt.date(2026, 4, 1), "USD", 9999.0),
@@ -462,27 +849,27 @@ def _(append_bronze, dt, make_batch, merge_to_silver):
     )
 
     # test M -> A change
-    batch_a = make_batch(
+    batch_a = make_estimate_batch(
         [
             ("A", str(99).zfill(4), 2026, None, "USD", 1000.0),
         ]
     )
 
-    append_bronze(batch_m)
-    merge_to_silver(batch_m)
+    append_bronze_estimates(batch_m)
+    merge_estimates_to_silver(batch_m)
 
-    append_bronze(batch_a)
-    merge_to_silver(batch_a)
+    append_bronze_estimates(batch_a)
+    merge_estimates_to_silver(batch_a)
     return
 
 
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        """
+        f"""
         select * from bronze_estimates
         """,
-        engine=conn,
+        engine=conn
     )
     return
 
@@ -490,23 +877,26 @@ def _(bronze_estimates, conn, mo):
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        """
+        f"""
         select * from silver_estimates
         """,
-        engine=conn,
+        engine=conn
     )
     return
 
 
 @app.cell
-def _(silver_path, spark):
+def _(silver_estimate_path, spark):
     # Demonstrate downstream consumption of the Silver CDF.
     # This shows every row that changed in Silver across all versions.
+    # Use startingTimestamp to avoid retention issues - use a time well before table creation
+    from datetime import datetime, timedelta
+    start_time = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
     cdf_df = (
         spark.read.format("delta")
         .option("readChangeFeed", "true")
-        .option("startingVersion", 0)
-        .load(silver_path)
+        .option("startingTimestamp", start_time)
+        .load(silver_estimate_path)
         .orderBy("_commit_version", "account_id", "month")
     )
     cdf_df.show(truncate=False)
@@ -525,20 +915,6 @@ def _(spark):
         .mode("overwrite")
         .save()
     )
-    return
-
-
-@app.cell
-def _(init_gold, start_gold_pipeline):
-    init_gold()
-    query = start_gold_pipeline()
-    return
-
-
-@app.cell
-def _(gold_path, spark):
-    gold_df = spark.read.format("delta").load(gold_path).orderBy("account_id", "month")
-    gold_df.show(truncate=False)
     return
 
 
