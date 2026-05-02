@@ -123,7 +123,10 @@ def _(T):
             T.StructField("source", T.StringType(), False),
             T.StructField("source_quality", T.StringType(), False),
             T.StructField("last_calculated_at", T.TimestampType(), False),
-            T.StructField("model_version", T.StringType(), False),
+            T.StructField("calculation_id", T.StringType(), False),
+            T.StructField("volume_event_id", T.StringType(), True),
+            T.StructField("ledger_snapshot_timestamp", T.TimestampType(), True),
+            T.StructField("holdback_event_id", T.StringType(), True),
         ]
     )
 
@@ -426,9 +429,115 @@ def _(conn, mo, silver_ledger):
 
 @app.cell
 def _(
+    F,
+    T,
+    calc_amount,
+    calc_is_settled,
+    calc_source,
+    calc_source_quality,
+    dt,
+    silver_estimate_path,
+    silver_ledger_path,
+    spark,
+):
+    account_id = "0001"
+    year = 2026
+    holdback_date = dt.date(2026, 3, 31)
+
+    silver_estimates = (
+        spark.read.format("delta")
+        .load(silver_estimate_path)
+        .filter((F.col("account_id") == account_id) & (F.col("year") == year))
+    )
+
+    silver_ledger = (
+        spark.read.format("delta")
+        .load(silver_ledger_path)
+        .filter((F.col("account_id") == account_id) & (F.col("year") == year))
+    )
+
+    # Aggregate ledger by account/year/month
+    ledger_monthly = (
+        silver_ledger.groupBy("account_id", "year", "month")
+        .agg(F.sum("amount").alias("ledger_amount"))
+    )
+
+    accounts = silver_estimates.select("account_id", "year", "currency").distinct()
+
+    # Generate all months for the year locally to avoid crossJoin shuffle
+    months = [dt.date(year, m, 1) for m in range(1, 13)]
+    months_df = spark.createDataFrame(
+        [(m,) for m in months], schema=T.StructType([T.StructField("month", T.DateType(), False)])
+    )
+
+    # Cross join accounts with months to get full grid
+    full_grid = accounts.crossJoin(months_df)
+
+    # Join with ledger data
+    with_ledger = full_grid.join(
+        ledger_monthly,
+        ["account_id", "year", "month"],
+        "left"
+    )
+
+
+    # Join with estimates - drop month from estimates to avoid ambiguity
+    with_estimates = with_ledger.join(
+        silver_estimates.drop("month"),
+        ["account_id", "year", "currency"],
+        "left"
+    )
+
+    # Calculate settled actuals per account (sum up to holdback)
+    settled_actuals = (
+        ledger_monthly.filter(F.col("month") <= holdback_date)
+        .groupBy("account_id", "year")
+        .agg(F.sum("ledger_amount").alias("total_settled"))
+    )
+
+    # Join settled actuals back
+    with_settled = with_estimates.join(
+        settled_actuals,
+        ["account_id", "year"],
+        "left"
+    )
+
+    # Calculate remaining months
+    holdback_month = holdback_date.month
+    remaining_months = 12 - holdback_month
+
+    df = (
+        with_settled
+        .withColumn("amount", calc_amount(holdback_date, remaining_months))
+        .withColumn("source", calc_source(holdback_date))
+        .withColumn("source_quality", calc_source_quality(holdback_date))
+        .withColumn("is_settled", calc_is_settled(holdback_date))
+        .withColumn("holdback_date", F.lit(holdback_date))
+        .withColumn("last_calculated_at", F.current_timestamp())
+        .withColumn("model_version", F.lit("2"))
+        .select(
+            "account_id",
+            "year",
+            "month",
+            "holdback_date",
+            "amount",
+            "is_settled",
+            "source",
+            "source_quality",
+            "last_calculated_at",
+            "model_version",
+        )
+    )
+    df
+    return silver_estimates, silver_ledger
+
+
+@app.cell
+def _(
     DataFrame,
     DeltaTable,
     F,
+    T,
     control_schema,
     dt,
     gold_schema,
@@ -449,8 +558,68 @@ def _(
             control_path
         ).addColumns(control_schema).execute()
 
+    def calc_amount(holdback_date, remaining_months):
+        """Calculate the unified amount with source quality."""
+        # Settled period: use ledger amount if present, otherwise fallback
+        settled = F.when(
+            (F.col("month") <= holdback_date) & (F.col("ledger_amount").isNotNull()),
+            F.col("ledger_amount")
+        )
+
+        # Fallback for missing ledger before holdback
+        settled_fallback = F.when(
+            (F.col("month") <= holdback_date) & (F.col("ledger_amount").isNull()),
+            F.lit(0.0)
+        )
+
+        # Projected period
+        # Monthly mode: use estimate directly
+        monthly_proj = F.when(
+            (F.col("month") > holdback_date) & (F.col("estimation_mode") == "M"),
+            F.col("estimate")
+        )
+
+        # Annual mode: linear distribution
+        annual_proj = F.when(
+            (F.col("month") > holdback_date) & (F.col("estimation_mode") == "A"),
+            F.greatest(
+                F.lit(0),
+                (F.col("estimate") - F.col("total_settled")) / F.lit(remaining_months)
+            )
+        )
+
+        return settled.otherwise(
+            settled_fallback.otherwise(
+                monthly_proj.otherwise(annual_proj)
+            )
+        )
+
+    def calc_source(holdback_date):
+        """Determine the source of the amount."""
+        return F.when(
+            F.col("month") <= holdback_date,
+            F.lit("ledger")
+        ).otherwise(F.lit("estimate"))
+
+    def calc_source_quality(holdback_date):
+        """Determine the source quality."""
+        return F.when(
+            (F.col("month") <= holdback_date) & (F.col("ledger_amount").isNull()),
+            F.lit("ESTIMATE_FALLBACK")
+        ).otherwise(F.lit("CONFIRMED"))
+
+    def calc_is_settled(holdback_date):
+        """Determine if the month is settled."""
+        return F.col("month") <= holdback_date
+
     def calculate_unified_cashflow(
-        account_id: str, year: int, holdback_date: dt.date
+        account_id: str,
+        year: int,
+        holdback_date: dt.date,
+        calculation_id: str,
+        volume_event_id: str | None = None,
+        ledger_snapshot_timestamp: dt.datetime | None = None,
+        holdback_event_id: str | None = None,
     ) -> DataFrame:
         """
         Calculate the unified cashflow for a single account at a given holdback date.
@@ -482,11 +651,10 @@ def _(
         # Get account/year/currency from estimates
         accounts = silver_estimates.select("account_id", "year", "currency").distinct()
 
-        # Generate all months for the year using Spark SQL sequence
-        months_df = spark.sql(
-            f"""SELECT explode(sequence(
-                to_date('{year}-01-01'), to_date('{year}-12-01'), interval 1 month
-            )) as month"""
+        # Generate all months for the year locally to avoid crossJoin shuffle
+        months = [dt.date(year, m, 1) for m in range(1, 13)]
+        months_df = spark.createDataFrame(
+            [(m,) for m in months], schema=T.StructType([T.StructField("month", T.DateType(), False)])
         )
 
         # Cross join accounts with months to get full grid
@@ -524,69 +692,18 @@ def _(
         holdback_month = holdback_date.month
         remaining_months = 12 - holdback_month
 
-        # Calculate unified amount with source quality
-        def calc_amount():
-            # Settled period: use ledger amount if present, otherwise fallback
-            settled = F.when(
-                (F.col("month") <= holdback_date) & (F.col("ledger_amount").isNotNull()),
-                F.col("ledger_amount")
-            )
-
-            # Fallback for missing ledger before holdback
-            settled_fallback = F.when(
-                (F.col("month") <= holdback_date) & (F.col("ledger_amount").isNull()),
-                F.lit(0.0)
-            )
-
-            # Projected period
-            # Monthly mode: use estimate directly
-            monthly_proj = F.when(
-                (F.col("month") > holdback_date) & (F.col("estimation_mode") == "M"),
-                F.col("estimate")
-            )
-
-            # Annual mode: linear distribution
-            annual_proj = F.when(
-                (F.col("month") > holdback_date) & (F.col("estimation_mode") == "A"),
-                F.greatest(
-                    F.lit(0),
-                    (F.col("estimate") - F.col("total_settled")) / F.lit(remaining_months)
-                )
-            )
-
-            return settled.otherwise(
-                settled_fallback.otherwise(
-                    monthly_proj.otherwise(annual_proj)
-                )
-            )
-
-        # Determine source
-        def calc_source():
-            return F.when(
-                F.col("month") <= holdback_date,
-                F.lit("ledger")
-            ).otherwise(F.lit("estimate"))
-
-        # Determine source quality
-        def calc_source_quality():
-            return F.when(
-                (F.col("month") <= holdback_date) & (F.col("ledger_amount").isNull()),
-                F.lit("ESTIMATE_FALLBACK")
-            ).otherwise(F.lit("CONFIRMED"))
-
-        # Determine if settled
-        def calc_is_settled():
-            return F.col("month") <= holdback_date
-
         result = (
             with_settled
-            .withColumn("amount", calc_amount())
-            .withColumn("source", calc_source())
-            .withColumn("source_quality", calc_source_quality())
-            .withColumn("is_settled", calc_is_settled())
+            .withColumn("amount", calc_amount(holdback_date, remaining_months))
+            .withColumn("source", calc_source(holdback_date))
+            .withColumn("source_quality", calc_source_quality(holdback_date))
+            .withColumn("is_settled", calc_is_settled(holdback_date))
             .withColumn("holdback_date", F.lit(holdback_date))
             .withColumn("last_calculated_at", F.current_timestamp())
-            .withColumn("model_version", F.lit("2"))
+            .withColumn("calculation_id", F.lit(calculation_id))
+            .withColumn("volume_event_id", F.lit(volume_event_id))
+            .withColumn("ledger_snapshot_timestamp", F.lit(ledger_snapshot_timestamp))
+            .withColumn("holdback_event_id", F.lit(holdback_event_id))
             .select(
                 "account_id",
                 "year",
@@ -597,7 +714,10 @@ def _(
                 "source",
                 "source_quality",
                 "last_calculated_at",
-                "model_version",
+                "calculation_id",
+                "volume_event_id",
+                "ledger_snapshot_timestamp",
+                "holdback_event_id",
             )
         )
 
@@ -613,11 +733,23 @@ def _(
 
     def propagate_to_gold(batch_df, batch_id):
         """ForeachBatch callback: recalculate Gold for changed contexts."""
+        import uuid
+
+        # Generate a unique calculation ID for this batch
+        calculation_id = str(uuid.uuid4())
+
         # Extract changed business context keys from CDF batch
         changed_keys = batch_df.select("account_id", "year").distinct().collect()
 
         # Get holdback dates from control table
         holdback_df = get_holdback_dates()
+
+        # Capture ledger snapshot timestamp
+        ledger_snapshot_timestamp = (
+            spark.read.format("delta").load(silver_ledger_path)
+            .agg(F.max("updated_at").alias("max_ts"))
+            .collect()[0].max_ts
+        )
 
         # Process each changed account independently
         for row in changed_keys:
@@ -631,12 +763,32 @@ def _(
 
             if account_holdback:
                 holdback_date = account_holdback[0].holdback_date
+                holdback_event_id = account_holdback[0].updated_at
             else:
                 # Default holdback date if not in control table
                 holdback_date = dt.date(2026, 3, 31)
+                holdback_event_id = None
 
-            # Calculate unified cashflow for this account
-            unified_df = calculate_unified_cashflow(account_id, year, holdback_date)
+            # Get the latest volume event_id for this account
+            volume_event_id = (
+                spark.read.format("delta").load(silver_estimate_path)
+                .filter((F.col("account_id") == account_id) & (F.col("year") == year))
+                .orderBy(F.col("updated_at").desc())
+                .select("event_id")
+                .first()
+            )
+            volume_event_id = volume_event_id.event_id if volume_event_id else None
+
+            # Calculate unified cashflow for this account with full metadata
+            unified_df = calculate_unified_cashflow(
+                account_id=account_id,
+                year=year,
+                holdback_date=holdback_date,
+                calculation_id=calculation_id,
+                volume_event_id=volume_event_id,
+                ledger_snapshot_timestamp=ledger_snapshot_timestamp,
+                holdback_event_id=holdback_event_id,
+            )
 
             # Use MERGE for atomic upsert instead of delete + append
             delta_table = DeltaTable.forPath(spark, gold_path)
@@ -674,6 +826,10 @@ def _(
         return query
 
     return (
+        calc_amount,
+        calc_is_settled,
+        calc_source,
+        calc_source_quality,
         calculate_unified_cashflow,
         gold_path,
         init_control,
@@ -703,7 +859,7 @@ def _(F, calculate_unified_cashflow, dt):
     # For Account 1: Annual target = 12000, Settled = 2400, Remaining = 9600
     # For 9 months: 9600/9 = 1066.67 per month
     _test_holdback = dt.date(2026, 3, 31)
-    _test_df = calculate_unified_cashflow("0001", 2026, _test_holdback)
+    _test_df = calculate_unified_cashflow("0001", 2026, _test_holdback, calculation_id="TEST_001")
 
     # Filter for Account 1
     _account_1 = _test_df.filter(F.col("account_id") == "0001")
@@ -725,8 +881,8 @@ def _(F, calculate_unified_cashflow, dt):
     _test_holdback = dt.date(2026, 3, 31)
 
     # Run calculation twice for same account
-    _df1 = calculate_unified_cashflow("0001", 2026, _test_holdback)
-    _df2 = calculate_unified_cashflow("0001", 2026, _test_holdback)
+    _df1 = calculate_unified_cashflow("0001", 2026, _test_holdback, calculation_id="TEST_002")
+    _df2 = calculate_unified_cashflow("0001", 2026, _test_holdback, calculation_id="TEST_003")
 
     # Compare row counts
     count1 = _df1.count()
@@ -746,10 +902,10 @@ def _(F, calculate_unified_cashflow, dt):
 def _(F, calculate_unified_cashflow, dt):
     """Test 3: Bitemporal Support - Different holdback dates produce different results"""
     # March holdback
-    march_df = calculate_unified_cashflow("0001", 2026, dt.date(2026, 3, 31))
+    march_df = calculate_unified_cashflow("0001", 2026, dt.date(2026, 3, 31), calculation_id="TEST_004")
 
     # June holdback
-    june_df = calculate_unified_cashflow("0001", 2026, dt.date(2026, 6, 30))
+    june_df = calculate_unified_cashflow("0001", 2026, dt.date(2026, 6, 30), calculation_id="TEST_005")
 
     # Get Account 1 projections for April (month 4)
     april_march = march_df.filter(
@@ -810,7 +966,7 @@ def _(append_bronze_estimates, batch_2, merge_estimates_to_silver):
 def _(F, calculate_unified_cashflow, dt):
     """Test 4 (continued): Monthly Mode - Direct monthly estimates used"""
     _test_holdback = dt.date(2026, 3, 31)
-    _test_df = calculate_unified_cashflow("0001", 2026, _test_holdback)
+    _test_df = calculate_unified_cashflow("0001", 2026, _test_holdback, calculation_id="TEST_006")
 
     # For Account 1 in Monthly mode:
     # - Jan-Mar: Ledger actuals (800 each)
