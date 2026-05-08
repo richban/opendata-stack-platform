@@ -433,10 +433,10 @@ def _(
 
 
 @app.cell
-def _(conn, mo, silver_ledger):
+def _(conn, mo, silver_estimates):
     _df = mo.sql(
         f"""
-        select * from silver_ledger
+        select * from silver_estimates
         """,
         engine=conn
     )
@@ -455,7 +455,7 @@ def _(calculate_unified_cashflow, dt, make_context_df):
         context_df=context_df,
         calculation_id="MANUAL_001",
     )
-    df.show()
+    df
     return
 
 
@@ -551,7 +551,7 @@ def _(
         Calculate the unified cashflow for multiple accounts in one pass.
 
         Args:
-            context_df: DataFrame with columns [account_id, year, holdback_date, 
+            context_df: DataFrame with columns [account_id, year, holdback_date,
                        holdback_event_id, volume_event_id]
             calculation_id: Unique ID for this calculation batch
             ledger_snapshot_timestamp: Timestamp of ledger snapshot
@@ -757,7 +757,6 @@ def _(
 
     return (
         calculate_unified_cashflow,
-        gold_path,
         init_control,
         init_gold,
         start_gold_pipeline,
@@ -773,9 +772,13 @@ def _(init_control, init_gold, start_gold_pipeline):
 
 
 @app.cell
-def _(gold_path, spark):
-    gold_df = spark.read.format("delta").load(gold_path).orderBy("account_id", "month")
-    gold_df.show(truncate=False)
+def _(conn, gold_unified_cashflow, mo):
+    _df = mo.sql(
+        f"""
+        select * from gold_unified_cashflow order by account_id, month
+        """,
+        engine=conn
+    )
     return
 
 
@@ -784,7 +787,7 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
     """Test 1: Accurate Totals for Annual Mode"""
     # For Account 1: Annual target = 12000, Settled = 2400, Remaining = 9600
     # For 9 months: 9600/9 = 1066.67 per month
-    _test_holdback = dt.date(2026, 3, 31)
+    _test_holdback = dt.date(2026, 7, 31)
 
     # Create context DataFrame for batch processing
     _context_df = make_context_df([
@@ -807,6 +810,8 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
     assert abs(total - 12000.0) < 0.01, f"Expected 12000.0, got {total}"
 
     print(f"✓ Test 1 Passed: Annual total = {total} (expected ~12000)")
+
+    _test_df
     return
 
 
@@ -885,6 +890,12 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
     print("✓ Test 3 Passed: Bitemporal support verified")
     print(f"  March holdback: April amount = {april_march[0].amount}, settled = {april_march[0].is_settled}")
     print(f"  June holdback: April amount = {april_june[0].amount}, settled = {april_june[0].is_settled}")
+    return (june_df,)
+
+
+@app.cell
+def _(june_df):
+    june_df
     return
 
 
@@ -904,9 +915,9 @@ def _(dt, make_estimate_batch):
     # Add a new account 0004 as annual.
     batch_2 = make_estimate_batch(
         [
-            ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 3000.0),
-            ("M", str(1).zfill(4), 2026, dt.date(2026, 2, 1), "USD", 3200.0),
-            ("M", str(1).zfill(4), 2026, dt.date(2026, 3, 1), "USD", 3100.0),
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 4, 1), "USD", 5000.0),
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 5, 1), "USD", 5000.0),
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 6, 1), "USD", 5000.0),
             ("A", str(4).zfill(4), 2026, None, "USD", 15000.0),
         ],
     )
@@ -917,6 +928,52 @@ def _(dt, make_estimate_batch):
 def _(append_bronze_estimates, batch_2, merge_estimates_to_silver):
     append_bronze_estimates(batch_2)
     merge_estimates_to_silver(batch_2)
+    return
+
+
+@app.cell
+def _(spark):
+    cdf_df = (
+        spark.read.format("delta")
+        .option("readChangeFeed", "true")
+        .option("startingVersion", 0)  # or startingTimestamp
+        .load("s3a://lakehouse/delta/silver_estimates")
+    )
+    cdf_df
+    return
+
+
+@app.cell
+def _(conn, gold_unified_cashflow, mo):
+    _df = mo.sql(
+        f"""
+        select * from gold_unified_cashflow where account_id = '0001'
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
+def _(spark):
+    hadoop_conf = spark.sparkContext._jsc.hadoopConfiguration()
+    fs = spark.sparkContext._jvm.org.apache.hadoop.fs.FileSystem.get(
+        spark.sparkContext._jvm.java.net.URI("s3a://lakehouse"),
+        hadoop_conf
+    )
+    # List checkpoint directory
+    checkpoint_path = spark.sparkContext._jvm.org.apache.hadoop.fs.Path(
+        "s3a://lakehouse/delta/checkpoints/gold_unified_estimates"
+    )
+    status = fs.listStatus(checkpoint_path)
+    for file_status in status:
+        print(file_status.getPath().toString())
+    return
+
+
+@app.cell
+def _(start_gold_pipeline):
+    estimate_micro, ledger_micro = start_gold_pipeline()
     return
 
 
