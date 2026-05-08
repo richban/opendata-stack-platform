@@ -136,7 +136,8 @@ def _(T):
             T.StructField("account_id", T.StringType(), False),
             T.StructField("year", T.IntegerType(), False),
             T.StructField("holdback_date", T.DateType(), False),
-            T.StructField("updated_at", T.TimestampType(), False),
+            T.StructField("inserted_at", T.TimestampType(), False),
+            T.StructField("holdback_event_id", T.StringType(), False),
         ]
     )
     return (
@@ -471,6 +472,7 @@ def _(
     silver_estimate_path,
     silver_ledger_path,
     spark,
+    uuid,
 ):
     gold_path = "s3a://lakehouse/delta/gold_unified_cashflow"
     control_path = "s3a://lakehouse/delta/control_holdback_dates"
@@ -484,6 +486,18 @@ def _(
         DeltaTable.createIfNotExists(spark).tableName("control_holdback_dates").location(
             control_path
         ).addColumns(control_schema).execute()
+
+    def append_holdback_date(account_id: str, year: int, holdback_date: dt.date) -> str:
+        """Append a new holdback date record to the control table.
+
+        Returns:
+            The holdback_event_id for the inserted record.
+        """
+        event_id = str(uuid.uuid4())
+        row = [(account_id, year, holdback_date, dt.datetime.now(), event_id)]
+        df = spark.createDataFrame(row, schema=control_schema)
+        df.write.format("delta").mode("append").save(control_path)
+        return event_id
 
     def calc_amount():
         """Calculate the unified amount with source quality (set-based)."""
@@ -663,9 +677,14 @@ def _(
         return result
 
     def get_holdback_dates() -> DataFrame:
-        """Read holdback dates from control table or use defaults."""
+        """Read latest holdback dates from control table."""
+        from pyspark.sql.window import Window
+
         try:
-            return spark.read.format("delta").load(control_path)
+            df = spark.read.format("delta").load(control_path)
+            # Get latest record per account/year
+            w = Window.partitionBy("account_id", "year").orderBy(F.desc("inserted_at"))
+            return df.withColumn("rn", F.row_number().over(w)).filter(F.col("rn") == 1).drop("rn")
         except Exception:
             # Return empty DataFrame with correct schema if table doesn't exist
             return spark.createDataFrame([], control_schema)
@@ -690,7 +709,7 @@ def _(
             changed_keys
             .join(holdback_df, ["account_id", "year"], "left")
             .withColumn("holdback_date", F.coalesce(F.col("holdback_date"), F.lit(default_date)))
-            .withColumn("holdback_event_id", F.col("updated_at"))
+            .withColumn("holdback_event_id", F.coalesce(F.col("holdback_event_id"), F.lit("DEFAULT")))
             .select("account_id", "year", "holdback_date", "holdback_event_id")
         )
 
@@ -724,13 +743,65 @@ def _(
             .execute()
         )
 
+    def propagate_control_to_gold(batch_df, batch_id):
+        """ForeachBatch callback for control table changes.
+
+        When holdback dates change, recalculate Gold for affected accounts.
+        """
+        import uuid
+
+        calculation_id = str(uuid.uuid4())
+
+        # Extract changed accounts from control table batch
+        changed_keys = batch_df.select("account_id", "year").distinct()
+
+        # Get latest holdback dates (including the just-changed ones)
+        holdback_df = get_holdback_dates()
+
+        # Build context with the new holdback dates
+        context_df = (
+            changed_keys
+            .join(holdback_df, ["account_id", "year"], "inner")
+            .select("account_id", "year", "holdback_date", "holdback_event_id")
+        )
+
+        # Capture ledger snapshot timestamp
+        ledger_snapshot_timestamp = (
+            spark.read.format("delta").load(silver_ledger_path)
+            .agg(F.max("updated_at").alias("max_ts"))
+            .collect()[0].max_ts
+        )
+
+        # Calculate unified cashflow
+        unified_df = calculate_unified_cashflow(
+            context_df=context_df,
+            calculation_id=calculation_id,
+            ledger_snapshot_timestamp=ledger_snapshot_timestamp,
+        )
+
+        # Merge into Gold
+        delta_table = DeltaTable.forPath(spark, gold_path)
+        (
+            delta_table.alias("t")
+            .merge(
+                unified_df.alias("s"),
+                """t.account_id = s.account_id
+                   AND t.year = s.year
+                   AND t.month = s.month
+                   AND t.holdback_date = s.holdback_date""",
+            )
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
+
     def start_gold_pipeline():
         """Run Structured Streaming in batch mode (availableNow=True).
 
-        Listens to both silver_estimates and silver_ledger for changes.
+        Listens to silver_estimates, silver_ledger, and control_holdback_dates for changes.
         Runs sequentially to avoid concurrent MERGE conflicts on Gold table.
         """
-        def run_stream(source_path, checkpoint_suffix):
+        def run_stream(source_path, checkpoint_suffix, foreach_batch_fn=propagate_to_gold):
             """Start a streaming query for a given source path."""
             checkpoint_dir = f"s3a://lakehouse/delta/checkpoints/gold_unified_{checkpoint_suffix}"
 
@@ -738,7 +809,7 @@ def _(
                 spark.readStream.format("delta")
                 .option("readChangeFeed", "true")
                 .load(source_path)
-                .writeStream.foreachBatch(propagate_to_gold)
+                .writeStream.foreachBatch(foreach_batch_fn)
                 .option("checkpointLocation", checkpoint_dir)
                 .trigger(availableNow=True)
                 .start()
@@ -753,9 +824,14 @@ def _(
         ledger_query = run_stream(silver_ledger_path, "ledger")
         ledger_query.awaitTermination()
 
-        return estimate_query, ledger_query
+        # Finally run control table stream
+        control_query = run_stream(control_path, "control", propagate_control_to_gold)
+        control_query.awaitTermination()
+
+        return estimate_query, ledger_query, control_query
 
     return (
+        append_holdback_date,
         calculate_unified_cashflow,
         init_control,
         init_gold,
@@ -764,10 +840,15 @@ def _(
 
 
 @app.cell
-def _(init_control, init_gold, start_gold_pipeline):
+def _(append_holdback_date, dt, init_control, init_gold, start_gold_pipeline):
     init_control()
     init_gold()
-    estimate_query, ledger_query = start_gold_pipeline()
+
+    # Add sample holdback dates to control table
+    append_holdback_date("0001", 2026, dt.date(2026, 3, 31))
+    append_holdback_date("0002", 2026, dt.date(2026, 3, 31))
+
+    estimate_query, ledger_query, control_query = start_gold_pipeline()
     return
 
 
