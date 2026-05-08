@@ -150,7 +150,7 @@ def _(T):
 
 
 @app.cell
-def _(bronze_estimate_schema, bronze_ledger_schema, random, spark, uuid):
+def _(T, bronze_estimate_schema, bronze_ledger_schema, random, spark, uuid):
     def make_estimate_batch(rows):
         batch_id = str(random.randint(0, 9999)).zfill(4)
         data = [(*row, None, batch_id, str(uuid.uuid4())) for row in rows]
@@ -161,9 +161,13 @@ def _(bronze_estimate_schema, bronze_ledger_schema, random, spark, uuid):
         data = [(*row, None, batch_id, str(uuid.uuid4())) for row in rows]
         return spark.createDataFrame(data, schema=bronze_ledger_schema)
 
-    def make_context_df(account_id, year, holdback_date, holdback_event_id=None, volume_event_id=None):
-        """Create a context DataFrame for testing the set-based interface."""
-        from pyspark.sql import types as T
+    def make_context_df(rows):
+        """Create a context DataFrame for testing the set-based interface.
+
+        Args:
+            rows: List of tuples (account_id, year, holdback_date, holdback_event_id, volume_event_id)
+                  where holdback_event_id and volume_event_id can be None
+        """
         context_schema = T.StructType([
             T.StructField("account_id", T.StringType(), False),
             T.StructField("year", T.IntegerType(), False),
@@ -171,10 +175,7 @@ def _(bronze_estimate_schema, bronze_ledger_schema, random, spark, uuid):
             T.StructField("holdback_event_id", T.TimestampType(), True),
             T.StructField("volume_event_id", T.StringType(), True),
         ])
-        return spark.createDataFrame(
-            [(account_id, year, holdback_date, holdback_event_id, volume_event_id)],
-            schema=context_schema
-        )
+        return spark.createDataFrame(rows, schema=context_schema)
 
     return make_context_df, make_estimate_batch, make_ledger_batch
 
@@ -446,7 +447,9 @@ def _(conn, mo, silver_ledger):
 def _(calculate_unified_cashflow, dt, make_context_df):
     """Manual calculation using the new set-based interface"""
     # Create a context DataFrame for account 0001
-    context_df = make_context_df("0001", 2026, dt.date(2026, 3, 31))
+    context_df = make_context_df([
+        ("0001", 2026, dt.date(2026, 3, 31), None, None),
+    ])
 
     df = calculate_unified_cashflow(
         context_df=context_df,
@@ -784,7 +787,9 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
     _test_holdback = dt.date(2026, 3, 31)
 
     # Create context DataFrame for batch processing
-    _context_df = make_context_df("0001", 2026, _test_holdback)
+    _context_df = make_context_df([
+        ("0001", 2026, _test_holdback, None, None),
+    ])
 
     _test_df = calculate_unified_cashflow(
         context_df=_context_df,
@@ -811,7 +816,9 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
     _test_holdback = dt.date(2026, 3, 31)
 
     # Create context DataFrame for batch processing
-    _context_df = make_context_df("0001", 2026, _test_holdback)
+    _context_df = make_context_df([
+        ("0001", 2026, _test_holdback, None, None),
+    ])
 
     # Run calculation twice for same account
     _df1 = calculate_unified_cashflow(
@@ -841,14 +848,18 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
 def _(F, calculate_unified_cashflow, dt, make_context_df):
     """Test 3: Bitemporal Support - Different holdback dates produce different results"""
     # March holdback
-    _march_context = make_context_df("0001", 2026, dt.date(2026, 3, 31))
+    _march_context = make_context_df([
+        ("0001", 2026, dt.date(2026, 3, 31), None, None),
+    ])
     march_df = calculate_unified_cashflow(
         context_df=_march_context,
         calculation_id="TEST_004",
     )
 
     # June holdback
-    _june_context = make_context_df("0001", 2026, dt.date(2026, 6, 30))
+    _june_context = make_context_df([
+        ("0001", 2026, dt.date(2026, 6, 30), None, None),
+    ])
     june_df = calculate_unified_cashflow(
         context_df=_june_context,
         calculation_id="TEST_005",
@@ -915,7 +926,9 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
     _test_holdback = dt.date(2026, 3, 31)
 
     # Create context DataFrame for batch processing
-    _context_df = make_context_df("0001", 2026, _test_holdback)
+    _context_df = make_context_df([
+        ("0001", 2026, _test_holdback, None, None),
+    ])
 
     _test_df = calculate_unified_cashflow(
         context_df=_context_df,
