@@ -4,6 +4,37 @@ __generated_with = "0.21.1"
 app = marimo.App(width="full")
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Goal
+
+    Implement a Bitemporal Reinsurance Cash Flow Engine MVP in an existing Marimo notebook that:
+
+    1. Reconciles user-submitted business volumes (estimates) with upstream accounting ledgers
+    2. Provides a unified, versioned view of financial performance using a holdback date boundary
+    3. Supports "time-travel" queries to see how projections changed with different holdback contexts
+    4. Follows Delta Lake Medallion Architecture (Bronze → Silver → Gold)
+       Instructions
+
+    - Architecture: Medallion pattern using PySpark and Delta Lake with Change Data Feed (CDF)
+    - Bronze Layer: bronze_estimates (user submissions) + bronze_ledger (mock accounting data)
+    - Silver Layer: silver_estimates (deduplicated with mode switch tombstones) + silver_ledger (deduplicated ledger)
+    - Gold Layer: gold_unified_cashflow (final calculation with monthly granularity)
+    - Balance & Project Logic:
+      - Settled (≤ holdback): Sum ledger actuals (Cedent + Adjustment + Accrual)
+      - Projected (> holdback):
+        - Monthly mode: Use specific monthly estimate
+        - Annual mode: (Annual_Target - Sum_Ledger_Actuals) / (12 - holdback_month), floored at 0
+    - Bitemporal Support: holdback_date dimension in Gold table allows querying different contexts
+    - Mode Switches: A↔M transitions handled via tombstone pattern (detect_mode_switch + merge)
+    - Mock Data: Use happy path scenarios where ledger actuals < annual targets
+    - Model Versioning: Simple incrementing integers (1, 2, 3...)
+    - Test Assertions: Include tests for accurate totals, idempotency, bitemporal support, monthly mode
+    """)
+    return
+
+
 @app.cell
 def _():
     import datetime as dt
@@ -727,21 +758,25 @@ def _(
             ledger_snapshot_timestamp=ledger_snapshot_timestamp,
         )
 
-        # Single MERGE for atomic upsert of entire batch
-        delta_table = DeltaTable.forPath(spark, gold_path)
-        (
-            delta_table.alias("t")
-            .merge(
-                unified_df.alias("s"),
-                """t.account_id = s.account_id
-                   AND t.year = s.year
-                   AND t.month = s.month
-                   AND t.holdback_date = s.holdback_date""",
-            )
-            .whenMatchedUpdateAll()
-            .whenNotMatchedInsertAll()
-            .execute()
-        )
+        # Append-only: preserve full history of all calculations
+        unified_df.write.format("delta").mode("append").save(gold_path)
+
+        # OLD MERGE approach (commented out for reference):
+        # This would overwrite existing rows with the same account/year/month/holdback_date
+        # delta_table = DeltaTable.forPath(spark, gold_path)
+        # (
+        #     delta_table.alias("t")
+        #     .merge(
+        #         unified_df.alias("s"),
+        #         """t.account_id = s.account_id
+        #            AND t.year = s.year
+        #            AND t.month = s.month
+        #            AND t.holdback_date = s.holdback_date""",
+        #     )
+        #     .whenMatchedUpdateAll()
+        #     .whenNotMatchedInsertAll()
+        #     .execute()
+        # )
 
     def propagate_control_to_gold(batch_df, batch_id):
         """ForeachBatch callback for control table changes.
@@ -779,21 +814,24 @@ def _(
             ledger_snapshot_timestamp=ledger_snapshot_timestamp,
         )
 
-        # Merge into Gold
-        delta_table = DeltaTable.forPath(spark, gold_path)
-        (
-            delta_table.alias("t")
-            .merge(
-                unified_df.alias("s"),
-                """t.account_id = s.account_id
-                   AND t.year = s.year
-                   AND t.month = s.month
-                   AND t.holdback_date = s.holdback_date""",
-            )
-            .whenMatchedUpdateAll()
-            .whenNotMatchedInsertAll()
-            .execute()
-        )
+        # Append-only: preserve full history
+        unified_df.write.format("delta").mode("append").save(gold_path)
+
+        # OLD MERGE approach (commented out for reference):
+        # delta_table = DeltaTable.forPath(spark, gold_path)
+        # (
+        #     delta_table.alias("t")
+        #     .merge(
+        #         unified_df.alias("s"),
+        #         """t.account_id = s.account_id
+        #            AND t.year = s.year
+        #            AND t.month = s.month
+        #            AND t.holdback_date = s.holdback_date""",
+        #     )
+        #     .whenMatchedUpdateAll()
+        #     .whenNotMatchedInsertAll()
+        #     .execute()
+        # )
 
     def start_gold_pipeline():
         """Run Structured Streaming in batch mode (availableNow=True).
@@ -856,7 +894,16 @@ def _(append_holdback_date, dt, init_control, init_gold, start_gold_pipeline):
 def _(conn, gold_unified_cashflow, mo):
     _df = mo.sql(
         f"""
-        select * from gold_unified_cashflow order by account_id, month
+        WITH ranked AS (
+          SELECT *,
+            ROW_NUMBER() OVER (
+              PARTITION BY account_id, year, month, holdback_date
+              ORDER BY last_calculated_at DESC
+            ) as rn
+          FROM gold_unified_cashflow
+        )
+        SELECT * FROM ranked WHERE rn = 1
+        ORDER BY account_id, month
         """,
         engine=conn
     )
