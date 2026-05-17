@@ -447,40 +447,38 @@ def _(DeltaTable, F, Window, silver_estimate_path, spark):
         Within a batch, the latest submission per account/year determines the authoritative mode:
         - If the latest is Annual: expand to all 12 months, ignore monthly entries in the batch
         - If the latest is Monthly: apply only the specified months, ignore annual entries
+
+        Performance notes:
+        - batch_df is consumed once via broadcast join to avoid multiple scans
+        - Silver table merge performance depends on partitioning; ensure the silver
+          table is partitioned by (year, month) for partition pruning on merge
         """
 
         now = F.current_timestamp()
+        account_window = Window.partitionBy("account_id", "year").orderBy(F.desc("_inserted_at"))
 
-        # Step 1: Find the latest submission per account/year to determine mode
-        latest_per_account = (
+        # Step 1: Determine authoritative mode per account/year using a single window.
+        # The result set is tiny relative to the batch, so broadcast it.
+        auth_mode = (
             batch_df
-            .groupBy("account_id", "year")
-            .agg(F.max("_inserted_at").alias("max_inserted_at"))
-        )
-
-        latest_mode = (
-            batch_df.alias("b")
-            .join(
-                latest_per_account.alias("l"),
-                (F.col("b.account_id") == F.col("l.account_id"))
-                & (F.col("b.year") == F.col("l.year"))
-                & (F.col("b._inserted_at") == F.col("l.max_inserted_at")),
-            )
-            .select("b.account_id", "b.year", "b.estimation_mode")
-            .distinct()
-        )
-
-        # Step 2: For accounts where latest is Annual - expand to 12 months
-        annual_accounts = latest_mode.filter(F.col("estimation_mode") == "A")
-        annual_window = Window.partitionBy("account_id", "year").orderBy(F.desc("_inserted_at"))
-
-        annual_data = (
-            batch_df.alias("src")
-            .join(annual_accounts.alias("ann"), ["account_id", "year"])
-            .filter(F.col("src.estimation_mode") == "A")
-            .withColumn("rn", F.row_number().over(annual_window))
+            .withColumn("rn", F.row_number().over(account_window))
             .filter(F.col("rn") == 1)
-            .drop("rn")
+            .select("account_id", "year", F.col("estimation_mode").alias("auth_mode"))
+        )
+
+        # Tag every row in the batch with its account/year authoritative mode.
+        # Broadcast eliminates a shuffle since auth_mode is small.
+        tagged = batch_df.join(F.broadcast(auth_mode), ["account_id", "year"])
+
+        # Step 2: For accounts where latest is Annual - expand to 12 months.
+        # Filter the already-tagged batch in-memory; no re-scan of batch_df.
+        annual_data = (
+            tagged.filter(
+                (F.col("auth_mode") == "A") & (F.col("estimation_mode") == "A")
+            )
+            .withColumn("rn", F.row_number().over(account_window))
+            .filter(F.col("rn") == 1)
+            .drop("rn", "auth_mode")
             .select("account_id", "year", "currency", "estimate", "_event_id")
         )
 
@@ -494,18 +492,16 @@ def _(DeltaTable, F, Window, silver_estimate_path, spark):
             .drop("month_idx")
         )
 
-        # Step 3: For accounts where latest is Monthly - take latest per month
-        monthly_accounts = latest_mode.filter(F.col("estimation_mode") == "M")
+        # Step 3: For accounts where latest is Monthly - take latest per month.
         monthly_window = Window.partitionBy("account_id", "year", "month").orderBy(F.desc("_inserted_at"))
-
         monthly_data = (
-            batch_df.alias("src")
-            .join(monthly_accounts.alias("mon"), ["account_id", "year"])
-            .filter(F.col("src.estimation_mode") == "M")
+            tagged.filter(
+                (F.col("auth_mode") == "M") & (F.col("estimation_mode") == "M")
+            )
             .withColumn("rn", F.row_number().over(monthly_window))
             .filter(F.col("rn") == 1)
-            .drop("rn", "mon.estimation_mode")
-            .select("src.account_id", "src.year", "src.month", "src.currency", "src.estimate", "src._event_id", "src.estimation_mode")
+            .drop("rn", "auth_mode")
+            .select("account_id", "year", "month", "currency", "estimate", "_event_id", "estimation_mode")
         )
 
         # Combine and merge
@@ -607,33 +603,64 @@ def _(init_silver_control, init_silver_estimates, init_silver_ledger):
 
 
 @app.cell
-def _(
-    append_bronze_estimates,
-    append_bronze_ledger,
-    batch_1,
-    init_bronze_estimates,
-    init_bronze_ledger,
-    ledger_batch_1,
-    ledger_batch_2,
-):
+def _(append_bronze_estimates, dt, make_estimate_batch):
     # Initialize and populate Bronze tables
-    init_bronze_estimates()
-    init_bronze_ledger()
+    monthly_batch = make_estimate_batch(
+        [
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 5000.0),
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 2, 1), "USD", 5000.0),
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 3, 1), "USD", 5000.0),
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 1000.0),
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 2, 1), "USD", 1000.0),
+        ],
+    )
 
-    append_bronze_estimates(batch_1)
-    append_bronze_ledger(ledger_batch_1)
-    append_bronze_ledger(ledger_batch_2)
+    append_bronze_estimates(monthly_batch)
+    # append_bronze_ledger(ledger_batch_1)
+    # append_bronze_ledger(ledger_batch_2)
     return
 
 
 @app.cell
-def _(conn, mo, silver_ledger):
+def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        """
-        select * from silver_ledger
+        f"""
+        select * from bronze_estimates
         """,
         engine=conn
     )
+    return
+
+
+@app.cell
+def _(append_bronze_estimates, dt, make_estimate_batch):
+    m_batch = make_estimate_batch(
+        [
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 4, 1), "USD", 5000.0),
+        ],
+    )
+
+    append_bronze_estimates(m_batch)
+
+    y_batch = make_estimate_batch(
+        [
+            ("A", str(1).zfill(4), 2026, None, "USD", 12000.0),
+        ],
+    )
+
+    append_bronze_estimates(y_batch)
+    return
+
+
+@app.cell
+def _(append_bronze_estimates, dt, make_estimate_batch):
+    m_batch_2 = make_estimate_batch(
+        [
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 12, 1), "USD", 999.0),
+        ],
+    )
+
+    append_bronze_estimates(m_batch_2)
     return
 
 
@@ -681,10 +708,21 @@ def _(append_control_event, dt):
 
 
 @app.cell
-def _(conn, mo, silver_ledger):
+def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        """
-        select * from silver_ledger
+        f"""
+        select * from silver_estimates where account_id = '0001'
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
+def _(bronze_estimates, conn, mo):
+    _df = mo.sql(
+        f"""
+        select * from bronze_estimates where account_id = '0001' order by _inserted_at desc
         """,
         engine=conn
     )
