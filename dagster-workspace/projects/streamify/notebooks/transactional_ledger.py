@@ -114,6 +114,7 @@ def _(mo):
 
     4. Follows Delta Lake Medallion Architecture (Bronze → Silver → Gold)
     """)
+    return
 
 
 @app.cell
@@ -128,6 +129,7 @@ def _():
     import marimo as mo
     import pyspark.sql.functions as F
     import pyspark.sql.types as T
+    from pyspark.sql.window import Window
 
     from delta.tables import DeltaTable
     from pyspark.sql import DataFrame
@@ -137,10 +139,10 @@ def _():
     from config import create_delta_spark_session, get_s3_store
 
     return (
-        DataFrame,
         DeltaTable,
         F,
         T,
+        Window,
         create_delta_spark_session,
         dt,
         get_s3_store,
@@ -163,6 +165,7 @@ def _(create_delta_spark_session, get_s3_store):
 @app.cell
 def _(conn):
     conn.list_databases()
+    return
 
 
 @app.cell
@@ -173,7 +176,7 @@ def _(T):
             T.StructField("estimation_mode", T.StringType(), False),
             T.StructField("account_id", T.StringType(), False),
             T.StructField("year", T.IntegerType(), False),
-            T.StructField("month", T.DateType(), True),
+            T.StructField("month", T.DateType(), True),  # null for annual in bronze
             T.StructField("currency", T.StringType(), False),
             T.StructField("estimate", T.DoubleType(), False),
         ]
@@ -182,16 +185,22 @@ def _(T):
     bronze_estimate_schema = T.StructType(
         [
             *estimate_schema.fields,
-            T.StructField("inserted_at", T.TimestampType(), True),
-            T.StructField("batch_id", T.StringType(), False),
-            T.StructField("event_id", T.StringType(), False),
+            T.StructField("_inserted_at", T.TimestampType(), True),
+            T.StructField("_batch_id", T.StringType(), False),
+            T.StructField("_event_id", T.StringType(), False),
         ]
     )
+    # Silver always stores monthly granularity (month is never null)
     silver_estimate_schema = T.StructType(
         [
-            *estimate_schema.fields,
-            T.StructField("updated_at", T.TimestampType(), False),
-            T.StructField("event_id", T.StringType(), False),
+            T.StructField("estimation_mode", T.StringType(), False),
+            T.StructField("account_id", T.StringType(), False),
+            T.StructField("year", T.IntegerType(), False),
+            T.StructField("month", T.DateType(), False),
+            T.StructField("currency", T.StringType(), False),
+            T.StructField("estimate", T.DoubleType(), False),
+            T.StructField("_updated_at", T.TimestampType(), False),
+            T.StructField("_event_id", T.StringType(), False),
         ]
     )
 
@@ -209,16 +218,16 @@ def _(T):
     bronze_ledger_schema = T.StructType(
         [
             *ledger_schema.fields,
-            T.StructField("inserted_at", T.TimestampType(), True),
-            T.StructField("batch_id", T.StringType(), False),
-            T.StructField("event_id", T.StringType(), False),
+            T.StructField("_inserted_at", T.TimestampType(), True),
+            T.StructField("_batch_id", T.StringType(), False),
+            T.StructField("_event_id", T.StringType(), False),
         ]
     )
     silver_ledger_schema = T.StructType(
         [
             *ledger_schema.fields,
-            T.StructField("updated_at", T.TimestampType(), False),
-            T.StructField("event_id", T.StringType(), False),
+            T.StructField("_updated_at", T.TimestampType(), False),
+            T.StructField("_event_id", T.StringType(), False),
         ]
     )
 
@@ -232,9 +241,9 @@ def _(T):
             T.StructField("category", T.StringType(), False),
             T.StructField("actual_type", T.StringType(), False),
             T.StructField("currency", T.StringType(), True),
-            T.StructField("source_event_id", T.StringType(), False),
-            T.StructField("journal_event_id", T.StringType(), False),
-            T.StructField("updated_at", T.TimestampType(), False),
+            T.StructField("_source_event_id", T.StringType(), False),
+            T.StructField("_journal_event_id", T.StringType(), False),
+            T.StructField("_updated_at", T.TimestampType(), False),
         ]
     )
 
@@ -244,8 +253,8 @@ def _(T):
             T.StructField("account_id", T.StringType(), False),
             T.StructField("year", T.IntegerType(), False),
             T.StructField("holdback_date", T.DateType(), False),
-            T.StructField("inserted_at", T.TimestampType(), False),
-            T.StructField("holdback_event_id", T.StringType(), False),
+            T.StructField("_inserted_at", T.TimestampType(), False),
+            T.StructField("_holdback_event_id", T.StringType(), False),
         ]
     )
     return (
@@ -258,34 +267,44 @@ def _(T):
 
 
 @app.cell
-def _(T, bronze_estimate_schema, bronze_ledger_schema, random, spark, uuid):
+def _(
+    T,
+    bronze_estimate_schema,
+    bronze_ledger_schema,
+    dt,
+    random,
+    spark,
+    uuid,
+):
     def make_estimate_batch(rows):
-        batch_id = str(random.randint(0, 9999)).zfill(4)
-        data = [(*row, None, batch_id, str(uuid.uuid4())) for row in rows]
+        _batch_id = str(random.randint(0, 9999)).zfill(4)
+        now = dt.datetime.now()
+        data = [(*row, now, _batch_id, str(uuid.uuid4())) for row in rows]
         return spark.createDataFrame(data, schema=bronze_estimate_schema)
 
     def make_ledger_batch(rows):
-        batch_id = str(random.randint(0, 9999)).zfill(4)
-        data = [(*row, None, batch_id, str(uuid.uuid4())) for row in rows]
+        _batch_id = str(random.randint(0, 9999)).zfill(4)
+        now = dt.datetime.now()
+        data = [(*row, now, _batch_id, str(uuid.uuid4())) for row in rows]
         return spark.createDataFrame(data, schema=bronze_ledger_schema)
 
     def make_context_df(rows):
         """Create a context DataFrame for testing the set-based interface.
 
         Args:
-            rows: List of tuples (account_id, year, holdback_date, holdback_event_id, volume_event_id)
-                  where holdback_event_id and volume_event_id can be None
+            rows: List of tuples (account_id, year, holdback_date, _holdback_event_id, _volume_event_id)
+                  where _holdback_event_id and _volume_event_id can be None
         """
         context_schema = T.StructType([
             T.StructField("account_id", T.StringType(), False),
             T.StructField("year", T.IntegerType(), False),
             T.StructField("holdback_date", T.DateType(), False),
-            T.StructField("holdback_event_id", T.TimestampType(), True),
-            T.StructField("volume_event_id", T.StringType(), True),
+            T.StructField("_holdback_event_id", T.TimestampType(), True),
+            T.StructField("_volume_event_id", T.StringType(), True),
         ])
         return spark.createDataFrame(rows, schema=context_schema)
 
-    return make_context_df, make_estimate_batch, make_ledger_batch
+    return make_estimate_batch, make_ledger_batch
 
 
 @app.cell
@@ -328,23 +347,27 @@ def _(DeltaTable, F, bronze_estimate_schema, bronze_ledger_schema, spark):
     def init_bronze_estimates():
         DeltaTable.createIfNotExists(spark).location(bronze_estimate_path).tableName(
             "bronze_estimates"
-        ).addColumns(bronze_estimate_schema).execute()
+        ).addColumns(bronze_estimate_schema).property(
+            "delta.enableChangeDataFeed", "true"
+        ).execute()
         return bronze_estimate_path
 
     def init_bronze_ledger():
         DeltaTable.createIfNotExists(spark).location(bronze_ledger_path).tableName(
             "bronze_ledger"
-        ).addColumns(bronze_ledger_schema).execute()
+        ).addColumns(bronze_ledger_schema).property(
+            "delta.enableChangeDataFeed", "true"
+        ).execute()
         return bronze_ledger_path
 
     def append_bronze_estimates(df):
-        df.withColumn("inserted_at", F.current_timestamp()).write.format("delta").mode(
+        df.withColumn("_inserted_at", F.current_timestamp()).write.format("delta").mode(
             "append"
         ).save(bronze_estimate_path)
         return bronze_estimate_path
 
     def append_bronze_ledger(df):
-        df.withColumn("inserted_at", F.current_timestamp()).write.format("delta").mode(
+        df.withColumn("_inserted_at", F.current_timestamp()).write.format("delta").mode(
             "append"
         ).save(bronze_ledger_path)
         return bronze_ledger_path
@@ -352,6 +375,8 @@ def _(DeltaTable, F, bronze_estimate_schema, bronze_ledger_schema, spark):
     return (
         append_bronze_estimates,
         append_bronze_ledger,
+        bronze_estimate_path,
+        bronze_ledger_path,
         init_bronze_estimates,
         init_bronze_ledger,
     )
@@ -374,10 +399,11 @@ def _(
     append_bronze_estimates(batch_1)
     append_bronze_ledger(ledger_batch_1)
     append_bronze_ledger(ledger_batch_2)
+    return
 
 
 @app.cell
-def _(DataFrame, DeltaTable, F, silver_estimate_schema, spark):
+def _(DeltaTable, silver_estimate_schema, spark):
     silver_estimate_path = "s3a://lakehouse/delta/silver_estimates"
 
     def init_silver_estimates():
@@ -389,9 +415,7 @@ def _(DataFrame, DeltaTable, F, silver_estimate_schema, spark):
         return silver_estimate_path
 
 
-    return (
-        init_silver_estimates,
-    )
+    return init_silver_estimates, silver_estimate_path
 
 
 @app.cell
@@ -411,11 +435,119 @@ def _(DeltaTable, silver_ledger_schema, spark):
         return silver_ledger_path
 
 
-    return init_silver_ledger
+    return init_silver_ledger, silver_ledger_path
 
 
 @app.cell
-def _(F, DeltaTable, control_schema, spark):
+def _(DeltaTable, F, Window, silver_estimate_path, spark):
+    def merge_estimates_to_silver(batch_df, batch_id):
+        """Merge a micro-batch of bronze estimate changes into silver (monthly granularity).
+
+        Designed for use with Spark Streaming foreachBatch.
+        CDF on bronze ensures we only process changed rows.
+        """
+
+        now = F.current_timestamp()
+
+        # --- Annual: latest within this batch per (account_id, year) ---
+        annual_window = Window.partitionBy("account_id", "year").orderBy(F.desc("_inserted_at"))
+        batch_annual = (
+            batch_df.filter(F.col("estimation_mode") == "A")
+            .withColumn("rn", F.row_number().over(annual_window))
+            .filter(F.col("rn") == 1)
+            .drop("rn")
+            .select("account_id", "year", "currency", "estimate", "_event_id")
+        )
+
+        # Expand annual to 12 monthly rows
+        months_df = spark.range(12).withColumnRenamed("id", "month_idx")
+        annual_monthly = (
+            batch_annual
+            .crossJoin(months_df)
+            .withColumn(
+                "month",
+                F.make_date(F.col("year"), F.col("month_idx") + 1, F.lit(1))
+            )
+            .withColumn("estimation_mode", F.lit("A"))
+            .withColumn("estimate", F.col("estimate") / 12)
+            .drop("month_idx")
+        )
+
+        # --- Monthly: latest within this batch per (account_id, year, month) ---
+        monthly_window = Window.partitionBy("account_id", "year", "month").orderBy(F.desc("_inserted_at"))
+        batch_monthly = (
+            batch_df.filter(F.col("estimation_mode") == "M")
+            .withColumn("rn", F.row_number().over(monthly_window))
+            .filter(F.col("rn") == 1)
+            .drop("rn")
+            .select("account_id", "year", "month", "currency", "estimate", "_event_id", "estimation_mode")
+        )
+
+        # Combine and prepare for merge
+        all_estimates = (
+            annual_monthly.unionByName(batch_monthly)
+            .withColumn("_updated_at", now)
+            .drop("_change_type", "_commit_version", "_commit_timestamp")
+        )
+
+        silver_dt = DeltaTable.forPath(spark, silver_estimate_path)
+
+        (
+            silver_dt.alias("target")
+            .merge(
+                all_estimates.alias("source"),
+                "target.account_id = source.account_id "
+                "AND target.year = source.year "
+                "AND target.month = source.month",
+            )
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
+
+    return (merge_estimates_to_silver,)
+
+
+@app.cell
+def _(DeltaTable, F, silver_ledger_path, spark):
+    def merge_ledger_to_silver(batch_df, batch_id):
+        """Merge a micro-batch of bronze ledger changes into silver.
+
+        Designed for use with Spark Streaming foreachBatch.
+        """
+
+        bronze_df = (
+            batch_df
+            .drop("_inserted_at", "_batch_id", "_change_type", "_commit_version", "_commit_timestamp")
+            .groupBy("account_id", "year", "month", "type")
+            .agg(
+                F.sum("amount").alias("amount"),
+                F.max("_event_id").alias("_event_id"),
+            )
+            .withColumn("_updated_at", F.current_timestamp())
+        )
+
+        silver_dt = DeltaTable.forPath(spark, silver_ledger_path)
+
+        (
+            silver_dt.alias("target")
+            .merge(
+                bronze_df.alias("source"),
+                "target.account_id = source.account_id "
+                "AND target.year = source.year "
+                "AND target.month = source.month "
+                "AND target.type = source.type",
+            )
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
+
+    return (merge_ledger_to_silver,)
+
+
+@app.cell
+def _(DeltaTable, control_schema, dt, spark, uuid):
     silver_control_path = "s3a://lakehouse/delta/silver_control"
 
     def init_silver_control():
@@ -430,22 +562,89 @@ def _(F, DeltaTable, control_schema, spark):
             account_id=account_id,
             year=year,
             holdback_date=holdback_date,
-            inserted_at=None,
-            holdback_event_id=str(__import__("uuid").uuid4()),
+            _inserted_at=dt.datetime.now(),
+            _holdback_event_id=str(uuid.uuid4()),
         )
         df = spark.createDataFrame([row], schema=control_schema)
-        df.withColumn("inserted_at", F.current_timestamp()).write.format("delta").mode(
-            "append"
-        ).save(silver_control_path)
+        df.write.format("delta").mode("append").save(silver_control_path)
         return silver_control_path
 
     return append_control_event, init_silver_control
 
 
 @app.cell
-def _(init_silver_control):
-    # Initialize control table
+def _(init_silver_control, init_silver_estimates, init_silver_ledger):
+    # Initialize all silver tables
+    init_silver_estimates()
+    init_silver_ledger()
     init_silver_control()
+    return
+
+
+@app.cell
+def _(
+    append_bronze_estimates,
+    append_bronze_ledger,
+    batch_1,
+    init_bronze_estimates,
+    init_bronze_ledger,
+    ledger_batch_1,
+    ledger_batch_2,
+):
+    # Initialize and populate Bronze tables
+    init_bronze_estimates()
+    init_bronze_ledger()
+
+    append_bronze_estimates(batch_1)
+    append_bronze_ledger(ledger_batch_1)
+    append_bronze_ledger(ledger_batch_2)
+    return
+
+
+@app.cell
+def _(conn, mo, silver_ledger):
+    _df = mo.sql(
+        f"""
+        select * from silver_ledger
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
+def _(
+    bronze_estimate_path,
+    bronze_ledger_path,
+    merge_estimates_to_silver,
+    merge_ledger_to_silver,
+    spark,
+):
+    # Poll bronze via CDF and stream into silver
+    est_query = (
+        spark.readStream.format("delta")
+        .option("readChangeFeed", "true")
+        .load(bronze_estimate_path)
+        .writeStream.foreachBatch(merge_estimates_to_silver)
+        .option("checkpointLocation", "s3a://lakehouse/delta/checkpoints/silver_estimates")
+        .trigger(availableNow=True)
+        .start()
+    )
+
+    ledger_query = (
+        spark.readStream.format("delta")
+        .option("readChangeFeed", "true")
+        .load(bronze_ledger_path)
+        .writeStream.foreachBatch(merge_ledger_to_silver)
+        .option("checkpointLocation", "s3a://lakehouse/delta/checkpoints/silver_ledger")
+        .trigger(availableNow=True)
+        .start()
+    )
+
+    # Wait for both to complete
+    est_query.awaitTermination()
+    ledger_query.awaitTermination()
+    return
 
 
 @app.cell
@@ -453,16 +652,33 @@ def _(append_control_event, dt):
     # Seed initial holdback dates for our test accounts
     append_control_event(str(1).zfill(4), 2026, dt.date(2026, 3, 31))
     append_control_event(str(2).zfill(4), 2026, dt.date(2026, 3, 31))
+    return
 
 
 @app.cell
-def _(conn, mo):
+def _(conn, mo, silver_control):
     _df = mo.sql(
-        """
+        f"""
         select * from silver_control
         """,
         engine=conn
     )
+    return
+
+
+@app.cell
+def _(spark):
+    # Verify silver estimates
+    spark.read.format("delta").load("s3a://lakehouse/delta/silver_estimates").show()
+    return
+
+
+@app.cell
+def _(spark):
+    # Verify silver ledger
+    spark.read.format("delta").load("s3a://lakehouse/delta/silver_ledger").show()
+    return
+
 
 @app.cell
 def _():
