@@ -18,9 +18,11 @@ def _(mo):
 
     ```
         ("A", str(1).zfill(4), 2026, None, "USD", 12000.0)
-        ("M", str(2).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 5000.0),
-        ("M", str(2).zfill(4), 2026, dt.date(2026, 2, 1), "USD", 5000.0),
-        ("M", str(2).zfill(4), 2026, dt.date(2026, 3, 1), "USD", 5000.0),
+        ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 5000.0),
+        ("M", str(1).zfill(4), 2026, dt.date(2026, 2, 1), "USD", 5000.0),
+        ("M", str(1).zfill(4), 2026, dt.date(2026, 3, 1), "USD", 5000.0),
+        ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 1000.0),
+        ("M", str(1).zfill(4), 2026, dt.date(2026, 2, 1), "USD", 1000.0),
     ```
 
     - these specify the user intent value for the given account given financial period
@@ -129,10 +131,9 @@ def _():
     import marimo as mo
     import pyspark.sql.functions as F
     import pyspark.sql.types as T
-    from pyspark.sql.window import Window
 
     from delta.tables import DeltaTable
-    from pyspark.sql import DataFrame
+    from pyspark.sql.window import Window
 
     sys.path.insert(0, str(Path(__file__).parent))
 
@@ -443,51 +444,75 @@ def _(DeltaTable, F, Window, silver_estimate_path, spark):
     def merge_estimates_to_silver(batch_df, batch_id):
         """Merge a micro-batch of bronze estimate changes into silver (monthly granularity).
 
-        Designed for use with Spark Streaming foreachBatch.
-        CDF on bronze ensures we only process changed rows.
+        Within a batch, the latest submission per account/year determines the authoritative mode:
+        - If the latest is Annual: expand to all 12 months, ignore monthly entries in the batch
+        - If the latest is Monthly: apply only the specified months, ignore annual entries
         """
 
         now = F.current_timestamp()
 
-        # --- Annual: latest within this batch per (account_id, year) ---
+        # Step 1: Find the latest submission per account/year to determine mode
+        latest_per_account = (
+            batch_df
+            .groupBy("account_id", "year")
+            .agg(F.max("_inserted_at").alias("max_inserted_at"))
+        )
+
+        latest_mode = (
+            batch_df.alias("b")
+            .join(
+                latest_per_account.alias("l"),
+                (F.col("b.account_id") == F.col("l.account_id"))
+                & (F.col("b.year") == F.col("l.year"))
+                & (F.col("b._inserted_at") == F.col("l.max_inserted_at")),
+            )
+            .select("b.account_id", "b.year", "b.estimation_mode")
+            .distinct()
+        )
+
+        # Step 2: For accounts where latest is Annual - expand to 12 months
+        annual_accounts = latest_mode.filter(F.col("estimation_mode") == "A")
         annual_window = Window.partitionBy("account_id", "year").orderBy(F.desc("_inserted_at"))
-        batch_annual = (
-            batch_df.filter(F.col("estimation_mode") == "A")
+
+        annual_data = (
+            batch_df.alias("src")
+            .join(annual_accounts.alias("ann"), ["account_id", "year"])
+            .filter(F.col("src.estimation_mode") == "A")
             .withColumn("rn", F.row_number().over(annual_window))
             .filter(F.col("rn") == 1)
             .drop("rn")
             .select("account_id", "year", "currency", "estimate", "_event_id")
         )
 
-        # Expand annual to 12 monthly rows
         months_df = spark.range(12).withColumnRenamed("id", "month_idx")
         annual_monthly = (
-            batch_annual
+            annual_data
             .crossJoin(months_df)
-            .withColumn(
-                "month",
-                F.make_date(F.col("year"), F.col("month_idx") + 1, F.lit(1))
-            )
+            .withColumn("month", F.make_date(F.col("year"), F.col("month_idx") + 1, F.lit(1)))
             .withColumn("estimation_mode", F.lit("A"))
             .withColumn("estimate", F.col("estimate") / 12)
             .drop("month_idx")
         )
 
-        # --- Monthly: latest within this batch per (account_id, year, month) ---
+        # Step 3: For accounts where latest is Monthly - take latest per month
+        monthly_accounts = latest_mode.filter(F.col("estimation_mode") == "M")
         monthly_window = Window.partitionBy("account_id", "year", "month").orderBy(F.desc("_inserted_at"))
-        batch_monthly = (
-            batch_df.filter(F.col("estimation_mode") == "M")
+
+        monthly_data = (
+            batch_df.alias("src")
+            .join(monthly_accounts.alias("mon"), ["account_id", "year"])
+            .filter(F.col("src.estimation_mode") == "M")
             .withColumn("rn", F.row_number().over(monthly_window))
             .filter(F.col("rn") == 1)
-            .drop("rn")
-            .select("account_id", "year", "month", "currency", "estimate", "_event_id", "estimation_mode")
+            .drop("rn", "mon.estimation_mode")
+            .select("src.account_id", "src.year", "src.month", "src.currency", "src.estimate", "src._event_id", "src.estimation_mode")
         )
 
-        # Combine and prepare for merge
+        # Combine and merge
         all_estimates = (
-            annual_monthly.unionByName(batch_monthly)
+            annual_monthly.unionByName(monthly_data)
             .withColumn("_updated_at", now)
-            .drop("_change_type", "_commit_version", "_commit_timestamp")
+            .drop("_change_type", "_commit_version", "_commit_timestamp", "_inserted_at", "_batch_id")
         )
 
         silver_dt = DeltaTable.forPath(spark, silver_estimate_path)
@@ -604,7 +629,7 @@ def _(
 @app.cell
 def _(conn, mo, silver_ledger):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_ledger
         """,
         engine=conn
@@ -656,10 +681,10 @@ def _(append_control_event, dt):
 
 
 @app.cell
-def _(conn, mo, silver_control):
+def _(conn, mo, silver_ledger):
     _df = mo.sql(
-        f"""
-        select * from silver_control
+        """
+        select * from silver_ledger
         """,
         engine=conn
     )
