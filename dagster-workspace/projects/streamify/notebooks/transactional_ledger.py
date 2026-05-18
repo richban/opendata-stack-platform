@@ -116,7 +116,6 @@ def _(mo):
 
     4. Follows Delta Lake Medallion Architecture (Bronze → Silver → Gold)
     """)
-    return
 
 
 @app.cell
@@ -166,13 +165,11 @@ def _(create_delta_spark_session, get_s3_store):
 @app.cell
 def _(conn):
     conn.list_databases()
-    return
 
 
 @app.cell
 def _(conn):
     conn.list_tables()
-    return
 
 
 @app.cell
@@ -407,7 +404,6 @@ def _(
     append_bronze_estimates(batch_1)
     append_bronze_ledger(ledger_batch_1)
     append_bronze_ledger(ledger_batch_2)
-    return
 
 
 @app.cell
@@ -611,7 +607,6 @@ def _(init_silver_control, init_silver_estimates, init_silver_ledger):
     init_silver_estimates()
     init_silver_ledger()
     init_silver_control()
-    return
 
 
 @app.cell
@@ -628,7 +623,6 @@ def _(append_bronze_estimates, dt, make_estimate_batch):
     )
 
     append_bronze_estimates(monthly_batch)
-    return
 
 
 @app.cell
@@ -639,7 +633,6 @@ def _(conn, mo, silver_estimates):
         """,
         engine=conn
     )
-    return
 
 
 @app.cell
@@ -659,7 +652,6 @@ def _(append_bronze_estimates, dt, make_estimate_batch):
     )
 
     append_bronze_estimates(y_batch)
-    return
 
 
 @app.cell
@@ -671,7 +663,6 @@ def _(append_bronze_estimates, dt, make_estimate_batch):
     )
 
     append_bronze_estimates(m_batch_2)
-    return
 
 
 @app.cell
@@ -706,7 +697,6 @@ def _(
     # Wait for both to complete
     est_query.awaitTermination()
     ledger_query.awaitTermination()
-    return
 
 
 @app.cell
@@ -714,40 +704,26 @@ def _(append_control_event, dt):
     # Seed initial holdback dates for our test accounts
     append_control_event(str(1).zfill(4), 2026, dt.date(2026, 3, 31))
     append_control_event(str(2).zfill(4), 2026, dt.date(2026, 3, 31))
-    return
+
+
+@app.cell
+def _(bronze_estimates, conn, mo):
+    _df = mo.sql(
+        """
+        select * from bronze_estimates where account_id = '0002' order by _inserted_at desc
+        """,
+        engine=conn
+    )
 
 
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
         """
-        select * from silver_estimates where account_id = '0002'
+        select * from silver_estimates where account_id = '0002' order by _updated_at desc
         """,
         engine=conn
     )
-    return
-
-
-@app.cell
-def _(conn, mo, silver_ledger):
-    _df = mo.sql(
-        """
-        select * from silver_ledger -- where account_id = '0002' order by _updated_at desc
-        """,
-        engine=conn
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _(conn, mo, silver_control):
-    _df = mo.sql(
-        """
-        select * from silver_control
-        """,
-        engine=conn
-    )
-    return
 
 
 @app.cell
@@ -767,14 +743,13 @@ def _(DeltaTable, spark, transactional_ledger_schema):
 
 
 @app.cell
-def _(conn, mo, silver_estimates):
+def _(conn, gold_transactional_ledger, mo):
     _df = mo.sql(
-        f"""
-        select * from silver_estimates
+        """
+        select * from gold_transactional_ledger where account_id = '0002' order by underwriting_month, _inserted_at DESC
         """,
         engine=conn
     )
-    return
 
 
 @app.cell
@@ -828,12 +803,13 @@ def _(F, uuid):
                 F.col("month").alias("underwriting_month"),
                 F.col("delta").alias("amount"),
                 F.lit("estimate").alias("category"),
-                F.lit(None).alias("actual_type").cast("string"),
+                F.lit("estimate").alias("actual_type").cast("string"),
                 F.coalesce(F.col("currency"), F.lit("USD")).alias("currency"),
                 F.col("_event_id").alias("_source_event_id"),
                 F.lit(str(uuid.uuid4())).alias("_journal_event_id"),
                 now.alias("_inserted_at")
             )
+            .filter(F.col("amount") > F.lit(0.0))
         )
 
         return journal_entries
@@ -851,7 +827,6 @@ def _(delta_calculation_engine, spark):
     # Compute deltas
     deltas = delta_calculation_engine(estimates_df, hbd_df, ledger_df)
     deltas
-    return
 
 
 @app.cell
@@ -866,19 +841,37 @@ def _(F, Window, delta_calculation_engine, gold_txn_ledger_path, spark):
         then computes and books deltas.
         """
 
-        if batch_df.isEmpty(): return
+        if batch_df.isEmpty():
+            print(f"[Batch {batch_id}] Empty batch, skipping")
+            return
+
+        print(f"\n[Batch {batch_id}] === RAW BATCH ===")
+        print(f"[Batch {batch_id}] Total rows: {batch_df.count()}")
+        print(f"[Batch {batch_id}] Change types:")
+        batch_df.groupBy("_change_type").count().show()
+        print(f"[Batch {batch_id}] Commit versions:")
+        batch_df.select("_commit_version").distinct().show()
+        print(f"[Batch {batch_id}] Sample rows:")
+        batch_df.show(10, truncate=False)
+
         # 1. Deduplicate: get latest post-image per account/year/month in batch
         deduped_batch = (
             batch_df
+            .filter(F.col("_change_type").isin(["insert", "update_postimage"]))
             .withColumn(
                 "rn",
                 F.row_number().over(
-                    Window.partitionBy("account_id", "year", "month").orderBy(F.desc("_commit_timestamp"))
+                    Window.partitionBy("account_id", "year", "month")
+                    .orderBy(F.desc("_updated_at"))
                 )
             )
             .filter(F.col("rn") == 1)
             .drop("rn", "_change_type", "_commit_version", "_commit_timestamp")
         )
+
+        print(f"\n[Batch {batch_id}] === AFTER DEDUP ===")
+        print(f"[Batch {batch_id}] Deduped count: {deduped_batch.count()}")
+        deduped_batch.show(24, truncate=False)
 
         # 2. Get latest HBD per account/year
         hbd_df = spark.table("silver_control")
@@ -894,13 +887,25 @@ def _(F, Window, delta_calculation_engine, gold_txn_ledger_path, spark):
             .select("account_id", "year", "holdback_date")
         )
 
+        print(f"\n[Batch {batch_id}] === HBD ===")
+        latest_hbd.show()
+
         # 3. Get existing ledger
         ledger_df = spark.table("gold_transactional_ledger")
+
+        print(f"\n[Batch {batch_id}] === LEDGER ===")
+        print(f"[Batch {batch_id}] Ledger count: {ledger_df.count()}")
+        ledger_df.show(24, truncate=False)
 
         # 4. Compute deltas
         deltas = delta_calculation_engine(deduped_batch, latest_hbd, ledger_df)
 
+        print(f"\n[Batch {batch_id}] === DELTAS ===")
+        print(f"[Batch {batch_id}] Delta count: {deltas.count()}")
+        deltas.show(24, truncate=False)
+
         deltas.write.format("delta").option("txnVersion", batch_id).option("txnAppId", app_id).mode("append").save(gold_txn_ledger_path)
+        print(f"\n[Batch {batch_id}] === WRITTEN TO GOLD ===")
 
     return (process_silver_estimates_batch,)
 
@@ -919,12 +924,118 @@ def _(process_silver_estimates_batch, silver_estimate_path, spark):
     )
 
     est_stream.awaitTermination()
-    return
 
 
 @app.cell
-def _():
-    return
+def _(process_silver_estimates_batch, silver_estimate_path, spark):
+    # Trigger 1: Stream silver_estimates CDF -> gold transactional ledger
+    est_stream_2 = (
+        spark.readStream.format("delta")
+        .option("readChangeFeed", "true")
+        .load(silver_estimate_path)
+        .writeStream.foreachBatch(process_silver_estimates_batch)
+        .option("checkpointLocation", "s3a://lakehouse/delta/checkpoints/gold_estimates")
+        .trigger(availableNow=True)
+        .start()
+    )
+
+    est_stream_2.awaitTermination()
+
+
+@app.cell
+def _(append_bronze_estimates, make_estimate_batch):
+    batch_dup = make_estimate_batch(
+        [
+            ("A", str(2).zfill(4), 2026, None, "USD", 36.0),
+        ],
+    )
+
+    append_bronze_estimates(batch_dup)
+
+    batch_a = make_estimate_batch(
+        [
+            ("A", str(2).zfill(4), 2026, None, "USD", 48.0),
+        ],
+    )
+
+    append_bronze_estimates(batch_a)
+
+
+@app.cell
+def _(spark):
+    spark.read.json("s3a://lakehouse/delta/checkpoints/gold_estimates/offsets/*").show(truncate=False)
+
+
+@app.cell
+def _(spark):
+    spark.sql("DESCRIBE HISTORY silver_estimates").show()
+
+
+@app.cell
+def debug_silver_cdf(F, Window, silver_estimate_path, spark):
+    # Read all CDF changes from silver_estimates
+    cdf_df = spark.read.format("delta").option("readChangeFeed", "true").option("startingVersion", 4).load(silver_estimate_path)
+
+    print("=== Total CDF rows:", cdf_df.count())
+    print("\n=== CDF Schema:")
+    cdf_df.printSchema()
+
+    print("\n=== Changes by type and version:")
+    cdf_df.groupBy("_change_type", "_commit_version").count().orderBy("_commit_version", "_change_type").show()
+
+    print("\n=== All changes for account 0002:")
+    cdf_df.filter(F.col("account_id") == "0002").orderBy("_commit_version", "month", "_change_type").show(100, truncate=False)
+
+    print("\n=== Post-images only for account 0002:")
+    post_images = cdf_df.filter((F.col("account_id") == "0002") & (F.col("_change_type") == "update_postimage"))
+    post_images.orderBy("_commit_version", "month").show(100, truncate=False)
+
+    print("\n=== Pre-images only for account 0002:")
+    pre_images = cdf_df.filter((F.col("account_id") == "0002") & (F.col("_change_type") == "update_preimage"))
+    pre_images.orderBy("_commit_version", "month").show(100, truncate=False)
+
+    print("\n=== Deduplicated (latest per month using row_number):")
+    deduped = (
+        cdf_df
+        .filter(F.col("_change_type").isin(["insert", "update_postimage"]))
+        .withColumn(
+            "rn",
+            F.row_number().over(
+                Window.partitionBy("account_id", "year", "month").orderBy(F.desc("_commit_timestamp"))
+            )
+        )
+        .filter(F.col("rn") == 1)
+        .drop("rn")
+        .orderBy("month")
+    )
+    deduped.show(24, truncate=False)
+
+    print("\n=== Commit timestamps:")
+    cdf_df.select("_commit_version", "_commit_timestamp").distinct().orderBy("_commit_version").show()
+
+
+@app.cell
+def _(spark):
+    print("=== Current Silver Estimates ===")
+    spark.table("silver_estimates").orderBy("account_id", "year", "month").show(24, truncate=False)
+
+
+@app.cell
+def _(spark):
+    print("=== Current Gold Ledger ===")
+    spark.table("gold_transactional_ledger").orderBy("account_id", "year", "underwriting_month", "_updated_at").show(100, truncate=False)
+
+
+@app.cell
+def _(spark):
+    print("=== Current Bronze Estimates ===")
+    spark.table("bronze_estimates").orderBy("account_id", "year", "_inserted_at").show(100, truncate=False)
+
+
+@app.cell
+def _(spark):
+    print("=== Current Silver Control ===")
+    spark.table("silver_control").show()
 
 
 if __name__ == "__main__":
