@@ -246,11 +246,11 @@ def _(T):
             T.StructField("underwriting_month", T.DateType(), False),
             T.StructField("amount", T.DoubleType(), False),
             T.StructField("category", T.StringType(), False),
-            T.StructField("actual_type", T.StringType(), False),
+            T.StructField("actual_type", T.StringType(), True),
             T.StructField("currency", T.StringType(), True),
             T.StructField("_source_event_id", T.StringType(), False),
             T.StructField("_journal_event_id", T.StringType(), False),
-            T.StructField("_updated_at", T.TimestampType(), False),
+            T.StructField("_inserted_at", T.TimestampType(), False),
         ]
     )
 
@@ -627,14 +627,14 @@ def _(append_bronze_estimates, dt, make_estimate_batch):
         ],
     )
 
-    append_bronze_estimates(monthly_batch)    # append_bronze_ledger(ledger_batch_2)
+    append_bronze_estimates(monthly_batch)
     return
 
 
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_estimates
         """,
         engine=conn
@@ -720,8 +720,8 @@ def _(append_control_event, dt):
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
-        select * from silver_estimates where account_id = '0001'
+        """
+        select * from silver_estimates where account_id = '0002'
         """,
         engine=conn
     )
@@ -729,10 +729,10 @@ def _(conn, mo, silver_estimates):
 
 
 @app.cell
-def _(conn, mo, silver_estimates):
+def _(conn, mo, silver_ledger):
     _df = mo.sql(
-        f"""
-        select * from silver_estimates -- where account_id = '0002' order by _updated_at desc
+        """
+        select * from silver_ledger -- where account_id = '0002' order by _updated_at desc
         """,
         engine=conn
     )
@@ -742,7 +742,7 @@ def _(conn, mo, silver_estimates):
 @app.cell(hide_code=True)
 def _(conn, mo, silver_control):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_control
         """,
         engine=conn
@@ -763,14 +763,14 @@ def _(DeltaTable, spark, transactional_ledger_schema):
         return gold_txn_ledger_path
 
     init_txn_ledger()
-    return
+    return (gold_txn_ledger_path,)
 
 
 @app.cell
-def _(conn, gold_transactional_ledger, mo):
+def _(conn, mo, silver_estimates):
     _df = mo.sql(
         f"""
-        select * from gold_transactional_ledger
+        select * from silver_estimates
         """,
         engine=conn
     )
@@ -778,12 +778,7 @@ def _(conn, gold_transactional_ledger, mo):
 
 
 @app.cell
-def _():
-    return
-
-
-@app.cell
-def _(F, Window, uuid):
+def _(F, uuid):
     def delta_calculation_engine(estimates_df, hbd_df, ledger_df):
         """
         Set-based delta calculation.
@@ -794,33 +789,20 @@ def _(F, Window, uuid):
         """
         now = F.current_timestamp()
 
-        # 1. Get latest HBD per account/year
-        latest_hbd = (
-            hbd_df
-            .withColumn(
-                "rn",
-                F.row_number().over(
-                    Window.partitionBy("account_id", "year").orderBy(F.desc("_inserted_at"))
-                )
-            )
-            .filter(F.col("rn") == 1)
-            .select("account_id", "year", "holdback_date")
-        )
-
-        # 2. Apply HBD boundary: closed months get target=0, open months keep estimate
+        # 1. Apply HBD boundary: closed months get target=0, open months keep estimate
         with_targets = (
             estimates_df
-            .join(latest_hbd, ["account_id", "year"], "left")
-            .withColumn(
+            .join(hbd_df, ["account_id", "year"], "left")
+            .filter(
+                F.col("holdback_date").isNull() | (F.col("month") > F.col("holdback_date"))
+            )
+            .withColumnRenamed(
+                "estimate",
                 "target",
-                F.when(
-                    F.col("holdback_date").isNotNull() & (F.col("month") <= F.col("holdback_date")),
-                    F.lit(0.0)
-                ).otherwise(F.col("estimate"))
             )
         )
 
-        # 3. Fetch existing ledger sums
+        # 2. Fetch existing ledger sums
         existing_sums = (
             ledger_df
             .filter(F.col("category") == "estimate")
@@ -829,7 +811,7 @@ def _(F, Window, uuid):
             .withColumnRenamed("underwriting_month", "month")
         )
 
-        # 4. Compute deltas: delta = target - existing
+        # 3. Compute deltas: delta = target - existing
         deltas = (
             with_targets
             .join(existing_sums, ["account_id", "year", "month"], "left")
@@ -837,7 +819,7 @@ def _(F, Window, uuid):
             .withColumn("delta", F.col("target") - F.col("existing"))
         )
 
-        # 5. Format as journal entries
+        # 4. Format as journal entries
         journal_entries = (
             deltas
             .select(
@@ -848,6 +830,7 @@ def _(F, Window, uuid):
                 F.lit("estimate").alias("category"),
                 F.lit(None).alias("actual_type").cast("string"),
                 F.coalesce(F.col("currency"), F.lit("USD")).alias("currency"),
+                F.col("_event_id").alias("_source_event_id"),
                 F.lit(str(uuid.uuid4())).alias("_journal_event_id"),
                 now.alias("_inserted_at")
             )
@@ -867,22 +850,81 @@ def _(delta_calculation_engine, spark):
 
     # Compute deltas
     deltas = delta_calculation_engine(estimates_df, hbd_df, ledger_df)
-
-    return (deltas,)
-
-
-@app.cell
-def _(deltas):
     deltas
     return
 
 
-app._unparsable_cell(
-    r"""
-    def merge_delta_to_gold_txn()
-    """,
-    name="_"
-)
+@app.cell
+def _(F, Window, delta_calculation_engine, gold_txn_ledger_path, spark):
+    app_id = "streaming-transactional-ledger"
+
+    def process_silver_estimates_batch(batch_df, batch_id):
+        """
+        Process micro-batch of silver_estimates CDF changes into gold transactional ledger.
+
+        Deduplicates within the micro-batch to get latest value per account/year/month,
+        then computes and books deltas.
+        """
+
+        if batch_df.isEmpty(): return
+        # 1. Deduplicate: get latest post-image per account/year/month in batch
+        deduped_batch = (
+            batch_df
+            .withColumn(
+                "rn",
+                F.row_number().over(
+                    Window.partitionBy("account_id", "year", "month").orderBy(F.desc("_commit_timestamp"))
+                )
+            )
+            .filter(F.col("rn") == 1)
+            .drop("rn", "_change_type", "_commit_version", "_commit_timestamp")
+        )
+
+        # 2. Get latest HBD per account/year
+        hbd_df = spark.table("silver_control")
+        latest_hbd = (
+            hbd_df
+            .withColumn(
+                "rn",
+                F.row_number().over(
+                    Window.partitionBy("account_id", "year").orderBy(F.desc("_inserted_at"))
+                )
+            )
+            .filter(F.col("rn") == 1)
+            .select("account_id", "year", "holdback_date")
+        )
+
+        # 3. Get existing ledger
+        ledger_df = spark.table("gold_transactional_ledger")
+
+        # 4. Compute deltas
+        deltas = delta_calculation_engine(deduped_batch, latest_hbd, ledger_df)
+
+        deltas.write.format("delta").option("txnVersion", batch_id).option("txnAppId", app_id).mode("append").save(gold_txn_ledger_path)
+
+    return (process_silver_estimates_batch,)
+
+
+@app.cell
+def _(process_silver_estimates_batch, silver_estimate_path, spark):
+    # Trigger 1: Stream silver_estimates CDF -> gold transactional ledger
+    est_stream = (
+        spark.readStream.format("delta")
+        .option("readChangeFeed", "true")
+        .load(silver_estimate_path)
+        .writeStream.foreachBatch(process_silver_estimates_batch)
+        .option("checkpointLocation", "s3a://lakehouse/delta/checkpoints/gold_estimates")
+        .trigger(availableNow=True)
+        .start()
+    )
+
+    est_stream.awaitTermination()
+    return
+
+
+@app.cell
+def _():
+    return
 
 
 if __name__ == "__main__":
