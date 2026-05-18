@@ -170,6 +170,12 @@ def _(conn):
 
 
 @app.cell
+def _(conn):
+    conn.list_tables()
+    return
+
+
+@app.cell
 def _(T):
     # --- Estimate Schemas (existing) ---
     estimate_schema = T.StructType(
@@ -264,6 +270,7 @@ def _(T):
         control_schema,
         silver_estimate_schema,
         silver_ledger_schema,
+        transactional_ledger_schema,
     )
 
 
@@ -437,6 +444,11 @@ def _(DeltaTable, silver_ledger_schema, spark):
 
 
     return init_silver_ledger, silver_ledger_path
+
+
+@app.cell
+def _():
+    return
 
 
 @app.cell
@@ -615,17 +627,15 @@ def _(append_bronze_estimates, dt, make_estimate_batch):
         ],
     )
 
-    append_bronze_estimates(monthly_batch)
-    # append_bronze_ledger(ledger_batch_1)
-    # append_bronze_ledger(ledger_batch_2)
+    append_bronze_estimates(monthly_batch)    # append_bronze_ledger(ledger_batch_2)
     return
 
 
 @app.cell
-def _(bronze_estimates, conn, mo):
+def _(conn, mo, silver_estimates):
     _df = mo.sql(
         f"""
-        select * from bronze_estimates
+        select * from silver_estimates
         """,
         engine=conn
     )
@@ -719,10 +729,21 @@ def _(conn, mo, silver_estimates):
 
 
 @app.cell
-def _(bronze_estimates, conn, mo):
+def _(conn, mo, silver_estimates):
     _df = mo.sql(
         f"""
-        select * from bronze_estimates where account_id = '0001' order by _inserted_at desc
+        select * from silver_estimates -- where account_id = '0002' order by _updated_at desc
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(conn, mo, silver_control):
+    _df = mo.sql(
+        f"""
+        select * from silver_control
         """,
         engine=conn
     )
@@ -730,22 +751,138 @@ def _(bronze_estimates, conn, mo):
 
 
 @app.cell
-def _(spark):
-    # Verify silver estimates
-    spark.read.format("delta").load("s3a://lakehouse/delta/silver_estimates").show()
+def _(DeltaTable, spark, transactional_ledger_schema):
+    gold_txn_ledger_path = "s3a://lakehouse/delta/gold_transactional_ledger"
+
+    def init_txn_ledger():
+        DeltaTable.createIfNotExists(spark).location(
+            gold_txn_ledger_path
+        ).tableName("gold_transactional_ledger").addColumns(
+            transactional_ledger_schema
+        ).execute()
+        return gold_txn_ledger_path
+
+    init_txn_ledger()
     return
 
 
 @app.cell
-def _(spark):
-    # Verify silver ledger
-    spark.read.format("delta").load("s3a://lakehouse/delta/silver_ledger").show()
+def _(conn, gold_transactional_ledger, mo):
+    _df = mo.sql(
+        f"""
+        select * from gold_transactional_ledger
+        """,
+        engine=conn
+    )
     return
 
 
 @app.cell
 def _():
     return
+
+
+@app.cell
+def _(F, Window, uuid):
+    def delta_calculation_engine(estimates_df, hbd_df, ledger_df):
+        """
+        Set-based delta calculation.
+
+        Silver estimates already contain the final monthly values.
+        Apply holdback date boundary (closed months -> target = 0), then compute
+        delta against existing ledger.
+        """
+        now = F.current_timestamp()
+
+        # 1. Get latest HBD per account/year
+        latest_hbd = (
+            hbd_df
+            .withColumn(
+                "rn",
+                F.row_number().over(
+                    Window.partitionBy("account_id", "year").orderBy(F.desc("_inserted_at"))
+                )
+            )
+            .filter(F.col("rn") == 1)
+            .select("account_id", "year", "holdback_date")
+        )
+
+        # 2. Apply HBD boundary: closed months get target=0, open months keep estimate
+        with_targets = (
+            estimates_df
+            .join(latest_hbd, ["account_id", "year"], "left")
+            .withColumn(
+                "target",
+                F.when(
+                    F.col("holdback_date").isNotNull() & (F.col("month") <= F.col("holdback_date")),
+                    F.lit(0.0)
+                ).otherwise(F.col("estimate"))
+            )
+        )
+
+        # 3. Fetch existing ledger sums
+        existing_sums = (
+            ledger_df
+            .filter(F.col("category") == "estimate")
+            .groupBy("account_id", "year", "underwriting_month")
+            .agg(F.sum("amount").alias("existing"))
+            .withColumnRenamed("underwriting_month", "month")
+        )
+
+        # 4. Compute deltas: delta = target - existing
+        deltas = (
+            with_targets
+            .join(existing_sums, ["account_id", "year", "month"], "left")
+            .withColumn("existing", F.coalesce(F.col("existing"), F.lit(0.0)))
+            .withColumn("delta", F.col("target") - F.col("existing"))
+        )
+
+        # 5. Format as journal entries
+        journal_entries = (
+            deltas
+            .select(
+                "account_id",
+                "year",
+                F.col("month").alias("underwriting_month"),
+                F.col("delta").alias("amount"),
+                F.lit("estimate").alias("category"),
+                F.lit(None).alias("actual_type").cast("string"),
+                F.coalesce(F.col("currency"), F.lit("USD")).alias("currency"),
+                F.lit(str(uuid.uuid4())).alias("_journal_event_id"),
+                now.alias("_inserted_at")
+            )
+        )
+
+        return journal_entries
+
+    return (delta_calculation_engine,)
+
+
+@app.cell
+def _(delta_calculation_engine, spark):
+    # Read full silver state and existing ledger
+    estimates_df = spark.table("silver_estimates")
+    hbd_df = spark.table("silver_control")
+    ledger_df = spark.table("gold_transactional_ledger")
+
+    # Compute deltas
+    deltas = delta_calculation_engine(estimates_df, hbd_df, ledger_df)
+
+    return (deltas,)
+
+
+@app.cell
+def _(deltas):
+    deltas
+    return
+
+
+app._unparsable_cell(
+    r"""
+    def merge_delta_to_gold_txn()
+    """,
+    name="_"
+)
 
 
 if __name__ == "__main__":
