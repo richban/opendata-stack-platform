@@ -333,7 +333,7 @@ def _(append_control_event, dt):
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from bronze_estimates where account_id = '0002' order by _inserted_at desc
         """,
         engine=conn
@@ -344,7 +344,7 @@ def _(bronze_estimates, conn, mo):
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_estimates where account_id = '0002' order by _updated_at desc
         """,
         engine=conn
@@ -355,7 +355,7 @@ def _(conn, mo, silver_estimates):
 @app.cell
 def _(conn, gold_transactional_ledger, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from gold_transactional_ledger where account_id = '0002' order by underwriting_month, _inserted_at DESC
         """,
         engine=conn
@@ -364,31 +364,57 @@ def _(conn, gold_transactional_ledger, mo):
 
 
 @app.cell
-def _(F, uuid):
+def _(F, Window, uuid):
     def delta_calculation_engine(estimates_df, hbd_df, ledger_df):
         """
         Set-based delta calculation.
 
-        Silver estimates already contain the final monthly values.
-        Apply holdback date boundary (closed months -> target = 0), then compute
-        delta against existing ledger.
-        """
-        now = F.current_timestamp()
+        Computes target per month based on estimation mode and HBD, then
+        delta = target - existing_ledger.
 
-        # 1. Apply HBD boundary: closed months get target=0, open months keep estimate
-        with_targets = (
+        Annual mode: target = sum(estimate) / open_months (same across group)
+        Monthly mode: target = estimate for open months, 0 for closed
+        """
+        ay_window = Window.partitionBy("account_id", "year")
+
+
+        # Join with HBD (already latest per account/year) and compute group metrics
+        with_metrics = (
             estimates_df
             .join(hbd_df, ["account_id", "year"], "left")
-            .filter(
-                F.col("holdback_date").isNull() | (F.col("month") > F.col("holdback_date"))
-            )
-            .withColumnRenamed(
-                "estimate",
-                "target",
+            .withColumn("holdback_date", F.coalesce(F.col("holdback_date"), F.lit("1900-01-01").cast("date")))
+            .withColumn("total_estimate", F.sum("estimate").over(ay_window))
+            .withColumn(
+                "open_months",
+                F.sum(
+                    F.when(F.col("month") > F.col("holdback_date"), F.lit(1)).otherwise(F.lit(0))
+                ).over(ay_window),
             )
         )
 
-        # 2. Fetch existing ledger sums
+        # Compute target: 0 for closed, redistributed for annual, explicit for monthly
+        with_target = with_metrics.withColumn(
+            "annual_target",
+            F.when(
+                F.col("open_months") == 0,
+                F.lit(0.0),
+            ).otherwise(
+                F.col("total_estimate") / F.col("open_months"),
+            ),
+        ).withColumn(
+            "target",
+            F.when(
+                F.col("month") <= F.col("holdback_date"),
+                F.lit(0.0),
+            ).when(
+                F.col("estimation_mode") == "A",
+                F.col("annual_target"),
+            ).otherwise(
+                F.col("estimate"),
+            ),
+        )
+
+        # Fetch existing ledger sums
         existing_sums = (
             ledger_df
             .filter(F.col("category") == "estimate")
@@ -397,15 +423,15 @@ def _(F, uuid):
             .withColumnRenamed("underwriting_month", "month")
         )
 
-        # 3. Compute deltas: delta = target - existing
+        # Compute deltas: delta = target - existing
         deltas = (
-            with_targets
+            with_target
             .join(existing_sums, ["account_id", "year", "month"], "left")
             .withColumn("existing", F.coalesce(F.col("existing"), F.lit(0.0)))
             .withColumn("delta", F.col("target") - F.col("existing"))
         )
 
-        # 4. Format as journal entries
+        # Format as journal entries
         journal_entries = (
             deltas
             .select(
@@ -418,9 +444,9 @@ def _(F, uuid):
                 F.coalesce(F.col("currency"), F.lit("USD")).alias("currency"),
                 F.col("_event_id").alias("_source_event_id"),
                 F.lit(str(uuid.uuid4())).alias("_journal_event_id"),
-                now.alias("_inserted_at")
+                F.current_timestamp().alias("_inserted_at"),
             )
-            .filter(F.col("amount") > F.lit(0.0))
+            .filter(F.abs(F.col("amount")) > F.lit(0.0))
         )
 
         return journal_entries
@@ -559,59 +585,6 @@ def _(process_silver_estimates_batch, silver_estimate_path, spark):
     )
 
     est_stream_2.awaitTermination()
-    return
-
-
-@app.cell
-def _(append_bronze_estimates, make_estimate_batch):
-    batch_dup = make_estimate_batch(
-        [
-            ("A", str(2).zfill(4), 2026, None, "USD", 36.0),
-        ],
-    )
-
-    append_bronze_estimates(batch_dup)
-
-    batch_a = make_estimate_batch(
-        [
-            ("A", str(2).zfill(4), 2026, None, "USD", 48.0),
-        ],
-    )
-
-    append_bronze_estimates(batch_a)
-    return
-
-
-@app.cell
-def _(spark):
-    spark.read.json("s3a://lakehouse/delta/checkpoints/gold_estimates/offsets/*").show(truncate=False)
-    return
-
-
-@app.cell
-def _(spark):
-    spark.sql("DESCRIBE HISTORY silver_estimates").show()
-    return
-
-
-@app.cell
-def _(spark):
-    print("=== Current Silver Estimates ===")
-    spark.table("silver_estimates").orderBy("account_id", "year", "month").show(24, truncate=False)
-    return
-
-
-@app.cell
-def _(spark):
-    print("=== Current Gold Ledger ===")
-    spark.table("gold_transactional_ledger").orderBy("account_id", "year", "underwriting_month", "_updated_at").show(100, truncate=False)
-    return
-
-
-@app.cell
-def _(spark):
-    print("=== Current Bronze Estimates ===")
-    spark.table("bronze_estimates").orderBy("account_id", "year", "_inserted_at").show(100, truncate=False)
     return
 
 
@@ -989,118 +962,23 @@ def _():
     return
 
 
-@app.cell(column=2, hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Goal
+@app.cell(column=2)
+def _(append_bronze_estimates, make_estimate_batch):
+    batch_dup = make_estimate_batch(
+        [
+            ("A", str(2).zfill(4), 2026, None, "USD", 36.0),
+        ],
+    )
 
-    Implement a event sourced transactional ledger (MVP) via Spark/Delta Table.
+    append_bronze_estimates(batch_dup)
 
-    1. User business volume estimates are submitted for a given account for a given
-    period in Annual and Monthly granularity estimation modes. This should be saved as
-    bronze layer for append only style log.
+    batch_a = make_estimate_batch(
+        [
+            ("A", str(2).zfill(4), 2026, None, "USD", 48.0),
+        ],
+    )
 
-
-    ```
-        ("A", str(1).zfill(4), 2026, None, "USD", 12000.0)
-        ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 5000.0),
-        ("M", str(1).zfill(4), 2026, dt.date(2026, 2, 1), "USD", 5000.0),
-        ("M", str(1).zfill(4), 2026, dt.date(2026, 3, 1), "USD", 5000.0),
-        ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 1000.0),
-        ("M", str(1).zfill(4), 2026, dt.date(2026, 2, 1), "USD", 1000.0),
-    ```
-
-    - these specify the user intent value for the given account given financial period
-      - these are snapshots
-    - the latest snapshot is always the authoritative truth
-    - the trasactional ledger always have monthly granularity
-    - this impacts downstream (ledger) if the user submission is "A" (annual) the volume estimates have
-      to be redistributed for that give financial period from the holdback_date
-      (annual_estimation_value) / (remaining months from holdback_date to end of the
-      year)
-    - there can be use case where two different users submit the same estimates - how to
-      handle this?
-
-    - Mode Switches: A↔M; user can swith from Annual to Monthly estimations modes. If
-      the account started with Annual then the user submits and monthly we need to
-      balance the books on the ledger:
-
-    Initial volume estimate:
-    ("A", str(1).zfill(4), 2026, None, "USD", 12000.0)
-
-    this means in the ledger we need to create perhaps 12 months of
-
-    ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", +1000.0),
-
-    if later then user submits a new estimate
-
-    ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 1500.0),
-
-    we can perhaps create a temp view or just fetch that existing account in the ledger
-    as a dataframe multiply by `-1` and union by the incoming new value therefore we get
-    the delta and we book this value in the ledger
-
-    existing account multipied by -1.0
-    ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", -1000.0),
-    union with the incoming account:
-    ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 1500.0),
-    this will result in a
-    ("M", str(1).zfill(4), 2026, dt.date(2026, 1, 1), "USD", 500.0),
-
-    which will be booked on the transactinal ledger - there for the accounts are
-    balancing.
-
-    If the accounts have been in Monthly estimation mode and then swithching to annual,
-    we need to perform the same operation. Redistribute the incoming annual based on the
-    holdback_date, compute the deltas for each month and book those deltas in the
-    ledger.
-
-
-    HBD (holdback_date): drives estimates, accruals (cedent) and reconsiliations.
-    - cannot be set beyond current financial period end
-    - moves forward or backward
-    - moving holdback_date backward (for late incoming bookings) triggers
-      re-distribution of future estimates to earlier periods (annual mode only)
-    - moving holdback_date forward typically occurs once bookings are closed.
-
-    An example of the transactional_ledger with a subset of columns:
-
-    account_id	year	year_month	ammount	category	new_estimates	new_bookings
-    1	2026	2026-01-01	1,000.00	estimates	0.00	-1,000.00
-    1	2026	2026-01-02	1,000.00	estimates	0.00	-1,000.00
-    1	2026	2026-01-03	1,000.00	estimates	0.00	-1,000.00
-    1	2026	2026-01-04	1,000.00	estimates	1,333.33	333.33
-    1	2026	2026-01-05	1,000.00	estimates	1,333.33	333.33
-    1	2026	2026-01-06	1,000.00	estimates	1,333.33	333.33
-    1	2026	2026-01-07	1,000.00	estimates	1,333.33	333.33
-    1	2026	2026-01-08	1,000.00	estimates	1,333.33	333.33
-    1	2026	2026-01-09	1,000.00	estimates	1,333.33	333.33
-    1	2026	2026-01-10	1,000.00	estimates	1,333.33	333.33
-    1	2026	2026-01-11	1,000.00	estimates	1,333.33	333.33
-    1	2026	2026-01-12	1,000.00	estimates	1,333.33	333.33
-    Hold back date moved to 2026-03-31			Cedent Data has arrived
-    1	2026	2026-01-03	3,000.00	Cedent
-    Recalculate estimates and book deltas
-    1	2026	2026-01-01	-1,000.00	estimates
-    1	2026	2026-01-02	-1,000.00	estimates
-    1	2026	2026-01-03	-1,000.00	estimates
-    1	2026	2026-01-04	333.33	estimates
-    1	2026	2026-01-05	333.33	estimates
-    1	2026	2026-01-06	333.33	estimates
-    1	2026	2026-01-07	333.33	estimates
-    1	2026	2026-01-08	333.33	estimates
-    1	2026	2026-01-09	333.33	estimates
-    1	2026	2026-01-10	333.33	estimates
-    1	2026	2026-01-11	333.33	estimates
-    1	2026	2026-01-12	333.33	estimates
-
-
-    - So we have to book changes in the ledger either when listening to changes of user
-      input submissions aka New business volumes estimates in Annual or month mode.
-    - book changes when the Cedent data has arrived and the hold back date has moved
-
-    4. Follows Delta Lake Medallion Architecture (Bronze → Silver → Gold)
-    """)
+    append_bronze_estimates(batch_a)
     return
 
 
