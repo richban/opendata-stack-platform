@@ -5,28 +5,6 @@ app = marimo.App(width="columns")
 
 
 @app.cell(column=0)
-def _(create_delta_spark_session, get_s3_store):
-    store = get_s3_store()
-    spark, conn = create_delta_spark_session("s3a://lakehouse/delta")
-
-    # Ensure the Spark catalog is set up for S3 path-based tables.
-    # spark.sql("CREATE DATABASE IF NOT EXISTS delta LOCATION 's3a://lakehouse/delta'")
-    return conn, spark
-
-
-@app.cell
-def _(conn):
-    conn.list_databases()
-    return
-
-
-@app.cell
-def _(conn):
-    conn.list_tables()
-    return
-
-
-@app.cell
 def _(dt, make_estimate_batch, make_ledger_batch):
     # Batch 1: Two accounts in Annual mode for 2026
     batch_1 = make_estimate_batch(
@@ -244,38 +222,6 @@ def _(conn, mo, silver_estimates):
 
 
 @app.cell
-def _(append_bronze_estimates, dt, make_estimate_batch):
-    m_batch = make_estimate_batch(
-        [
-            ("M", str(1).zfill(4), 2026, dt.date(2026, 4, 1), "USD", 5000.0),
-        ],
-    )
-
-    append_bronze_estimates(m_batch)
-
-    y_batch = make_estimate_batch(
-        [
-            ("A", str(1).zfill(4), 2026, None, "USD", 12000.0),
-        ],
-    )
-
-    append_bronze_estimates(y_batch)
-    return
-
-
-@app.cell
-def _(append_bronze_estimates, dt, make_estimate_batch):
-    m_batch_2 = make_estimate_batch(
-        [
-            ("M", str(1).zfill(4), 2026, dt.date(2026, 12, 1), "USD", 999.0),
-        ],
-    )
-
-    append_bronze_estimates(m_batch_2)
-    return
-
-
-@app.cell
 def poll_bronze_via_cdf(
     bronze_estimate_path,
     bronze_ledger_path,
@@ -331,9 +277,20 @@ def _(append_control_event, dt):
 
 
 @app.cell
+def _(conn, mo, silver_ledger):
+    _df = mo.sql(
+        f"""
+        select * from silver_ledger
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        """
+        f"""
         select * from bronze_estimates where account_id = '0002' order by _inserted_at desc
         """,
         engine=conn
@@ -344,7 +301,7 @@ def _(bronze_estimates, conn, mo):
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        """
+        f"""
         select * from silver_estimates where account_id = '0002' order by _updated_at desc
         """,
         engine=conn
@@ -355,8 +312,19 @@ def _(conn, mo, silver_estimates):
 @app.cell
 def _(conn, gold_transactional_ledger, mo):
     _df = mo.sql(
-        """
+        f"""
         select * from gold_transactional_ledger where account_id = '0002' order by underwriting_month, _inserted_at DESC
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
+def _(conn, mo, silver_control):
+    _df = mo.sql(
+        f"""
+        select * from silver_control
         """,
         engine=conn
     )
@@ -572,26 +540,118 @@ def _(process_silver_estimates_batch, silver_estimate_path, spark):
 
 
 @app.cell
-def _(process_silver_estimates_batch, silver_estimate_path, spark):
-    # Trigger 1: Stream silver_estimates CDF -> gold transactional ledger
-    est_stream_2 = (
-        spark.readStream.format("delta")
-        .option("readChangeFeed", "true")
-        .load(silver_estimate_path)
-        .writeStream.foreachBatch(process_silver_estimates_batch)
-        .option("checkpointLocation", "s3a://lakehouse/delta/checkpoints/gold_estimates")
-        .trigger(availableNow=True)
-        .start()
-    )
+def _(F, Window, gold_txn_ledger_path, uuid):
+    cedent_app_id = "streaming-cedent-to-gold"
 
-    est_stream_2.awaitTermination()
+    def process_silver_cedent_batch(batch_df, batch_id):
+        """Propagate cedent data to gold_transactional_ledger"""
+        if batch_df.isEmpty():
+            print(f"[Batch {batch_id}] Empty batch, skipping")
+            return
+
+        dedup_batch = (
+            batch_df.filter(
+                F.col("_change_type").isin(["insert", "update_postimage"])
+            )
+            .withColumn(
+                "rn",
+                F.row_number().over(
+                    Window.partitionBy("account_id", "year", "month", "type").orderBy(
+                        F.desc("_updated_at")
+                    )
+                ),
+            )
+            .filter(F.col("rn") == 1)
+            .drop("rn", "_change_type", "_commit_version", "_commit_timestamp")
+        )
+
+        cedent_entries = dedup_batch.select(
+            "account_id",
+            "year",
+            F.col("month").alias("underwriting_month"),
+            "amount",
+            F.lit("actual").alias("category"),
+            F.lit("Cedent").alias("actual_type"),
+            F.lit(None).cast("string").alias("currency"),
+            F.col("_event_id").alias("_source_event_id"),
+            F.lit(str(uuid.uuid4())).alias("_journal_event_id"),
+            F.current_timestamp().alias("_inserted_at"),
+        )
+
+        cedent_entries.write.format("delta").option("txnVersion", batch_id).option(
+            "txnAppId", cedent_app_id
+        ).mode("append").save(gold_txn_ledger_path)
+
+        print(f"[Batch {batch_id}] Wrote {cedent_entries.count()} cedent entries to gold")
+
+    return (process_silver_cedent_batch,)
+
+
+@app.cell
+def _(process_silver_cedent_batch, silver_ledger_path, spark):
+    # Poll via CDF cedent silver data -> gold transactional ledger
+    cedent_query = (
+        spark.readStream.format("delta")
+            .option("readChangeFeed", "true")
+            .load(silver_ledger_path)
+            .writeStream.foreachBatch(process_silver_cedent_batch)
+            .option("checkpointLocation", "s3a://lakehouse/delta/checkpoints/gold_cedent")
+            .trigger(availableNow=True)
+            .start()
+    )
     return
 
 
 @app.cell
-def _(spark):
-    print("=== Current Silver Control ===")
-    spark.table("silver_control").show()
+def _(F, Window, delta_calculation_engine, gold_txn_ledger_path, spark):
+    control_app_id = "streaming-control-to-gold"
+
+    def process_silver_control_batch(batch_df, batch_id):
+        """Process HBD movements and recompute estimate deltas."""
+
+        # 1. Deduplicate batch to latest HBD per account/year
+        latest_hbd = (
+            batch_df.filter(F.col("_change_type").isin(["insert", "update_postimage"]))
+            .withColumn(
+                "rn",
+                F.row_number().over(
+                    Window.partitionBy("account_id", "year").orderBy(F.desc("_inserted_at"))
+                ),
+            )
+            .filter(F.col("rn") == 1)
+            .drop("rn", "_change_type", "_commit_version", "_commit_timestamp")
+            .select("account_id", "year", "holdback_date")
+        )
+
+        # 2. Read all silver estimates for affected accounts
+        affected_accounts = latest_hbd.select("account_id", "year")
+        all_estimates = spark.table("silver_estimates").join(
+            affected_accounts, ["account_id", "year"], "inner"
+        )
+
+        # 3. Recompute deltas using new HBD
+        ledger_df = spark.table("gold_transactional_ledger")
+        deltas = delta_calculation_engine(all_estimates, latest_hbd, ledger_df)
+
+        # 4. Write deltas to gold
+        deltas.write.format("delta").option("txnVersion", batch_id).option(
+            "txnAppId", control_app_id
+        ).mode("append").save(gold_txn_ledger_path)
+
+    return (process_silver_control_batch,)
+
+
+@app.cell
+def _(process_silver_control_batch, silver_control_path, spark):
+    hbd_stream_query = (
+        spark.readStream.format("delta")
+        .option("readChangeFeed", "true")
+        .load(silver_control_path)
+        .writeStream.foreachBatch(process_silver_control_batch)
+        .option("checkpointLocation", "s3a://lakehouse/delta/checkpoints/holdback_date")
+        .trigger(availableNow=True)
+        .start()
+    )
     return
 
 
@@ -814,7 +874,7 @@ def _(DeltaTable, control_schema, dt, spark, uuid):
     def init_silver_control():
         DeltaTable.createIfNotExists(spark).tableName("silver_control").location(
             silver_control_path
-        ).addColumns(control_schema).execute()
+        ).addColumns(control_schema).property("delta.enableChangeDataFeed", "true").execute()
         return silver_control_path
 
     def append_control_event(account_id, year, holdback_date):
@@ -830,7 +890,7 @@ def _(DeltaTable, control_schema, dt, spark, uuid):
         df.write.format("delta").mode("append").save(silver_control_path)
         return silver_control_path
 
-    return append_control_event, init_silver_control
+    return append_control_event, init_silver_control, silver_control_path
 
 
 @app.cell
@@ -954,6 +1014,28 @@ def debug_silver_cdf(F, Window, spark):
             "_commit_version"
         ).show()
 
+    return (read_all_cdf,)
+
+
+@app.cell
+def _(create_delta_spark_session, get_s3_store):
+    store = get_s3_store()
+    spark, conn = create_delta_spark_session("s3a://lakehouse/delta")
+
+    # Ensure the Spark catalog is set up for S3 path-based tables.
+    # spark.sql("CREATE DATABASE IF NOT EXISTS delta LOCATION 's3a://lakehouse/delta'")
+    return conn, spark
+
+
+@app.cell
+def _(conn):
+    conn.list_databases()
+    return
+
+
+@app.cell
+def _(conn):
+    conn.list_tables()
     return
 
 
@@ -979,6 +1061,44 @@ def _(append_bronze_estimates, make_estimate_batch):
     )
 
     append_bronze_estimates(batch_a)
+    return
+
+
+@app.cell
+def _(append_bronze_estimates, dt, make_estimate_batch):
+    m_batch = make_estimate_batch(
+        [
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 4, 1), "USD", 5000.0),
+        ],
+    )
+
+    append_bronze_estimates(m_batch)
+
+    y_batch = make_estimate_batch(
+        [
+            ("A", str(1).zfill(4), 2026, None, "USD", 12000.0),
+        ],
+    )
+
+    append_bronze_estimates(y_batch)
+    return
+
+
+@app.cell
+def _(append_bronze_estimates, dt, make_estimate_batch):
+    m_batch_2 = make_estimate_batch(
+        [
+            ("M", str(1).zfill(4), 2026, dt.date(2026, 12, 1), "USD", 999.0),
+        ],
+    )
+
+    append_bronze_estimates(m_batch_2)
+    return
+
+
+@app.cell
+def _(read_all_cdf, silver_control_path):
+    read_all_cdf(silver_control_path)
     return
 
 
