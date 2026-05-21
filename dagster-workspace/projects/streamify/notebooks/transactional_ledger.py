@@ -211,17 +211,6 @@ def _(append_bronze_estimates, dt, make_estimate_batch):
 
 
 @app.cell
-def _(conn, mo, silver_estimates):
-    _df = mo.sql(
-        f"""
-        select * from silver_estimates
-        """,
-        engine=conn
-    )
-    return
-
-
-@app.cell
 def poll_bronze_via_cdf(
     bronze_estimate_path,
     bronze_ledger_path,
@@ -257,6 +246,17 @@ def poll_bronze_via_cdf(
 
 
 @app.cell
+def _(conn, mo, silver_estimates):
+    _df = mo.sql(
+        f"""
+        select * from silver_estimates
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
 def _(est_query):
     dir(est_query)
     return
@@ -277,10 +277,10 @@ def _(append_control_event, dt):
 
 
 @app.cell
-def _(conn, mo, silver_ledger):
+def _(conn, mo, silver_control):
     _df = mo.sql(
         f"""
-        select * from silver_ledger
+        select * from silver_control
         """,
         engine=conn
     )
@@ -599,6 +599,8 @@ def _(process_silver_cedent_batch, silver_ledger_path, spark):
             .trigger(availableNow=True)
             .start()
     )
+
+    cedent_query.awaitTermination()
     return
 
 
@@ -608,6 +610,9 @@ def _(F, Window, delta_calculation_engine, gold_txn_ledger_path, spark):
 
     def process_silver_control_batch(batch_df, batch_id):
         """Process HBD movements and recompute estimate deltas."""
+        if batch_df.isEmpty():
+            print(f"[Batch {batch_id}] Empty batch, skipping")
+            return
 
         # 1. Deduplicate batch to latest HBD per account/year
         latest_hbd = (
@@ -638,6 +643,8 @@ def _(F, Window, delta_calculation_engine, gold_txn_ledger_path, spark):
             "txnAppId", control_app_id
         ).mode("append").save(gold_txn_ledger_path)
 
+        print(f"[Batch {batch_id}] Wrote {deltas.count()} delta entries to gold")
+
     return (process_silver_control_batch,)
 
 
@@ -652,6 +659,13 @@ def _(process_silver_control_batch, silver_control_path, spark):
         .trigger(availableNow=True)
         .start()
     )
+
+    hbd_stream_query.awaitTermination()
+    return
+
+
+@app.cell
+def _():
     return
 
 
@@ -874,7 +888,8 @@ def _(DeltaTable, control_schema, dt, spark, uuid):
     def init_silver_control():
         DeltaTable.createIfNotExists(spark).tableName("silver_control").location(
             silver_control_path
-        ).addColumns(control_schema).property("delta.enableChangeDataFeed", "true").execute()
+        ).addColumns(control_schema).property(
+                "delta.enableChangeDataFeed", "true").execute()
         return silver_control_path
 
     def append_control_event(account_id, year, holdback_date):
@@ -889,6 +904,7 @@ def _(DeltaTable, control_schema, dt, spark, uuid):
         df = spark.createDataFrame([row], schema=control_schema)
         df.write.format("delta").mode("append").save(silver_control_path)
         return silver_control_path
+
 
     return append_control_event, init_silver_control, silver_control_path
 
