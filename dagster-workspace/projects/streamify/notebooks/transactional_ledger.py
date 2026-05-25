@@ -361,13 +361,31 @@ def _(F, Window, uuid):
         )
 
         # Compute target: 0 for closed, redistributed for annual, explicit for monthly
-        with_target = with_metrics.withColumn(
+        # First get HBD for cedent filtering
+        hbd_for_cedent = hbd_df.select("account_id", "year", "holdback_date")
+        
+        # Compute total cedent per account/year (only actuals up to HBD)
+        cedent_sums = (
+            ledger_df
+            .filter(F.col("category") == "actual")
+            .join(hbd_for_cedent, ["account_id", "year"], "left")
+            .withColumn("holdback_date", F.coalesce(F.col("holdback_date"), F.lit("1900-01-01").cast("date")))
+            .filter(F.col("underwriting_month") <= F.col("holdback_date"))
+            .groupBy("account_id", "year")
+            .agg(F.sum("amount").alias("total_cedent"))
+        )
+
+        with_target = with_metrics.join(
+            cedent_sums, ["account_id", "year"], "left"
+        ).withColumn(
+            "total_cedent", F.coalesce(F.col("total_cedent"), F.lit(0.0))
+        ).withColumn(
             "annual_target",
             F.when(
                 F.col("open_months") == 0,
                 F.lit(0.0),
             ).otherwise(
-                F.col("total_estimate") / F.col("open_months"),
+                (F.col("total_estimate") - F.col("total_cedent")) / F.col("open_months"),
             ),
         ).withColumn(
             "target",
@@ -614,6 +632,8 @@ def _(F, Window, delta_calculation_engine, gold_txn_ledger_path, spark):
             print(f"[Batch {batch_id}] Empty batch, skipping")
             return
 
+        batch_df.cache()
+
         # 1. Deduplicate batch to latest HBD per account/year
         latest_hbd = (
             batch_df.filter(F.col("_change_type").isin(["insert", "update_postimage"]))
@@ -644,6 +664,8 @@ def _(F, Window, delta_calculation_engine, gold_txn_ledger_path, spark):
         ).mode("append").save(gold_txn_ledger_path)
 
         print(f"[Batch {batch_id}] Wrote {deltas.count()} delta entries to gold")
+    
+        batch_df.unpersist()
 
     return (process_silver_control_batch,)
 
@@ -661,6 +683,39 @@ def _(process_silver_control_batch, silver_control_path, spark):
     )
 
     hbd_stream_query.awaitTermination()
+    return
+
+
+@app.cell
+def _(conn, mo, silver_control):
+    _df = mo.sql(
+        f"""
+        select * from silver_control
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
+def _(conn, gold_transactional_ledger, mo):
+    _df = mo.sql(
+        f"""
+        select * from gold_transactional_ledger where account_id = '0002' order by underwriting_month, _inserted_at DESC
+        """,
+        engine=conn
+    )
+    return
+
+
+@app.cell
+def _(conn, mo, silver_estimates):
+    _df = mo.sql(
+        f"""
+        select * from silver_estimates where account_id = '0002' order by month, _updated_at DESC
+        """,
+        engine=conn
+    )
     return
 
 
