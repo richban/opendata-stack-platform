@@ -14,6 +14,9 @@ from streamify.defs.resources import (
 from dataclasses import dataclass, asdict
 import datetime
 
+BATCH_SIZE_LIMIT = 1000  # Size-based trigger
+BATCH_TIME_LIMIT = 1.0  # Timer-based trigger (1 second)
+
 
 @dataclass
 class UserProfile:
@@ -57,13 +60,14 @@ class UserProfile:
         return data
 
 
-BATCH_SIZE_LIMIT = 1000  # Size-based trigger
-BATCH_TIME_LIMIT = 1.0  # Timer-based trigger (1 second)
-
-cfg = create_streaming_config()
+def avro_to_user_profile(obj, ctx):
+    if obj is None:
+        return None
+    return UserProfile.from_avro(obj)
 
 
 async def main():
+    cfg = create_streaming_config()
 
     redis_client = aioredis.Redis(
         host=cfg.redis_host,
@@ -74,7 +78,9 @@ async def main():
     print("✓ Async connected to Redis.")
 
     schema_client = AsyncSchemaRegistryClient({"url": cfg.schema_registry_url})
-    deserializer = await AsyncAvroDeserializer(schema_client)  # type: ignore
+    deserializer = await AsyncAvroDeserializer(
+        schema_client, from_dict=avro_to_user_profile
+    )  # type: ignore
 
     consumer_config = {
         "bootstrap.servers": cfg.kafka_bootstrap_servers,
@@ -115,8 +121,7 @@ async def main():
                 user_data = await deserializer(msg.value(), context)
 
                 if user_data:
-                    profile = UserProfile.from_avro(user_data)
-                    batch.append(profile)
+                    batch.append(user_data)
 
             current_time = time.perf_counter()
             time_since_last_flush = current_time - last_flush_time
