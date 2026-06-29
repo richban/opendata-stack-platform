@@ -18,52 +18,25 @@ BATCH_SIZE_LIMIT = 1000  # Size-based trigger
 BATCH_TIME_LIMIT = 1.0  # Timer-based trigger (1 second)
 
 
-@dataclass
-class UserProfile:
-    user_id: int
-    first_name: str
-    last_name: str
-    gender: str
-    city: str
-    state: str
-    zip_code: str
-    event_time: str
-    ingestion_time: str
+def transform_avro_to_redis(avro_dict: dict) -> dict:
+    """Directly normalizes Avro datatypes and keys to Redis hash format in a single pass."""
+    def clean_val(val) -> str:
+        if val is None:
+            return ""
+        if isinstance(val, datetime.datetime):
+            return val.isoformat()
+        return str(val)
 
-    @classmethod
-    def from_avro(cls, avro_dict: dict) -> "UserProfile":
-        """Parses raw Avro dictionary keys (case-insensitive/capitalized) and normalizes types."""
-
-        def clean_val(val) -> str:
-            if val is None:
-                return ""
-            if isinstance(val, datetime.datetime):
-                return val.isoformat()  # Convert Datetime to string
-            return str(val)
-
-        return cls(
-            user_id=int(avro_dict.get("USERID") or 0),
-            first_name=clean_val(avro_dict.get("FIRSTNAME")),
-            last_name=clean_val(avro_dict.get("LASTNAME")),
-            gender=clean_val(avro_dict.get("GENDER")),
-            city=clean_val(avro_dict.get("CITY")),
-            state=clean_val(avro_dict.get("STATE")),
-            zip_code=clean_val(avro_dict.get("ZIP")),
-            event_time=clean_val(avro_dict.get("EVENT_TIME")),
-            ingestion_time=clean_val(avro_dict.get("INGESTION_TIME")),
-        )
-
-    def to_redis_hash(self) -> dict:
-        """Returns a flat dictionary of strings suitable for Redis HSET (excludes ID)."""
-        data = asdict(self)
-        del data["user_id"]  # ID is used in the Redis key, not the hash itself
-        return data
-
-
-def avro_to_user_profile(obj, ctx):
-    if obj is None:
-        return None
-    return UserProfile.from_avro(obj)
+    return {
+        "first_name": clean_val(avro_dict.get("FIRSTNAME")),
+        "last_name": clean_val(avro_dict.get("LASTNAME")),
+        "gender": clean_val(avro_dict.get("GENDER")),
+        "city": clean_val(avro_dict.get("CITY")),
+        "state": clean_val(avro_dict.get("STATE")),
+        "zip_code": clean_val(avro_dict.get("ZIP")),
+        "event_time": clean_val(avro_dict.get("EVENT_TIME")),
+        "ingestion_time": clean_val(avro_dict.get("INGESTION_TIME")),
+    }
 
 
 async def main():
@@ -78,9 +51,7 @@ async def main():
     print("✓ Async connected to Redis.")
 
     schema_client = AsyncSchemaRegistryClient({"url": cfg.schema_registry_url})
-    deserializer = await AsyncAvroDeserializer(
-        schema_client, from_dict=avro_to_user_profile
-    )  # type: ignore
+    deserializer = await AsyncAvroDeserializer(schema_client)  # type: ignore
 
     consumer_config = {
         "bootstrap.servers": cfg.kafka_bootstrap_servers,
@@ -131,10 +102,12 @@ async def main():
             ):
                 # flush to redis via pipeline
                 async with redis_client.pipeline(transaction=False) as pipe:
-                    for user in batch:
-                        if user:
-                            redis_key = f"user:{user.user_id}"
-                            pipe.hset(redis_key, mapping=user.to_redis_hash())
+                    for user_data in batch:
+                        user_id = user_data.get("USERID")
+                        if user_id:
+                            redis_key = f"user:{user_id}"
+                            redis_hash = transform_avro_to_redis(user_data)
+                            pipe.hset(redis_key, mapping=redis_hash)
 
                     # Send all commands to Redis in a single network round-trip
                     await pipe.execute()
@@ -145,6 +118,9 @@ async def main():
                 print(f"✓ Flushed batch of {len(batch)} records to Redis in one RTT.")
                 batch.clear()
                 last_flush_time = current_time
+
+            # Yield control back to asyncio loop
+            await asyncio.sleep(0.01)
 
     except KeyboardInterrupt:
         print("\nStopping async consumer...")
