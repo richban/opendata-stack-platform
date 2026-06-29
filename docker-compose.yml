@@ -109,7 +109,15 @@ services:
       QUARKUS_DATASOURCE_USERNAME: polaris_user
       QUARKUS_DATASOURCE_PASSWORD: polaris_password
       POLARIS_BOOTSTRAP_CREDENTIALS: default,admin,password
-    command: ["bootstrap", "--realm", "default", "--credential", "default,admin,password", "--print-credentials"]
+    command:
+      [
+        "bootstrap",
+        "--realm",
+        "default",
+        "--credential",
+        "default,admin,password",
+        "--print-credentials",
+      ]
 
   polaris-init:
     image: python:3.11-slim
@@ -145,30 +153,88 @@ services:
       - zookeeper_logs:/var/lib/zookeeper/log
 
   kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    depends_on:
-      - zookeeper
+    image: confluentinc/cp-kafka:8.3.0
+    container_name: kafka
     ports:
       - "9092:9092"
       - "9093:9093"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka:9092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9093'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
     networks:
       - opendata_network
     volumes:
       - kafka_data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server kafka:9092"]
       interval: 10s
       timeout: 10s
       retries: 5
       start_period: 30s
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:8.3.0
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka:9092'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    networks:
+      - opendata_network
+
+  ksqldb-server:
+    image: confluentinc/cp-ksqldb-server:8.3.0
+    hostname: ksqldb-server
+    container_name: ksqldb-server
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_started
+    ports:
+      - "8088:8088"
+    volumes:
+      - ./scripts/ksql-queries.sql:/etc/ksql/queries.sql
+    environment:
+      KSQL_CONFIG_DIR: "/etc/ksql"
+      KSQL_BOOTSTRAP_SERVERS: kafka:9092
+      KSQL_HOST_NAME: ksqldb-server
+      KSQL_LISTENERS: http://0.0.0.0:8088
+      KSQL_CACHE_MAX_BYTES_BUFFERING: 0
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_REPLICATION_FACTOR: 1
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
+      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
+      # KSQL_KSQL_QUERIES_FILE: "/etc/ksql/queries.sql"  # only for backfill
+    networks:
+      - opendata_network
+  ksqldb-cli:
+    image: confluentinc/cp-ksqldb-server:8.3.0
+    container_name: ksqldb-cli
+    depends_on:
+      - ksqldb-server
+    entrypoint: /bin/sh
+    tty: true
+    networks:
+      - opendata_network
 
   # ---------------------------------------------------------------------------
   # Spark 4.0.2 — Scala 2.13, Java 21
@@ -230,7 +296,8 @@ services:
         org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.1,\
         org.apache.iceberg:iceberg-aws-bundle:1.10.1,\
         org.apache.hadoop:hadoop-aws:3.4.1,\
-        org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.2"
+        org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.2,\
+        io.dataflint:dataflint-spark4_2.13:0.8.8"
 
         # 1. Pre-download packages via a throwaway SparkPi run so the ivy cache
         #    is warm before the Connect server starts.
@@ -247,6 +314,8 @@ services:
         echo "==> Starting Spark Connect server..."
         /opt/spark/sbin/start-connect-server.sh \
           --packages "$$PACKAGES" \
+          --conf spark.plugins=io.dataflint.spark.SparkDataflintPlugin \
+          --conf spark.dataflint.iceberg.autoCatalogDiscovery=true \
           --conf spark.driver.host=spark-connect \
           --conf spark.driver.memory=4g \
           --conf spark.executor.memory=8g \
@@ -310,7 +379,7 @@ services:
         /opt/eventsim/eventsim.sh \
           -c /opt/eventsim/examples/example-config.json \
           --from 1 \
-          --to 0 \
+          --end-time 2035-01-01T00:00:00 \
           --nusers 3000 \
           --growth-rate 0.01 \
           --userid 1 \
@@ -341,7 +410,7 @@ services:
       context: ./polaris-console/console
       dockerfile: docker/Dockerfile
     ports:
-      - "3001:80"
+      - "3002:80"
     environment:
       VITE_POLARIS_API_URL: http://polaris:8181
       VITE_POLARIS_REALM: default
@@ -352,6 +421,29 @@ services:
     depends_on:
       polaris:
         condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - opendata_network
+    restart: unless-stopped
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse
+    ports:
+      - "8123:8123"
+      - "9009:9000"
+    environment:
+      - CLICKHOUSE_DB=streamify
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=
+    networks:
+      - opendata_network
     restart: unless-stopped
 
 networks:
