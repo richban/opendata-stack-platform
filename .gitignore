@@ -123,3 +123,6 @@ data/nyc_db_schema.xml
 .claude/docs/production-architecture.md
 .claude/prompts/001-pii-pipeline-marimo-notebook.md
 .claude/tasks/prd-streaming.md
+.gitnexus
+__marimo__
+*.wal

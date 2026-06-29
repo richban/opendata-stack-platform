@@ -32,7 +32,6 @@ def _(mo):
     - Model Versioning: Simple incrementing integers (1, 2, 3...)
     - Test Assertions: Include tests for accurate totals, idempotency, bitemporal support, monthly mode
     """)
-    return
 
 
 @app.cell
@@ -82,7 +81,6 @@ def _(create_delta_spark_session, get_s3_store):
 @app.cell
 def _(conn):
     conn.list_databases()
-    return
 
 
 @app.cell
@@ -161,6 +159,22 @@ def _(T):
         ]
     )
 
+
+    gold_journal_schema = T.StructType(
+        [
+            T.StructField("account_id", T.StringType(), False),
+            T.StructField("year", T.IntegerType(), False),
+            T.StructField("underwriting_month", T.DateType(), False),
+            T.StructField("amount", T.DoubleType(), False),
+            T.StructField("category", T.StringType(), False),
+            T.StructField("actual_type", T.StringType(), False),
+            T.StructField("currency", T.StringType(), True),
+            T.StructField("source_event_id", T.StringType(), False),
+            T.StructField("journal_event_id", T.StringType(), False),
+            T.StructField("updated_at", T.TimestampType(), False),
+        ]
+    )
+
     # --- Control Table Schema ---
     control_schema = T.StructType(
         [
@@ -213,7 +227,7 @@ def _(T, bronze_estimate_schema, bronze_ledger_schema, random, spark, uuid):
 
 
 @app.cell
-def _(make_estimate_batch):
+def _(dt, make_estimate_batch, make_ledger_batch):
     # Batch 1: Two accounts in Annual mode for 2026
     batch_1 = make_estimate_batch(
         [
@@ -221,11 +235,7 @@ def _(make_estimate_batch):
             ("A", str(2).zfill(4), 2026, None, "USD", 24000.0),
         ],
     )
-    return (batch_1,)
 
-
-@app.cell
-def _(dt, make_ledger_batch):
     # Mock Ledger for Account 1: 3 months at $800/month = $2400 total
     # This leaves $9600 for 9 remaining months = $1066.67/month
     ledger_batch_1 = make_ledger_batch(
@@ -245,7 +255,7 @@ def _(dt, make_ledger_batch):
             (str(2).zfill(4), 2026, dt.date(2026, 3, 1), 1500.0, "Accrual"),
         ]
     )
-    return ledger_batch_1, ledger_batch_2
+    return batch_1, ledger_batch_1, ledger_batch_2
 
 
 @app.cell
@@ -302,7 +312,6 @@ def _(
     append_bronze_estimates(batch_1)
     append_bronze_ledger(ledger_batch_1)
     append_bronze_ledger(ledger_batch_2)
-    return
 
 
 @app.cell
@@ -461,17 +470,34 @@ def _(
     merge_estimates_to_silver(batch_1)
     merge_ledger_to_silver(ledger_batch_1)
     merge_ledger_to_silver(ledger_batch_2)
-    return
 
 
 @app.cell
-def _(conn, mo, silver_estimates):
+def _(append_bronze_estimates, make_estimate_batch, merge_estimates_to_silver):
+    batch_2 = make_estimate_batch(
+        [
+            ("A", str(1).zfill(4), 2026, None, "USD", 120000.0),
+            ("A", str(2).zfill(4), 2026, None, "USD", 240000.0),
+        ],
+    )
+
+    append_bronze_estimates(batch_2)
+    merge_estimates_to_silver(batch_2)
+    return (batch_2,)
+
+
+@app.cell
+def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        f"""
-        select * from silver_estimates
+        """
+        select * from bronze_estimates
         """,
         engine=conn
     )
+
+
+@app.cell
+def _():
     return
 
 
@@ -488,11 +514,10 @@ def _(calculate_unified_cashflow, dt, make_context_df):
         calculation_id="MANUAL_001",
     )
     df
-    return
 
 
 @app.cell
-def _(
+def gold(
     DataFrame,
     DeltaTable,
     F,
@@ -887,13 +912,12 @@ def _(append_holdback_date, dt, init_control, init_gold, start_gold_pipeline):
     append_holdback_date("0002", 2026, dt.date(2026, 3, 31))
 
     estimate_query, ledger_query, control_query = start_gold_pipeline()
-    return
 
 
 @app.cell
 def _(conn, gold_unified_cashflow, mo):
     _df = mo.sql(
-        f"""
+        """
         WITH ranked AS (
           SELECT *,
             ROW_NUMBER() OVER (
@@ -907,7 +931,6 @@ def _(conn, gold_unified_cashflow, mo):
         """,
         engine=conn
     )
-    return
 
 
 @app.cell
@@ -940,7 +963,6 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
     print(f"✓ Test 1 Passed: Annual total = {total} (expected ~12000)")
 
     _test_df
-    return
 
 
 @app.cell
@@ -974,7 +996,6 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
     assert abs(sum1 - sum2) < 0.01, f"Sum mismatch: {sum1} vs {sum2}"
 
     print(f"✓ Test 2 Passed: Idempotency verified ({count1} rows, sum={sum1})")
-    return
 
 
 @app.cell
@@ -1024,7 +1045,6 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
 @app.cell
 def _(june_df):
     june_df
-    return
 
 
 @app.cell
@@ -1033,7 +1053,6 @@ def _():
     # First, create a monthly estimate batch
     # This will be tested after we add monthly estimates
     print("✓ Test 4: Monthly mode test (run after adding monthly estimates)")
-    return
 
 
 @app.cell
@@ -1056,7 +1075,6 @@ def _(dt, make_estimate_batch):
 def _(append_bronze_estimates, batch_2, merge_estimates_to_silver):
     append_bronze_estimates(batch_2)
     merge_estimates_to_silver(batch_2)
-    return
 
 
 @app.cell
@@ -1068,18 +1086,16 @@ def _(spark):
         .load("s3a://lakehouse/delta/silver_estimates")
     )
     cdf_df
-    return
 
 
 @app.cell
 def _(conn, gold_unified_cashflow, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from gold_unified_cashflow where account_id = '0001'
         """,
         engine=conn
     )
-    return
 
 
 @app.cell
@@ -1096,13 +1112,11 @@ def _(spark):
     status = fs.listStatus(checkpoint_path)
     for file_status in status:
         print(file_status.getPath().toString())
-    return
 
 
 @app.cell
 def _(start_gold_pipeline):
     estimate_micro, ledger_micro = start_gold_pipeline()
-    return
 
 
 @app.cell
@@ -1141,29 +1155,26 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
     print("✓ Test 4 Passed: Monthly mode uses direct estimates")
     print(f"  January: {jan.amount} (settled={jan.is_settled})")
     print(f"  April: {apr.amount} (settled={apr.is_settled})")
-    return
 
 
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from bronze_estimates
         """,
         engine=conn
     )
-    return
 
 
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_estimates;
         """,
         engine=conn
     )
-    return
 
 
 @app.cell
@@ -1185,29 +1196,26 @@ def _(dt, make_estimate_batch):
 def _(append_bronze_estimates, batch_3, merge_estimates_to_silver):
     append_bronze_estimates(batch_3)
     merge_estimates_to_silver(batch_3)
-    return
 
 
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from bronze_estimates
         """,
         engine=conn
     )
-    return
 
 
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
+        """
         SELECT * from silver_estimates
         """,
         engine=conn
     )
-    return
 
 
 @app.cell
@@ -1237,29 +1245,26 @@ def _(
 
     append_bronze_estimates(batch_a)
     merge_estimates_to_silver(batch_a)
-    return
 
 
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from bronze_estimates
         """,
         engine=conn
     )
-    return
 
 
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_estimates
         """,
         engine=conn
     )
-    return
 
 
 @app.cell
@@ -1277,7 +1282,6 @@ def _(silver_estimate_path, spark):
         .orderBy("_commit_version", "account_id", "month")
     )
     cdf_df.show(truncate=False)
-    return
 
 
 @app.cell
@@ -1292,7 +1296,6 @@ def _(spark):
         .mode("overwrite")
         .save()
     )
-    return
 
 
 @app.cell
