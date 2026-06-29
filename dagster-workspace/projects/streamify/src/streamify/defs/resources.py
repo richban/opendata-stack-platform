@@ -78,6 +78,9 @@ class StreamingJobConfig(dg.ConfigurableResource):
     catalog: str = EnvVar("POLARIS_CATALOG")
     namespace: str = EnvVar("POLARIS_NAMESPACE")
     dagster_pipes_bucket: str = EnvVar("DAGSTER_PIPES_BUCKET")
+    schema_registry_url: str = "http://localhost:8081"
+    redis_host: str = "localhost"
+    redis_port: int = 6379
 
     def get_polaris_credential(self) -> str:
         """Get formatted Polaris credential string."""
@@ -86,17 +89,21 @@ class StreamingJobConfig(dg.ConfigurableResource):
 
 def create_streaming_config():
     """Create StreamingJobConfig from environment variables."""
+    schema_registry_url = os.getenv("SCHEMA_REGISTRY_URL", "http://localhost:8081")
+    redis_host = os.getenv("REDIS_HOST", "localhost")
+    redis_port = int(os.getenv("REDIS_PORT", "6379"))
+
     return StreamingJobConfig(
-        kafka_bootstrap_servers=EnvVar("KAFKA_BOOTSTRAP_SERVERS")
-        .get_value()
-        .replace("localhost", "kafka")
-        .replace("192.168.1.47", "kafka"),
+        kafka_bootstrap_servers=EnvVar("KAFKA_BOOTSTRAP_SERVERS").get_value(),
         checkpoint_path=EnvVar("CHECKPOINT_PATH").get_value(),
         polaris_uri=EnvVar("POLARIS_URI").get_value(),
         polaris_client_id=EnvVar("POLARIS_CLIENT_ID").get_value(),
         polaris_client_secret=EnvVar("POLARIS_CLIENT_SECRET").get_value(),
         catalog=EnvVar("POLARIS_CATALOG").get_value(),
         namespace=EnvVar("POLARIS_NAMESPACE").get_value(),
+        schema_registry_url=schema_registry_url,
+        redis_host=redis_host,
+        redis_port=redis_port,
     )
 
 
