@@ -1,5 +1,6 @@
-import os
-import time
+import logging
+import sys
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col,
@@ -12,35 +13,61 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import StructType
 
-from streamify.defs.resources import StreamingJobConfig
-from streamify.schemas import SCHEMAS as TOPIC_SCHEMAS, meta_schema
 from streamify.defs.bronze_assets import (
     create_namespace_if_not_exists,
     create_table_if_not_exists,
 )
-
 from streamify.defs.resources import (
+    StreamingJobConfig,
     create_s3_resource,
     create_spark_session,
     create_streaming_config,
 )
-from streamify.schemas import SCHEMAS
-from pyspark.sql.functions import col, from_json
+from streamify.schemas import SCHEMAS as TOPIC_SCHEMAS, meta_schema
+
+# Configure structured logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger = logging.getLogger("streamify.main")
 
 # Initialize resources
+logger.info("Initializing S3 resource, Spark Session, and Streaming Config...")
 s3_resource = create_s3_resource()
 spark = create_spark_session()
 streaming_config = create_streaming_config()
 
-print("✓ Resources initialized and Spark session connected.")
+logger.info("✓ Resources initialized & connected to Spark Connect.")
+logger.info(
+    "Configuration: Kafka=%s | Catalog=%s.%s | Checkpoints=%s",
+    streaming_config.kafka_bootstrap_servers,
+    streaming_config.catalog,
+    streaming_config.namespace,
+    streaming_config.checkpoint_path,
+)
 
-schema = TOPIC_SCHEMAS["listen_events"]
 topic = "listen_events"
+schema = TOPIC_SCHEMAS[topic]
 
+# Ensure Iceberg namespace & table exist
+logger.info(
+    "Ensuring Iceberg namespace '%s.%s' exists...",
+    streaming_config.catalog,
+    streaming_config.namespace,
+)
 create_namespace_if_not_exists(
     spark, streaming_config.catalog, streaming_config.namespace
 )
 
+logger.info(
+    "Ensuring Iceberg table '%s.%s.bronze_%s' exists...",
+    streaming_config.catalog,
+    streaming_config.namespace,
+    topic,
+)
 create_table_if_not_exists(
     spark,
     streaming_config.catalog,
@@ -57,6 +84,7 @@ def process_stream(
     schema: StructType,
 ):
     """Transform Kafka stream: parse JSON, add event_id, extract event_date."""
+    logger.info("Setting up Kafka readStream for topic '%s'...", topic)
 
     kafka_df = (
         spark.readStream.format("kafka")
@@ -68,7 +96,6 @@ def process_stream(
         .load()
     )
 
-    # Parse JSON, flatten struct, and add metadata - following Spark docs pattern
     parsed_df = (
         kafka_df.select(
             from_json(col("value").cast("string"), schema).alias("data"),
@@ -109,6 +136,8 @@ listen_events_df = process_stream(spark, streaming_config, topic, schema)
 table_name = f"{streaming_config.catalog}.{streaming_config.namespace}.bronze_{topic}"
 checkpoint_location = f"{streaming_config.checkpoint_path}/{topic}"
 
+logger.info("Starting streaming write query -> Table: %s (Trigger: 30s)...", table_name)
+
 listen_events_stream = (
     listen_events_df.writeStream.format("iceberg")
     .outputMode("append")
@@ -119,11 +148,18 @@ listen_events_stream = (
     .toTable(table_name)
 )
 
-# Wait for 5 minutes, then stop the stream programmatically
+logger.info(
+    "✓ Streaming query 'bronze_%s' started successfully (Query ID: %s).",
+    topic,
+    listen_events_stream.id,
+)
+
 try:
-    listen_events_stream.awaitTermination(
-        timeout=300
-    )  # Returns True if query terminated on its own, False if timeout
+    logger.info("Awaiting termination... Press Ctrl+C to stop.")
+    listen_events_stream.awaitTermination()
+except KeyboardInterrupt:
+    logger.info("KeyboardInterrupt received. Initiating stream shutdown...")
 finally:
-    print("Stopping query...")
+    logger.info("Stopping streaming query...")
     listen_events_stream.stop()
+    logger.info("✓ Streaming query stopped cleanly.")
