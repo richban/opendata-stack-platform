@@ -11,7 +11,7 @@ from confluent_kafka.schema_registry import AsyncSchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AsyncAvroDeserializer
 from confluent_kafka.serialization import MessageField, SerializationContext
 
-from streamify.defs.resources import create_streaming_config
+from streamify.defs.resources import get_streaming_config
 
 # Configure structured logging
 logging.basicConfig(
@@ -70,7 +70,7 @@ async def flush_batch_to_redis(batch: list, redis_client, consumer) -> float:
 
 
 async def main():
-    cfg = create_streaming_config()
+    cfg = get_streaming_config()
 
     logger.info(
         "Initializing Redis connection -> Host: %s:%d",
