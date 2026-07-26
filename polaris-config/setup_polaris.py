@@ -212,7 +212,18 @@ def setup_roles_and_grants(headers: dict) -> None:
     if response.status_code in [200, 201, 204]:
         print(f"[OK] Assigned '{principal_role}' to '{PRINCIPAL_NAME}'")
 
-    # Create catalog role
+    # Assign built-in 'catalog_admin' catalog role to principal role
+    admin_catalog_role_body = {"catalogRole": {"name": "catalog_admin"}}
+    response = requests.put(
+        f"{POLARIS_MANAGEMENT}/principal-roles/{principal_role}/catalog-roles/{CATALOG_NAME}",
+        headers=headers,
+        data=json.dumps(admin_catalog_role_body),
+        timeout=10,
+    )
+    if response.status_code in [200, 201, 204]:
+        print(f"[OK] Assigned 'catalog_admin' to '{principal_role}'")
+
+    # Create custom catalog role and grant full privileges
     catalog_role_body = {"catalogRole": {"name": catalog_role}}
     response = requests.post(
         f"{POLARIS_MANAGEMENT}/catalogs/{CATALOG_NAME}/catalog-roles",
@@ -223,7 +234,7 @@ def setup_roles_and_grants(headers: dict) -> None:
     if response.status_code in [200, 201, 409]:
         print(f"[OK] Catalog role '{catalog_role}' ready")
 
-    # Assign catalog role to principal role
+    # Assign custom catalog role to principal role
     response = requests.put(
         f"{POLARIS_MANAGEMENT}/principal-roles/{principal_role}/catalog-roles/{CATALOG_NAME}",
         headers=headers,
@@ -233,16 +244,18 @@ def setup_roles_and_grants(headers: dict) -> None:
     if response.status_code in [200, 201, 204]:
         print(f"[OK] Assigned '{catalog_role}' to '{principal_role}'")
 
-    # Grant CATALOG_MANAGE_CONTENT privilege
-    grant_body = {"grant": {"type": "catalog", "privilege": "CATALOG_MANAGE_CONTENT"}}
-    response = requests.put(
-        f"{POLARIS_MANAGEMENT}/catalogs/{CATALOG_NAME}/catalog-roles/{catalog_role}/grants",
-        headers=headers,
-        data=json.dumps(grant_body),
-        timeout=10,
-    )
-    if response.status_code in [200, 201, 204]:
-        print(f"[OK] Granted CATALOG_MANAGE_CONTENT on '{CATALOG_NAME}'")
+    # Grant CATALOG_MANAGE_ACCESS, CATALOG_MANAGE_CONTENT, CATALOG_MANAGE_METADATA
+    for priv in ["CATALOG_MANAGE_ACCESS", "CATALOG_MANAGE_CONTENT", "CATALOG_MANAGE_METADATA"]:
+        grant_body = {"grant": {"type": "catalog", "privilege": priv}}
+        response = requests.put(
+            f"{POLARIS_MANAGEMENT}/catalogs/{CATALOG_NAME}/catalog-roles/{catalog_role}/grants",
+            headers=headers,
+            data=json.dumps(grant_body),
+            timeout=10,
+        )
+        if response.status_code in [200, 201, 204]:
+            print(f"[OK] Granted {priv} on '{CATALOG_NAME}'")
+
 
 
 def print_spark_config(credentials: dict) -> None:
