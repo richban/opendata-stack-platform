@@ -24,6 +24,7 @@ dependencies = [
     "delta-spark>=4.0.1",
     "redis>=8.0.1",
     "confluent-kafka[avro,json,schemaregistry]>=2.14.2",
+    "pydantic-settings>=2.14.2",
 ]
 
 [dependency-groups]

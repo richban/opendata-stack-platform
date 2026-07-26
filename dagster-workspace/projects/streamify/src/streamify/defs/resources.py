@@ -1,116 +1,158 @@
-"""Dagster resources for Streamify using Spark Connect and streaming jobs."""
-
-import os
-
-from dagster import EnvVar
-from dagster_aws.s3 import S3Resource
-from pyspark.sql import SparkSession
+from functools import lru_cache
 
 import dagster as dg
 
+from dagster_aws.s3 import S3Resource
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pyspark.sql import SparkSession
 
-def create_spark_session(app_name: str = "StreamifyDagsterJob") -> SparkSession:
-    """Create a SparkSession configured for Iceberg and Spark Connect via environment variables."""
-    # Ensure Spark Connect (Docker) can reach Polaris (Docker)
-    # Use Docker network hostname 'polaris' instead of localhost
-    polaris_uri = os.getenv("POLARIS_URI", "")
-    config_polaris_uri = polaris_uri.replace("localhost", "polaris").replace(
-        "192.168.1.47", "polaris"
+
+class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
+    """Configuration for Spark Structured Streaming, S3, Polaris, and Dagster jobs."""
+
+    model_config = SettingsConfigDict(
+        case_sensitive=False,
+        extra="ignore",
+        populate_by_name=True,
     )
 
-    polaris_client_id = os.getenv("POLARIS_CLIENT_ID", "")
-    polaris_client_secret = os.getenv("POLARIS_CLIENT_SECRET", "")
-    polaris_credential = f"{polaris_client_id}:{polaris_client_secret}"
-
-    catalog = os.getenv("POLARIS_CATALOG", "lakehouse")
-    spark_remote = os.getenv("SPARK_REMOTE", "sc://localhost:15002")
-
-    builder = SparkSession.builder.appName(app_name)
-
-    if spark_remote:
-        builder = builder.remote(spark_remote)
-
-    return (
-        builder.config(
-            f"spark.sql.catalog.{catalog}",
-            "org.apache.iceberg.spark.SparkCatalog",
-        )
-        .config(f"spark.sql.catalog.{catalog}.type", "rest")
-        .config(f"spark.sql.catalog.{catalog}.uri", config_polaris_uri)
-        .config(f"spark.sql.catalog.{catalog}.warehouse", catalog)
-        .config(f"spark.sql.catalog.{catalog}.credential", polaris_credential)
-        .config(
-            f"spark.sql.catalog.{catalog}.oauth2-server-uri",
-            f"{config_polaris_uri}/v1/oauth/tokens",
-        )
-        .config(f"spark.sql.catalog.{catalog}.scope", "PRINCIPAL_ROLE:ALL")
-        .config(
-            f"spark.sql.catalog.{catalog}.s3.endpoint",
-            "http://minio:9000",
-        )
-        .config(
-            f"spark.sql.catalog.{catalog}.s3.access-key-id",
-            os.getenv("AWS_ACCESS_KEY_ID", "minioadmin"),
-        )
-        .config(
-            f"spark.sql.catalog.{catalog}.s3.secret-access-key",
-            os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
-        )
-        .config(f"spark.sql.catalog.{catalog}.s3.path-style-access", "true")
-        .config(f"spark.sql.catalog.{catalog}.token-refresh-enabled", "true")
-        .config("spark.sql.defaultCatalog", catalog)
-        .getOrCreate()
+    kafka_bootstrap_servers: str = Field(
+        default="localhost:9093",
+        validation_alias="KAFKA_BOOTSTRAP_SERVERS",
     )
-
-
-class StreamingJobConfig(dg.ConfigurableResource):
-    """Configuration for Spark Structured Streaming jobs.
-
-    This resource provides all configuration needed for streaming jobs,
-    eliminating the need for argparse in the streaming script.
-    """
-
-    kafka_bootstrap_servers: str = "kafka:9092"
-    checkpoint_path: str = "s3a://checkpoints/streaming"
-    polaris_uri: str = EnvVar("POLARIS_URI")
-    polaris_client_id: str = EnvVar("POLARIS_CLIENT_ID")
-    polaris_client_secret: str = EnvVar("POLARIS_CLIENT_SECRET")
-    catalog: str = EnvVar("POLARIS_CATALOG")
-    namespace: str = EnvVar("POLARIS_NAMESPACE")
-    dagster_pipes_bucket: str = EnvVar("DAGSTER_PIPES_BUCKET")
-    schema_registry_url: str = "http://localhost:8081"
-    redis_host: str = "localhost"
-    redis_port: int = 6379
+    checkpoint_path: str = Field(
+        default="s3a://checkpoints/streaming",
+        validation_alias="CHECKPOINT_PATH",
+    )
+    polaris_uri: str = Field(
+        default="http://localhost:8181/api/catalog",
+        validation_alias="POLARIS_URI",
+    )
+    polaris_client_id: str = Field(
+        default="",
+        validation_alias="POLARIS_CLIENT_ID",
+    )
+    polaris_client_secret: str = Field(
+        default="",
+        validation_alias="POLARIS_CLIENT_SECRET",
+    )
+    catalog: str = Field(
+        default="lakehouse",
+        validation_alias="POLARIS_CATALOG",
+    )
+    namespace: str = Field(
+        default="streamify",
+        validation_alias="POLARIS_NAMESPACE",
+    )
+    dagster_pipes_bucket: str = Field(
+        default="dagster-pipes",
+        validation_alias="DAGSTER_PIPES_BUCKET",
+    )
+    schema_registry_url: str = Field(
+        default="http://localhost:8081",
+        validation_alias="SCHEMA_REGISTRY_URL",
+    )
+    redis_host: str = Field(
+        default="localhost",
+        validation_alias="REDIS_HOST",
+    )
+    redis_port: int = Field(
+        default=6379,
+        validation_alias="REDIS_PORT",
+    )
+    spark_remote: str = Field(
+        default="sc://localhost:15002",
+        validation_alias="SPARK_REMOTE",
+    )
+    aws_access_key_id: str = Field(
+        default="minioadmin",
+        validation_alias="AWS_ACCESS_KEY_ID",
+    )
+    aws_secret_access_key: str = Field(
+        default="minioadmin",
+        validation_alias="AWS_SECRET_ACCESS_KEY",
+    )
+    aws_endpoint_url: str = Field(
+        default="http://localhost:9000",
+        validation_alias="AWS_ENDPOINT_URL",
+    )
 
     def get_polaris_credential(self) -> str:
         """Get formatted Polaris credential string."""
         return f"{self.polaris_client_id}:{self.polaris_client_secret}"
 
 
-def create_streaming_config():
-    """Create StreamingJobConfig from environment variables."""
-    schema_registry_url = os.getenv("SCHEMA_REGISTRY_URL", "http://localhost:8081")
-    redis_host = os.getenv("REDIS_HOST", "localhost")
-    redis_port = int(os.getenv("REDIS_PORT", "6379"))
+@lru_cache(maxsize=1)
+def get_streaming_config() -> StreamingJobConfig:
+    """Return a singleton StreamingJobConfig instance from environment."""
+    return StreamingJobConfig()
 
-    return StreamingJobConfig(
-        kafka_bootstrap_servers=EnvVar("KAFKA_BOOTSTRAP_SERVERS").get_value(),
-        checkpoint_path=EnvVar("CHECKPOINT_PATH").get_value(),
-        polaris_uri=EnvVar("POLARIS_URI").get_value(),
-        polaris_client_id=EnvVar("POLARIS_CLIENT_ID").get_value(),
-        polaris_client_secret=EnvVar("POLARIS_CLIENT_SECRET").get_value(),
-        catalog=EnvVar("POLARIS_CATALOG").get_value(),
-        namespace=EnvVar("POLARIS_NAMESPACE").get_value(),
-        schema_registry_url=schema_registry_url,
-        redis_host=redis_host,
-        redis_port=redis_port,
+
+def create_spark_session(
+    app_name: str = "StreamifyDagsterJob",
+    config: StreamingJobConfig = None,
+) -> SparkSession:
+    """Create a SparkSession for Iceberg and Spark Connect using Pydantic settings."""
+    if config is None:
+        config = get_streaming_config()
+
+    config_polaris_uri = (
+        config.polaris_uri.replace("localhost", "polaris")
+        .replace("127.0.0.1", "polaris")
+        .replace("192.168.1.47", "polaris")
+    )
+    if not config_polaris_uri:
+        config_polaris_uri = "http://polaris:8181/api/catalog"
+
+    builder = SparkSession.builder.appName(app_name)
+
+    if config.spark_remote:
+        builder = builder.remote(config.spark_remote)
+
+    return (
+        builder.config(
+            f"spark.sql.catalog.{config.catalog}",
+            "org.apache.iceberg.spark.SparkCatalog",
+        )
+        .config(f"spark.sql.catalog.{config.catalog}.type", "rest")
+        .config(f"spark.sql.catalog.{config.catalog}.uri", config_polaris_uri)
+        .config(
+            f"spark.sql.catalog.{config.catalog}.oauth2-server-uri",
+            f"{config_polaris_uri}/v1/oauth/tokens",
+        )
+        .config(f"spark.sql.catalog.{config.catalog}.warehouse", config.catalog)
+        .config(
+            f"spark.sql.catalog.{config.catalog}.credential",
+            config.get_polaris_credential(),
+        )
+        .config(f"spark.sql.catalog.{config.catalog}.scope", "PRINCIPAL_ROLE:ALL")
+        .config(
+            f"spark.sql.catalog.{config.catalog}.s3.endpoint",
+            "http://minio:9000",
+        )
+        .config(
+            f"spark.sql.catalog.{config.catalog}.s3.access-key-id",
+            config.aws_access_key_id,
+        )
+        .config(
+            f"spark.sql.catalog.{config.catalog}.s3.secret-access-key",
+            config.aws_secret_access_key,
+        )
+        .config(f"spark.sql.catalog.{config.catalog}.s3.path-style-access", "true")
+        .config(f"spark.sql.catalog.{config.catalog}.token-refresh-enabled", "true")
+        .config("spark.sql.defaultCatalog", config.catalog)
+        .getOrCreate()
     )
 
 
-def create_s3_resource():
-    """Create S3 resource with environment-aware endpoint configuration."""
+def create_s3_resource(config: StreamingJobConfig = None) -> S3Resource:
+    """Create S3 resource using Pydantic settings."""
+    if config is None:
+        config = get_streaming_config()
+
     return S3Resource(
-        aws_access_key_id=EnvVar("AWS_ACCESS_KEY_ID").get_value(),
-        aws_secret_access_key=EnvVar("AWS_SECRET_ACCESS_KEY").get_value(),
-        endpoint_url=EnvVar("AWS_ENDPOINT_URL").get_value(),
+        aws_access_key_id=config.aws_access_key_id,
+        aws_secret_access_key=config.aws_secret_access_key,
+        endpoint_url=config.aws_endpoint_url,
     )
