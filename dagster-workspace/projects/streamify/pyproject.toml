@@ -25,6 +25,7 @@ dependencies = [
     "redis>=8.0.1",
     "confluent-kafka[avro,json,schemaregistry]>=2.14.2",
     "pydantic-settings>=2.14.2",
+    "apache-polaris>=1.6.0",
 ]
 
 [dependency-groups]

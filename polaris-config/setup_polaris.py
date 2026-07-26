@@ -123,6 +123,11 @@ def ensure_catalog(headers: dict) -> None:
 def ensure_principal(headers: dict) -> dict:
     """Create the streamify principal and return credentials."""
     creds_file = "/opt/streamify/.env.polaris"
+    if not os.path.exists(os.path.dirname(creds_file)):
+        local_dir = os.path.join(
+            os.path.dirname(__file__), "..", "dagster-workspace", "projects", "streamify"
+        )
+        creds_file = os.path.abspath(os.path.join(local_dir, ".env.polaris"))
 
     # Check if principal exists
     response = requests.get(
@@ -316,6 +321,11 @@ def print_spark_config(credentials: dict) -> None:
 
     # Write credentials to a file for other services to use
     creds_file = "/opt/streamify/.env.polaris"
+    if not os.path.exists(os.path.dirname(creds_file)):
+        local_dir = os.path.join(
+            os.path.dirname(__file__), "..", "dagster-workspace", "projects", "streamify"
+        )
+        creds_file = os.path.abspath(os.path.join(local_dir, ".env.polaris"))
 
     # Skip writing if using existing credentials
     if client_secret == "[USE_EXISTING]":
