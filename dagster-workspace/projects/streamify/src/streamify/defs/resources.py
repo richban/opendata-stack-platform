@@ -82,6 +82,14 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
         """Get formatted Polaris credential string."""
         return f"{self.polaris_client_id}:{self.polaris_client_secret}"
 
+    def get_kafka_bootstrap_servers(self) -> str:
+        """Get processed Kafka bootstrap servers for container environment."""
+        return (
+            self.kafka_bootstrap_servers.replace("localhost:9093", "kafka:9092")
+            .replace("127.0.0.1:9093", "kafka:9092")
+            .replace("localhost:9092", "kafka:9092")
+        )
+
 
 @lru_cache(maxsize=1)
 def get_streaming_config() -> StreamingJobConfig:
@@ -91,7 +99,7 @@ def get_streaming_config() -> StreamingJobConfig:
 
 def create_spark_session(
     app_name: str = "StreamifyDagsterJob",
-    config: StreamingJobConfig = None,
+    config: StreamingJobConfig | None = None,
 ) -> SparkSession:
     """Create a SparkSession for Iceberg and Spark Connect using Pydantic settings."""
     if config is None:
@@ -146,7 +154,7 @@ def create_spark_session(
     )
 
 
-def create_s3_resource(config: StreamingJobConfig = None) -> S3Resource:
+def create_s3_resource(config: StreamingJobConfig | None = None) -> S3Resource:
     """Create S3 resource using Pydantic settings."""
     if config is None:
         config = get_streaming_config()

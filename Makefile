@@ -18,6 +18,12 @@ clean-kafka:
 	@echo "Cleaning Kafka topics..."
 	./scripts/clean-kafka.sh
 
+clean-lakehouse:
+	@echo "Cleaning Lakehouse S3 storage and Polaris catalog metadata..."
+	./scripts/clean-lakehouse.sh
+
+reset-lakehouse: clean-lakehouse
+
 lint:
 	@echo "Running linting checks..."
 	ruff check .

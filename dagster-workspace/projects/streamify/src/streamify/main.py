@@ -16,8 +16,9 @@ from pyspark.sql.functions import (
     from_unixtime,
     sha2,
     to_date,
+    udf,
 )
-from pyspark.sql.types import StructType
+from pyspark.sql.types import StringType, StructType
 
 from streamify.defs.bronze_assets import (
     create_namespace_if_not_exists,
@@ -42,7 +43,7 @@ logger = logging.getLogger("streamify.main")
 
 
 class StreamifyDeclarativePipeline:
-    """Declarative Spark 4.2 Streaming Pipeline for Streamify topics.
+    """Declarative Spark Streaming Pipeline for Streamify topics.
 
     Decouples source stream specifications, transformations, and sink target definitions
     from execution orchestration.
@@ -54,11 +55,8 @@ class StreamifyDeclarativePipeline:
 
     def declare_kafka_source(self, topic: str) -> DataFrame:
         """Declarative Kafka readStream source specification."""
-        kafka_bootstrap = (
-            self.config.kafka_bootstrap_servers.replace("localhost:9093", "kafka:9092")
-            .replace("127.0.0.1:9093", "kafka:9092")
-            .replace("localhost:9092", "kafka:9092")
-        )
+        kafka_bootstrap = self.config.get_kafka_bootstrap_servers()
+
         logger.info(
             "Declaring Kafka source stream for topic '%s' (bootstrap=%s)...",
             topic,
@@ -208,11 +206,13 @@ def main():
 
     logger.info("✓ Resources initialized & connected to Spark Connect.")
     logger.info(
-        "Configuration: Kafka=%s | Catalog=%s.%s | Checkpoints=%s",
+        "Configuration: Kafka=%s | Catalog=%s.%s | Checkpoints=%s | Polaris Client ID=%s | Polaris Client Secret=%s",
         streaming_config.kafka_bootstrap_servers,
         streaming_config.catalog,
         streaming_config.namespace,
         streaming_config.checkpoint_path,
+        streaming_config.polaris_client_id,
+        streaming_config.polaris_client_secret
     )
 
     pipeline = StreamifyDeclarativePipeline(spark, streaming_config)
