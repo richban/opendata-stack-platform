@@ -297,7 +297,9 @@ services:
         org.apache.iceberg:iceberg-aws-bundle:1.10.1,\
         org.apache.hadoop:hadoop-aws:3.4.1,\
         org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.2,\
-        io.dataflint:dataflint-spark4_2.13:0.8.8"
+        io.dataflint:dataflint-spark4_2.13:0.8.8,\
+        com.clickhouse:clickhouse-jdbc:0.7.2,\
+        org.apache.httpcomponents.client5:httpclient5:5.3.1"
 
         # 1. Pre-download packages via a throwaway SparkPi run so the ivy cache
         #    is warm before the Connect server starts.

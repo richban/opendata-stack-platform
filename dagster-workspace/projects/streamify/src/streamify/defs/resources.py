@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+import clickhouse_connect
 import dagster as dg
 
 from dagster_aws.s3 import S3Resource
@@ -61,6 +62,26 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
         default=6379,
         validation_alias="REDIS_PORT",
     )
+    clickhouse_host: str = Field(
+        default="localhost",
+        validation_alias="CLICKHOUSE_HOST",
+    )
+    clickhouse_port: int = Field(
+        default=8123,
+        validation_alias="CLICKHOUSE_PORT",
+    )
+    clickhouse_db: str = Field(
+        default="streamify",
+        validation_alias="CLICKHOUSE_DB",
+    )
+    clickhouse_user: str = Field(
+        default="default",
+        validation_alias="CLICKHOUSE_USER",
+    )
+    clickhouse_password: str = Field(
+        default="",
+        validation_alias="CLICKHOUSE_PASSWORD",
+    )
     spark_remote: str = Field(
         default="sc://localhost:15002",
         validation_alias="SPARK_REMOTE",
@@ -78,17 +99,37 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
         validation_alias="AWS_ENDPOINT_URL",
     )
 
-    def get_polaris_credential(self) -> str:
+    @property
+    def polaris_credential(self) -> str:
         """Get formatted Polaris credential string."""
         return f"{self.polaris_client_id}:{self.polaris_client_secret}"
 
-    def get_kafka_bootstrap_servers(self) -> str:
+    @property
+    def kafka_bootstrap_servers(self) -> str:
         """Get processed Kafka bootstrap servers for container environment."""
         return (
             self.kafka_bootstrap_servers.replace("localhost:9093", "kafka:9092")
             .replace("127.0.0.1:9093", "kafka:9092")
             .replace("localhost:9092", "kafka:9092")
         )
+
+    @property
+    def redis_host(self) -> str:
+        """Get processed Redis host for container environment."""
+        return self.redis_host.replace("localhost", "redis").replace("127.0.0.1", "redis")
+
+    @property
+    def clickhouse_host(self) -> str:
+        """Get processed ClickHouse host for container environment."""
+        return self.clickhouse_host.replace("localhost", "clickhouse").replace(
+            "127.0.0.1", "clickhouse"
+        )
+
+    @property
+    def clickhouse_jdbc_url(self) -> str:
+        """Build ClickHouse JDBC connection URL."""
+        host = self.clickhouse_host
+        return f"jdbc:clickhouse://{host}:{self.clickhouse_port}/{self.clickhouse_db}"
 
 
 @lru_cache(maxsize=1)
@@ -163,4 +204,19 @@ def create_s3_resource(config: StreamingJobConfig | None = None) -> S3Resource:
         aws_access_key_id=config.aws_access_key_id,
         aws_secret_access_key=config.aws_secret_access_key,
         endpoint_url=config.aws_endpoint_url,
+    )
+
+
+def create_clickhouse_resource(
+    config: StreamingJobConfig | None = None,
+) -> clickhouse_connect.driver.Client:
+    """Create a clickhouse-connect Client using Pydantic settings."""
+    if config is None:
+        config = get_streaming_config()
+
+    return clickhouse_connect.get_client(
+        host=config.get_clickhouse_host(),
+        port=config.clickhouse_port,
+        username=config.clickhouse_user,
+        password=config.clickhouse_password,
     )
