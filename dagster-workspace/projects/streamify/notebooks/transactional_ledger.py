@@ -72,13 +72,14 @@ def _(DeltaTable, F, Window, silver_estimate_path, spark):
         """
 
         now = F.current_timestamp()
-        account_window = Window.partitionBy("account_id", "year").orderBy(F.desc("_inserted_at"))
+        account_window = Window.partitionBy("account_id", "year").orderBy(
+            F.desc("_inserted_at")
+        )
 
         # Step 1: Determine authoritative mode per account/year using a single window.
         # The result set is tiny relative to the batch, so broadcast it.
         auth_mode = (
-            batch_df
-            .withColumn("rn", F.row_number().over(account_window))
+            batch_df.withColumn("rn", F.row_number().over(account_window))
             .filter(F.col("rn") == 1)
             .select("account_id", "year", F.col("estimation_mode").alias("auth_mode"))
         )
@@ -90,9 +91,7 @@ def _(DeltaTable, F, Window, silver_estimate_path, spark):
         # Step 2: For accounts where latest is Annual - expand to 12 months.
         # Filter the already-tagged batch in-memory; no re-scan of batch_df.
         annual_data = (
-            tagged.filter(
-                (F.col("auth_mode") == "A") & (F.col("estimation_mode") == "A")
-            )
+            tagged.filter((F.col("auth_mode") == "A") & (F.col("estimation_mode") == "A"))
             .withColumn("rn", F.row_number().over(account_window))
             .filter(F.col("rn") == 1)
             .drop("rn", "auth_mode")
@@ -101,31 +100,46 @@ def _(DeltaTable, F, Window, silver_estimate_path, spark):
 
         months_df = spark.range(12).withColumnRenamed("id", "month_idx")
         annual_monthly = (
-            annual_data
-            .crossJoin(months_df)
-            .withColumn("month", F.make_date(F.col("year"), F.col("month_idx") + 1, F.lit(1)))
+            annual_data.crossJoin(months_df)
+            .withColumn(
+                "month", F.make_date(F.col("year"), F.col("month_idx") + 1, F.lit(1))
+            )
             .withColumn("estimation_mode", F.lit("A"))
             .withColumn("estimate", F.col("estimate") / 12)
             .drop("month_idx")
         )
 
         # Step 3: For accounts where latest is Monthly - take latest per month.
-        monthly_window = Window.partitionBy("account_id", "year", "month").orderBy(F.desc("_inserted_at"))
+        monthly_window = Window.partitionBy("account_id", "year", "month").orderBy(
+            F.desc("_inserted_at")
+        )
         monthly_data = (
-            tagged.filter(
-                (F.col("auth_mode") == "M") & (F.col("estimation_mode") == "M")
-            )
+            tagged.filter((F.col("auth_mode") == "M") & (F.col("estimation_mode") == "M"))
             .withColumn("rn", F.row_number().over(monthly_window))
             .filter(F.col("rn") == 1)
             .drop("rn", "auth_mode")
-            .select("account_id", "year", "month", "currency", "estimate", "_event_id", "estimation_mode")
+            .select(
+                "account_id",
+                "year",
+                "month",
+                "currency",
+                "estimate",
+                "_event_id",
+                "estimation_mode",
+            )
         )
 
         # Combine and merge
         all_estimates = (
             annual_monthly.unionByName(monthly_data)
             .withColumn("_updated_at", now)
-            .drop("_change_type", "_commit_version", "_commit_timestamp", "_inserted_at", "_batch_id")
+            .drop(
+                "_change_type",
+                "_commit_version",
+                "_commit_timestamp",
+                "_inserted_at",
+                "_batch_id",
+            )
         )
 
         silver_dt = DeltaTable.forPath(spark, silver_estimate_path)
@@ -155,8 +169,13 @@ def _(DeltaTable, F, silver_ledger_path, spark):
         """
 
         bronze_df = (
-            batch_df
-            .drop("_inserted_at", "_batch_id", "_change_type", "_commit_version", "_commit_timestamp")
+            batch_df.drop(
+                "_inserted_at",
+                "_batch_id",
+                "_change_type",
+                "_commit_version",
+                "_commit_timestamp",
+            )
             .groupBy("account_id", "year", "month", "type")
             .agg(
                 F.sum("amount").alias("amount"),
@@ -224,7 +243,9 @@ def poll_bronze_via_cdf(
         .option("readChangeFeed", "true")
         .load(bronze_estimate_path)
         .writeStream.foreachBatch(merge_estimates_to_silver)
-        .option("checkpointLocation", "s3a://lakehouse/delta/checkpoints/silver_estimates")
+        .option(
+            "checkpointLocation", "s3a://lakehouse/delta/checkpoints/silver_estimates"
+        )
         .trigger(availableNow=True)
         .start()
     )
@@ -251,7 +272,7 @@ def _(conn, mo, silver_estimates):
         f"""
         select * from silver_estimates
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -282,7 +303,7 @@ def _(conn, mo, silver_control):
         f"""
         select * from silver_control
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -293,7 +314,7 @@ def _(bronze_estimates, conn, mo):
         f"""
         select * from bronze_estimates where account_id = '0002' order by _inserted_at desc
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -304,7 +325,7 @@ def _(conn, mo, silver_estimates):
         f"""
         select * from silver_estimates where account_id = '0002' order by _updated_at desc
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -315,7 +336,7 @@ def _(conn, gold_transactional_ledger, mo):
         f"""
         select * from gold_transactional_ledger where account_id = '0002' order by underwriting_month, _inserted_at DESC
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -326,7 +347,7 @@ def _(conn, mo, silver_control):
         f"""
         select * from silver_control
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -345,17 +366,20 @@ def _(F, Window, uuid):
         """
         ay_window = Window.partitionBy("account_id", "year")
 
-
         # Join with HBD (already latest per account/year) and compute group metrics
         with_metrics = (
-            estimates_df
-            .join(hbd_df, ["account_id", "year"], "left")
-            .withColumn("holdback_date", F.coalesce(F.col("holdback_date"), F.lit("1900-01-01").cast("date")))
+            estimates_df.join(hbd_df, ["account_id", "year"], "left")
+            .withColumn(
+                "holdback_date",
+                F.coalesce(F.col("holdback_date"), F.lit("1900-01-01").cast("date")),
+            )
             .withColumn("total_estimate", F.sum("estimate").over(ay_window))
             .withColumn(
                 "open_months",
                 F.sum(
-                    F.when(F.col("month") > F.col("holdback_date"), F.lit(1)).otherwise(F.lit(0))
+                    F.when(F.col("month") > F.col("holdback_date"), F.lit(1)).otherwise(
+                        F.lit(0)
+                    )
                 ).over(ay_window),
             )
         )
@@ -363,47 +387,52 @@ def _(F, Window, uuid):
         # Compute target: 0 for closed, redistributed for annual, explicit for monthly
         # First get HBD for cedent filtering
         hbd_for_cedent = hbd_df.select("account_id", "year", "holdback_date")
-        
+
         # Compute total cedent per account/year (only actuals up to HBD)
         cedent_sums = (
-            ledger_df
-            .filter(F.col("category") == "actual")
+            ledger_df.filter(F.col("category") == "actual")
             .join(hbd_for_cedent, ["account_id", "year"], "left")
-            .withColumn("holdback_date", F.coalesce(F.col("holdback_date"), F.lit("1900-01-01").cast("date")))
+            .withColumn(
+                "holdback_date",
+                F.coalesce(F.col("holdback_date"), F.lit("1900-01-01").cast("date")),
+            )
             .filter(F.col("underwriting_month") <= F.col("holdback_date"))
             .groupBy("account_id", "year")
             .agg(F.sum("amount").alias("total_cedent"))
         )
 
-        with_target = with_metrics.join(
-            cedent_sums, ["account_id", "year"], "left"
-        ).withColumn(
-            "total_cedent", F.coalesce(F.col("total_cedent"), F.lit(0.0))
-        ).withColumn(
-            "annual_target",
-            F.when(
-                F.col("open_months") == 0,
-                F.lit(0.0),
-            ).otherwise(
-                (F.col("total_estimate") - F.col("total_cedent")) / F.col("open_months"),
-            ),
-        ).withColumn(
-            "target",
-            F.when(
-                F.col("month") <= F.col("holdback_date"),
-                F.lit(0.0),
-            ).when(
-                F.col("estimation_mode") == "A",
-                F.col("annual_target"),
-            ).otherwise(
-                F.col("estimate"),
-            ),
+        with_target = (
+            with_metrics.join(cedent_sums, ["account_id", "year"], "left")
+            .withColumn("total_cedent", F.coalesce(F.col("total_cedent"), F.lit(0.0)))
+            .withColumn(
+                "annual_target",
+                F.when(
+                    F.col("open_months") == 0,
+                    F.lit(0.0),
+                ).otherwise(
+                    (F.col("total_estimate") - F.col("total_cedent"))
+                    / F.col("open_months"),
+                ),
+            )
+            .withColumn(
+                "target",
+                F.when(
+                    F.col("month") <= F.col("holdback_date"),
+                    F.lit(0.0),
+                )
+                .when(
+                    F.col("estimation_mode") == "A",
+                    F.col("annual_target"),
+                )
+                .otherwise(
+                    F.col("estimate"),
+                ),
+            )
         )
 
         # Fetch existing ledger sums
         existing_sums = (
-            ledger_df
-            .filter(F.col("category") == "estimate")
+            ledger_df.filter(F.col("category") == "estimate")
             .groupBy("account_id", "year", "underwriting_month")
             .agg(F.sum("amount").alias("existing"))
             .withColumnRenamed("underwriting_month", "month")
@@ -411,29 +440,24 @@ def _(F, Window, uuid):
 
         # Compute deltas: delta = target - existing
         deltas = (
-            with_target
-            .join(existing_sums, ["account_id", "year", "month"], "left")
+            with_target.join(existing_sums, ["account_id", "year", "month"], "left")
             .withColumn("existing", F.coalesce(F.col("existing"), F.lit(0.0)))
             .withColumn("delta", F.col("target") - F.col("existing"))
         )
 
         # Format as journal entries
-        journal_entries = (
-            deltas
-            .select(
-                "account_id",
-                "year",
-                F.col("month").alias("underwriting_month"),
-                F.col("delta").alias("amount"),
-                F.lit("estimate").alias("category"),
-                F.lit("estimate").alias("actual_type").cast("string"),
-                F.coalesce(F.col("currency"), F.lit("USD")).alias("currency"),
-                F.col("_event_id").alias("_source_event_id"),
-                F.lit(str(uuid.uuid4())).alias("_journal_event_id"),
-                F.current_timestamp().alias("_inserted_at"),
-            )
-            .filter(F.abs(F.col("amount")) > F.lit(0.0))
-        )
+        journal_entries = deltas.select(
+            "account_id",
+            "year",
+            F.col("month").alias("underwriting_month"),
+            F.col("delta").alias("amount"),
+            F.lit("estimate").alias("category"),
+            F.lit("estimate").alias("actual_type").cast("string"),
+            F.coalesce(F.col("currency"), F.lit("USD")).alias("currency"),
+            F.col("_event_id").alias("_source_event_id"),
+            F.lit(str(uuid.uuid4())).alias("_journal_event_id"),
+            F.current_timestamp().alias("_inserted_at"),
+        ).filter(F.abs(F.col("amount")) > F.lit(0.0))
 
         return journal_entries
 
@@ -456,7 +480,6 @@ def _(delta_calculation_engine, spark):
 @app.cell
 def _(F, Window, delta_calculation_engine, gold_txn_ledger_path, spark):
     app_id = "streaming-transactional-ledger"
-
 
     def process_silver_estimates_batch(batch_df, batch_id):
         """
@@ -481,9 +504,7 @@ def _(F, Window, delta_calculation_engine, gold_txn_ledger_path, spark):
 
         # 1. Deduplicate: get latest post-image per account/year/month in batch
         deduped_batch = (
-            batch_df.filter(
-                F.col("_change_type").isin(["insert", "update_postimage"])
-            )
+            batch_df.filter(F.col("_change_type").isin(["insert", "update_postimage"]))
             .withColumn(
                 "rn",
                 F.row_number().over(
@@ -568,9 +589,7 @@ def _(F, Window, gold_txn_ledger_path, uuid):
             return
 
         dedup_batch = (
-            batch_df.filter(
-                F.col("_change_type").isin(["insert", "update_postimage"])
-            )
+            batch_df.filter(F.col("_change_type").isin(["insert", "update_postimage"]))
             .withColumn(
                 "rn",
                 F.row_number().over(
@@ -610,12 +629,12 @@ def _(process_silver_cedent_batch, silver_ledger_path, spark):
     # Poll via CDF cedent silver data -> gold transactional ledger
     cedent_query = (
         spark.readStream.format("delta")
-            .option("readChangeFeed", "true")
-            .load(silver_ledger_path)
-            .writeStream.foreachBatch(process_silver_cedent_batch)
-            .option("checkpointLocation", "s3a://lakehouse/delta/checkpoints/gold_cedent")
-            .trigger(availableNow=True)
-            .start()
+        .option("readChangeFeed", "true")
+        .load(silver_ledger_path)
+        .writeStream.foreachBatch(process_silver_cedent_batch)
+        .option("checkpointLocation", "s3a://lakehouse/delta/checkpoints/gold_cedent")
+        .trigger(availableNow=True)
+        .start()
     )
 
     cedent_query.awaitTermination()
@@ -640,7 +659,9 @@ def _(F, Window, delta_calculation_engine, gold_txn_ledger_path, spark):
             .withColumn(
                 "rn",
                 F.row_number().over(
-                    Window.partitionBy("account_id", "year").orderBy(F.desc("_inserted_at"))
+                    Window.partitionBy("account_id", "year").orderBy(
+                        F.desc("_inserted_at")
+                    )
                 ),
             )
             .filter(F.col("rn") == 1)
@@ -664,7 +685,7 @@ def _(F, Window, delta_calculation_engine, gold_txn_ledger_path, spark):
         ).mode("append").save(gold_txn_ledger_path)
 
         print(f"[Batch {batch_id}] Wrote {deltas.count()} delta entries to gold")
-    
+
         batch_df.unpersist()
 
     return (process_silver_control_batch,)
@@ -692,7 +713,7 @@ def _(conn, mo, silver_control):
         f"""
         select * from silver_control
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -703,7 +724,7 @@ def _(conn, gold_transactional_ledger, mo):
         f"""
         select * from gold_transactional_ledger where account_id = '0002' order by underwriting_month, _inserted_at DESC
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -714,7 +735,7 @@ def _(conn, mo, silver_estimates):
         f"""
         select * from silver_estimates where account_id = '0002' order by month, _updated_at DESC
         """,
-        engine=conn
+        engine=conn,
     )
     return
 
@@ -821,7 +842,6 @@ def _(T):
         ]
     )
 
-
     transactional_ledger_schema = T.StructType(
         [
             T.StructField("account_id", T.StringType(), False),
@@ -868,7 +888,6 @@ def _(DeltaTable, silver_estimate_schema, spark):
             "delta.enableChangeDataFeed", "true"
         ).execute()
         return silver_estimate_path
-
 
     return init_silver_estimates, silver_estimate_path
 
@@ -932,7 +951,6 @@ def _(DeltaTable, silver_ledger_schema, spark):
             raise
         return silver_ledger_path
 
-
     return init_silver_ledger, silver_ledger_path
 
 
@@ -944,11 +962,13 @@ def _(DeltaTable, control_schema, dt, spark, uuid):
         DeltaTable.createIfNotExists(spark).tableName("silver_control").location(
             silver_control_path
         ).addColumns(control_schema).property(
-                "delta.enableChangeDataFeed", "true").execute()
+            "delta.enableChangeDataFeed", "true"
+        ).execute()
         return silver_control_path
 
     def append_control_event(account_id, year, holdback_date):
         from pyspark.sql import Row
+
         row = Row(
             account_id=account_id,
             year=year,
@@ -959,7 +979,6 @@ def _(DeltaTable, control_schema, dt, spark, uuid):
         df = spark.createDataFrame([row], schema=control_schema)
         df.write.format("delta").mode("append").save(silver_control_path)
         return silver_control_path
-
 
     return append_control_event, init_silver_control, silver_control_path
 
@@ -993,13 +1012,15 @@ def _(
             rows: List of tuples (account_id, year, holdback_date, _holdback_event_id, _volume_event_id)
                   where _holdback_event_id and _volume_event_id can be None
         """
-        context_schema = T.StructType([
-            T.StructField("account_id", T.StringType(), False),
-            T.StructField("year", T.IntegerType(), False),
-            T.StructField("holdback_date", T.DateType(), False),
-            T.StructField("_holdback_event_id", T.TimestampType(), True),
-            T.StructField("_volume_event_id", T.StringType(), True),
-        ])
+        context_schema = T.StructType(
+            [
+                T.StructField("account_id", T.StringType(), False),
+                T.StructField("year", T.IntegerType(), False),
+                T.StructField("holdback_date", T.DateType(), False),
+                T.StructField("_holdback_event_id", T.TimestampType(), True),
+                T.StructField("_volume_event_id", T.StringType(), True),
+            ]
+        )
         return spark.createDataFrame(rows, schema=context_schema)
 
     return make_estimate_batch, make_ledger_batch
@@ -1010,11 +1031,9 @@ def _(DeltaTable, spark, transactional_ledger_schema):
     gold_txn_ledger_path = "s3a://lakehouse/delta/gold_transactional_ledger"
 
     def init_txn_ledger():
-        DeltaTable.createIfNotExists(spark).location(
-            gold_txn_ledger_path
-        ).tableName("gold_transactional_ledger").addColumns(
-            transactional_ledger_schema
-        ).execute()
+        DeltaTable.createIfNotExists(spark).location(gold_txn_ledger_path).tableName(
+            "gold_transactional_ledger"
+        ).addColumns(transactional_ledger_schema).execute()
         return gold_txn_ledger_path
 
     init_txn_ledger()
@@ -1056,16 +1075,13 @@ def debug_silver_cdf(F, Window, spark):
 
         print("\n=== Pre-images only for account 0002:")
         pre_images = cdf_df.filter(
-            (F.col("account_id") == "0002")
-            & (F.col("_change_type") == "update_preimage")
+            (F.col("account_id") == "0002") & (F.col("_change_type") == "update_preimage")
         )
         pre_images.orderBy("_commit_version", "month").show(100, truncate=False)
 
         print("\n=== Deduplicated (latest per month using row_number):")
         deduped = (
-            cdf_df.filter(
-                F.col("_change_type").isin(["insert", "update_postimage"])
-            )
+            cdf_df.filter(F.col("_change_type").isin(["insert", "update_postimage"]))
             .withColumn(
                 "rn",
                 F.row_number().over(

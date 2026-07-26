@@ -7,8 +7,7 @@ perform deduplication, and write to Silver tables for downstream analytics.
 import dagster as dg
 
 from dagster import AssetKey
-
-from streamify.defs.partitions import silver_daily_partition
+from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     avg,
     col,
@@ -25,8 +24,8 @@ from pyspark.sql.functions import (
     when,
 )
 from pyspark.sql.window import Window
-from pyspark.sql import SparkSession
 
+from streamify.defs.partitions import silver_daily_partition
 from streamify.defs.resources import StreamingJobConfig
 
 

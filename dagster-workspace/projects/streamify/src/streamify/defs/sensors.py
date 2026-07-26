@@ -2,11 +2,12 @@
 
 import json
 import time
+
 from typing import Any
 
 import dagster as dg
-from dagster import EnvVar
 
+from dagster import EnvVar
 
 # Module-level state to track last restart timestamp (persists within process)
 _last_restart_timestamps: dict[str, float] = {}

@@ -10,7 +10,6 @@ To close the partition range, set the END_DATE environment variable or modify
 the end_date parameter directly.
 """
 
-import os
 
 import dagster as dg
 

@@ -37,7 +37,7 @@ def _():
         create_spark_session,
         get_minio_config,
         get_polaris_config,
-        get_s3_store
+        get_s3_store,
     )
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -330,7 +330,7 @@ def _(con, mo):
             (4, 'blue', 25),
             (5, 'green', 30);
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -351,7 +351,7 @@ def _(con, mo):
         FROM lakehouse.iceberg_study.inventory
         ORDER BY color, id
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -365,7 +365,7 @@ def _(con, mo):
         FROM iceberg_snapshots('lakehouse.iceberg_study.inventory')
         ORDER BY sequence_number
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -431,7 +431,7 @@ def _(con, mo):
         FROM lakehouse.iceberg_study.partitioned_inventory
         ORDER BY color, id
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -448,7 +448,7 @@ def _(con, mo):
         FROM iceberg_snapshots('lakehouse.iceberg_study.partitioned_inventory')
         ORDER BY sequence_number
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -512,7 +512,7 @@ def _(con, mo):
         FROM iceberg_snapshots('lakehouse.iceberg_study.partitioned_inventory')
         ORDER BY sequence_number
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -523,7 +523,7 @@ def _(con, mo):
         f"""
         select * from read_avro("s3://lakehouse/iceberg_study/partitioned_inventory/metadata/snap-1803696753865083741-1-87ec7ebf-36a0-4b18-b149-b2a43f64d745.avro")
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -540,7 +540,7 @@ def _(con, mo):
             END as file_status,
             *, data_file.content, data_file.file_path from read_avro("s3://lakehouse/iceberg_study/partitioned_inventory/metadata/87ec7ebf-36a0-4b18-b149-b2a43f64d745-m0.avro")
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -584,7 +584,7 @@ def _(con, mo):
         FROM iceberg_snapshots('lakehouse.iceberg_study.partitioned_inventory')
         ORDER BY sequence_number
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -597,7 +597,7 @@ def _(con, mo):
         FROM lakehouse.iceberg_study.partitioned_inventory
         ORDER BY color, id
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -702,7 +702,7 @@ def _(con, mo):
             (1, 'Alice', 100),
             (2, 'Bob', 200);
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -715,7 +715,7 @@ def _(con, mo):
             (3, 'Charlie', 300),
             (4, 'Diana', 400);
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -732,7 +732,7 @@ def _(con, mo):
         FROM iceberg_snapshots('lakehouse.iceberg_study.append_demo')
         ORDER BY sequence_number
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -811,7 +811,7 @@ def _(con, mo):
             (2, 'Sarah', 30),
             (3, 'Mike', 35);
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -822,7 +822,7 @@ def _(con, mo):
         f"""
         SELECT * FROM lakehouse.iceberg_study.cow_overwrite_demo ORDER BY id
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -839,7 +839,7 @@ def _(con, mo):
         FROM iceberg_snapshots('lakehouse.iceberg_study.cow_overwrite_demo')
         ORDER BY sequence_number
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -866,7 +866,7 @@ def _(con, mo):
         SET age = 26
         WHERE name = 'Jack';
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -877,7 +877,7 @@ def _(con, mo):
         f"""
         SELECT * FROM lakehouse.iceberg_study.cow_overwrite_demo ORDER BY id
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -894,7 +894,7 @@ def _(con, mo):
         FROM iceberg_snapshots('lakehouse.iceberg_study.cow_overwrite_demo')
         ORDER BY sequence_number
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -979,7 +979,7 @@ def _(con, mo):
             (2, 'Sarah', 30),
             (3, 'Mike', 35);
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -992,7 +992,7 @@ def _(con, mo):
         SET age = 26
         WHERE name = 'Jack';
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1009,7 +1009,7 @@ def _(con, mo):
         FROM iceberg_snapshots('lakehouse.iceberg_study.mor_demo')
         ORDER BY sequence_number
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1123,7 +1123,7 @@ def _(con, mo):
             (3, 'B', 300),
             (4, 'B', 400);
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1134,7 +1134,7 @@ def _(con, mo):
         f"""
         SELECT * FROM lakehouse.iceberg_study.concurrent_test ORDER BY id
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1172,7 +1172,7 @@ def _(con, mo):
         SET value = value + 10
         WHERE category = 'A';
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1185,7 +1185,7 @@ def _(con, mo):
         SET value = value + 20
         WHERE category = 'B';
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1196,7 +1196,7 @@ def _(con, mo):
         f"""
         SELECT * FROM lakehouse.iceberg_study.concurrent_test ORDER BY id
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -1213,7 +1213,7 @@ def _(con, mo):
         FROM iceberg_snapshots('lakehouse.iceberg_study.concurrent_test')
         ORDER BY sequence_number
         """,
-        engine=con
+        engine=con,
     )
     return
 

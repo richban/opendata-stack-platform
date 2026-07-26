@@ -11,10 +11,10 @@ from typing import Any
 
 import dagster as dg
 
+from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 
 from streamify.defs.dq_store import DQResultStore
-from pyspark.sql import SparkSession
 from streamify.defs.resources import StreamingJobConfig
 
 

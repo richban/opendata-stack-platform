@@ -275,7 +275,7 @@ def _(mo, spark_conn):
         FROM lakehouse.iceberg_study.events_partitioned
         LIMIT 10
         """,
-        engine=spark_conn
+        engine=spark_conn,
     )
     return
 
@@ -301,7 +301,7 @@ def _(mo, spark_conn):
         FROM lakehouse.iceberg_study.events_partitioned.partitions
         LIMIT 20
         """,
-        engine=spark_conn
+        engine=spark_conn,
     )
     return
 
@@ -317,7 +317,7 @@ def _(con, mo):
             *
         FROM read_avro('s3://lakehouse/iceberg_study/events_partitioned/metadata/snap-1843138130664075904-1-9877a105-4c71-4794-863d-556cf7780323.avro');
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -328,7 +328,7 @@ def _(con, mo):
         f"""
         select * from read_avro("s3://lakehouse/iceberg_study/events_partitioned/metadata/9877a105-4c71-4794-863d-556cf7780323-m0.avro")
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -625,7 +625,7 @@ def _(mo, spark_conn):
         f"""
         SELECT * FROM lakehouse.iceberg_study.events_partitioned.partitions
         """,
-        engine=spark_conn
+        engine=spark_conn,
     )
     return
 
@@ -759,11 +759,13 @@ def _(datetime, mo, random, spark, timedelta):
     )
 
     # Add guaranteed rows matching the partition pruning test query
-    _data3.extend([
-        (datetime(2023, 6, 15, 12, 0), 42, "click", 99.99),
-        (datetime(2023, 6, 18, 14, 30), 42, "view", 15.50),
-        (datetime(2023, 6, 25, 9, 15), 42, "purchase", 250.00)
-    ])
+    _data3.extend(
+        [
+            (datetime(2023, 6, 15, 12, 0), 42, "click", 99.99),
+            (datetime(2023, 6, 18, 14, 30), 42, "view", 15.50),
+            (datetime(2023, 6, 25, 9, 15), 42, "purchase", 250.00),
+        ]
+    )
 
     # Write to unpartitioned table first (no shuffle needed)
     _df3.writeTo("iceberg_study.events_unpartitioned").append()
@@ -772,9 +774,9 @@ def _(datetime, mo, random, spark, timedelta):
     # Because the data is already sorted, Iceberg's Spark extension will NOT
     # inject the cluster-crashing `Exchange` shuffle. The writer will only need
     # to keep one file buffer open at a time.
-    _df3.coalesce(1).sortWithinPartitions(
-        "user_id", "event_time"
-    ).writeTo("iceberg_study.events_pruning_test").append()
+    _df3.coalesce(1).sortWithinPartitions("user_id", "event_time").writeTo(
+        "iceberg_study.events_pruning_test"
+    ).append()
 
     mo.md(
         """
@@ -802,7 +804,7 @@ def _(mo, spark_conn):
           AND event_time >= '2023-06-01'
           AND event_time < '2023-07-01'
         """,
-        engine=spark_conn
+        engine=spark_conn,
     )
     return
 
@@ -820,7 +822,7 @@ def _(con, mo):
           AND event_time >= '2023-06-01'
           AND event_time < '2023-07-01'
         """,
-        engine=con
+        engine=con,
     )
     return
 
@@ -845,7 +847,7 @@ def _(mo, spark_conn):
             SUM(record_count) as total_records
         FROM lakehouse.iceberg_study.events_pruning_test.files
         """,
-        engine=spark_conn
+        engine=spark_conn,
     )
     return
 
@@ -864,7 +866,7 @@ def _(mo, spark_conn):
         ORDER BY record_count DESC
         LIMIT 20
         """,
-        engine=spark_conn
+        engine=spark_conn,
     )
     return
 
@@ -1038,7 +1040,7 @@ def _(mo, spark_conn):
             MAX(record_count) as max_rows
         FROM lakehouse.iceberg_study.clustering_demo.files
         """,
-        engine=spark_conn
+        engine=spark_conn,
     )
     return
 
@@ -1084,7 +1086,7 @@ def _(mo, spark_conn):
             MAX(record_count) as max_rows
         FROM lakehouse.iceberg_study.clustering_demo.files
         """,
-        engine=spark_conn
+        engine=spark_conn,
     )
     return
 
@@ -1128,7 +1130,7 @@ def _(mo, spark_conn):
         FROM lakehouse.iceberg_study.clustering_demo.files
         LIMIT 5
         """,
-        engine=spark_conn
+        engine=spark_conn,
     )
     return
 
@@ -1299,7 +1301,7 @@ def _(mo, spark_conn):
             MAX(record_count) as max_rows
         FROM lakehouse.iceberg_study.overpartitioned_demo.partitions
         """,
-        engine=spark_conn
+        engine=spark_conn,
     )
     return
 
@@ -1435,7 +1437,7 @@ def _(mo, spark_conn):
         f"""
         SELECT * FROM lakehouse.iceberg_study.events_partitioned
         """,
-        engine=spark_conn
+        engine=spark_conn,
     )
     return
 

@@ -35,7 +35,8 @@ def _():
 def _():
 
     store = get_s3_store()
-    return store,
+    return (store,)
+
 
 @app.cell
 def _(create_iceberg_catalog):

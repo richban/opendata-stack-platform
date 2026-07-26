@@ -4,11 +4,11 @@ This module contains scheduled maintenance assets that perform routine
 operations on Iceberg tables like compaction to optimize query performance.
 """
 
-import dagster as dg
-from dagster import AssetKey
-
 from typing import Any
 
+import dagster as dg
+
+from dagster import AssetKey
 from pyspark.sql import SparkSession
 
 from streamify.defs.resources import StreamingJobConfig

@@ -159,7 +159,6 @@ def _(T):
         ]
     )
 
-
     gold_journal_schema = T.StructType(
         [
             T.StructField("account_id", T.StringType(), False),
@@ -214,13 +213,15 @@ def _(T, bronze_estimate_schema, bronze_ledger_schema, random, spark, uuid):
             rows: List of tuples (account_id, year, holdback_date, holdback_event_id, volume_event_id)
                   where holdback_event_id and volume_event_id can be None
         """
-        context_schema = T.StructType([
-            T.StructField("account_id", T.StringType(), False),
-            T.StructField("year", T.IntegerType(), False),
-            T.StructField("holdback_date", T.DateType(), False),
-            T.StructField("holdback_event_id", T.TimestampType(), True),
-            T.StructField("volume_event_id", T.StringType(), True),
-        ])
+        context_schema = T.StructType(
+            [
+                T.StructField("account_id", T.StringType(), False),
+                T.StructField("year", T.IntegerType(), False),
+                T.StructField("holdback_date", T.DateType(), False),
+                T.StructField("holdback_event_id", T.TimestampType(), True),
+                T.StructField("volume_event_id", T.StringType(), True),
+            ]
+        )
         return spark.createDataFrame(rows, schema=context_schema)
 
     return make_context_df, make_estimate_batch, make_ledger_batch
@@ -426,6 +427,7 @@ def _(DeltaTable, silver_ledger_schema, spark):
         """
         # Add updated_at timestamp if not present
         from pyspark.sql import functions as F
+
         batch_df = batch_df.withColumn("updated_at", F.current_timestamp())
 
         delta_table = DeltaTable.forPath(spark, silver_ledger_path)
@@ -492,7 +494,7 @@ def _(bronze_estimates, conn, mo):
         """
         select * from bronze_estimates
         """,
-        engine=conn
+        engine=conn,
     )
 
 
@@ -505,9 +507,11 @@ def _():
 def _(calculate_unified_cashflow, dt, make_context_df):
     """Manual calculation using the new set-based interface"""
     # Create a context DataFrame for account 0001
-    context_df = make_context_df([
-        ("0001", 2026, dt.date(2026, 3, 31), None, None),
-    ])
+    context_df = make_context_df(
+        [
+            ("0001", 2026, dt.date(2026, 3, 31), None, None),
+        ]
+    )
 
     df = calculate_unified_cashflow(
         context_df=context_df,
@@ -563,49 +567,46 @@ def gold(
         # Settled period: use ledger amount if present, otherwise fallback
         settled = F.when(
             (F.col("month") <= holdback_date) & (F.col("ledger_amount").isNotNull()),
-            F.col("ledger_amount")
+            F.col("ledger_amount"),
         )
 
         # Fallback for missing ledger before holdback
         settled_fallback = F.when(
             (F.col("month") <= holdback_date) & (F.col("ledger_amount").isNull()),
-            F.lit(0.0)
+            F.lit(0.0),
         )
 
         # Projected period
         # Monthly mode: use estimate directly
         monthly_proj = F.when(
             (F.col("month") > holdback_date) & (F.col("estimation_mode") == "M"),
-            F.col("estimate")
+            F.col("estimate"),
         )
 
         # Annual mode: linear distribution
         annual_proj = F.when(
             (F.col("month") > holdback_date) & (F.col("estimation_mode") == "A"),
             F.greatest(
-                F.lit(0),
-                (F.col("estimate") - F.col("total_settled")) / remaining_months
-            )
+                F.lit(0), (F.col("estimate") - F.col("total_settled")) / remaining_months
+            ),
         )
 
         return settled.otherwise(
-            settled_fallback.otherwise(
-                monthly_proj.otherwise(annual_proj)
-            )
+            settled_fallback.otherwise(monthly_proj.otherwise(annual_proj))
         )
 
     def calc_source():
         """Determine the source of the amount (set-based)."""
         return F.when(
-            F.col("month") <= F.col("holdback_date"),
-            F.lit("ledger")
+            F.col("month") <= F.col("holdback_date"), F.lit("ledger")
         ).otherwise(F.lit("estimate"))
 
     def calc_source_quality():
         """Determine the source quality (set-based)."""
         return F.when(
-            (F.col("month") <= F.col("holdback_date")) & (F.col("ledger_amount").isNull()),
-            F.lit("ESTIMATE_FALLBACK")
+            (F.col("month") <= F.col("holdback_date"))
+            & (F.col("ledger_amount").isNull()),
+            F.lit("ESTIMATE_FALLBACK"),
         ).otherwise(F.lit("CONFIRMED"))
 
     def calc_is_settled():
@@ -647,10 +648,16 @@ def gold(
         # Get latest event_id per account using window
         w_latest = Window.partitionBy("account_id", "year").orderBy(F.desc("updated_at"))
         latest_estimates = (
-            silver_estimates
-            .withColumn("rn", F.row_number().over(w_latest))
+            silver_estimates.withColumn("rn", F.row_number().over(w_latest))
             .filter(F.col("rn") == 1)
-            .select("account_id", "year", "event_id", "currency", "estimation_mode", "estimate")
+            .select(
+                "account_id",
+                "year",
+                "event_id",
+                "currency",
+                "estimation_mode",
+                "estimate",
+            )
             .withColumnRenamed("event_id", "volume_event_id")
         )
 
@@ -662,16 +669,14 @@ def gold(
         )
 
         # Aggregate ledger by account/year/month
-        ledger_monthly = (
-            silver_ledger
-            .groupBy("account_id", "year", "month")
-            .agg(F.sum("amount").alias("ledger_amount"))
+        ledger_monthly = silver_ledger.groupBy("account_id", "year", "month").agg(
+            F.sum("amount").alias("ledger_amount")
         )
 
         # Generate 12-month grid using explode
         months_df = spark.createDataFrame(
             [(dt.date(2026, m, 1),) for m in range(1, 13)],
-            T.StructType([T.StructField("month", T.DateType(), False)])
+            T.StructType([T.StructField("month", T.DateType(), False)]),
         )
 
         # Create grid: context_df x months
@@ -679,34 +684,28 @@ def gold(
         grid = context_df.drop("volume_event_id").crossJoin(months_df)
 
         # Join with ledger data
-        with_ledger = grid.join(
-            ledger_monthly,
-            ["account_id", "year", "month"],
-            "left"
-        )
+        with_ledger = grid.join(ledger_monthly, ["account_id", "year", "month"], "left")
 
         # Calculate settled actuals using conditional window sum
         w_account = Window.partitionBy("account_id", "year")
         with_settled = with_ledger.withColumn(
             "total_settled",
             F.sum(
-                F.when(F.col("month") <= F.col("holdback_date"), F.col("ledger_amount"))
-                .otherwise(0)
-            ).over(w_account)
+                F.when(
+                    F.col("month") <= F.col("holdback_date"), F.col("ledger_amount")
+                ).otherwise(0)
+            ).over(w_account),
         )
 
         # Join with latest estimates
         # Drop volume_event_id from context to avoid ambiguity with the one from latest_estimates
         with_estimates = with_settled.join(
-            latest_estimates,
-            ["account_id", "year"],
-            "left"
+            latest_estimates, ["account_id", "year"], "left"
         )
 
         # Apply all calculations globally
         result = (
-            with_estimates
-            .withColumn("amount", calc_amount())
+            with_estimates.withColumn("amount", calc_amount())
             .withColumn("source", calc_source())
             .withColumn("source_quality", calc_source_quality())
             .withColumn("is_settled", calc_is_settled())
@@ -740,7 +739,11 @@ def gold(
             df = spark.read.format("delta").load(control_path)
             # Get latest record per account/year
             w = Window.partitionBy("account_id", "year").orderBy(F.desc("inserted_at"))
-            return df.withColumn("rn", F.row_number().over(w)).filter(F.col("rn") == 1).drop("rn")
+            return (
+                df.withColumn("rn", F.row_number().over(w))
+                .filter(F.col("rn") == 1)
+                .drop("rn")
+            )
         except Exception:
             # Return empty DataFrame with correct schema if table doesn't exist
             return spark.createDataFrame([], control_schema)
@@ -762,18 +765,24 @@ def gold(
         # Build context DataFrame with holdback dates and metadata
         # Use left join + coalesce for default holdback dates
         context_df = (
-            changed_keys
-            .join(holdback_df, ["account_id", "year"], "left")
-            .withColumn("holdback_date", F.coalesce(F.col("holdback_date"), F.lit(default_date)))
-            .withColumn("holdback_event_id", F.coalesce(F.col("holdback_event_id"), F.lit("DEFAULT")))
+            changed_keys.join(holdback_df, ["account_id", "year"], "left")
+            .withColumn(
+                "holdback_date", F.coalesce(F.col("holdback_date"), F.lit(default_date))
+            )
+            .withColumn(
+                "holdback_event_id",
+                F.coalesce(F.col("holdback_event_id"), F.lit("DEFAULT")),
+            )
             .select("account_id", "year", "holdback_date", "holdback_event_id")
         )
 
         # Capture ledger snapshot timestamp
         ledger_snapshot_timestamp = (
-            spark.read.format("delta").load(silver_ledger_path)
+            spark.read.format("delta")
+            .load(silver_ledger_path)
             .agg(F.max("updated_at").alias("max_ts"))
-            .collect()[0].max_ts
+            .collect()[0]
+            .max_ts
         )
 
         # Calculate unified cashflow for ALL accounts in one pass
@@ -819,17 +828,17 @@ def gold(
         holdback_df = get_holdback_dates()
 
         # Build context with the new holdback dates
-        context_df = (
-            changed_keys
-            .join(holdback_df, ["account_id", "year"], "inner")
-            .select("account_id", "year", "holdback_date", "holdback_event_id")
-        )
+        context_df = changed_keys.join(
+            holdback_df, ["account_id", "year"], "inner"
+        ).select("account_id", "year", "holdback_date", "holdback_event_id")
 
         # Capture ledger snapshot timestamp
         ledger_snapshot_timestamp = (
-            spark.read.format("delta").load(silver_ledger_path)
+            spark.read.format("delta")
+            .load(silver_ledger_path)
             .agg(F.max("updated_at").alias("max_ts"))
-            .collect()[0].max_ts
+            .collect()[0]
+            .max_ts
         )
 
         # Calculate unified cashflow
@@ -864,9 +873,14 @@ def gold(
         Listens to silver_estimates, silver_ledger, and control_holdback_dates for changes.
         Runs sequentially to avoid concurrent MERGE conflicts on Gold table.
         """
-        def run_stream(source_path, checkpoint_suffix, foreach_batch_fn=propagate_to_gold):
+
+        def run_stream(
+            source_path, checkpoint_suffix, foreach_batch_fn=propagate_to_gold
+        ):
             """Start a streaming query for a given source path."""
-            checkpoint_dir = f"s3a://lakehouse/delta/checkpoints/gold_unified_{checkpoint_suffix}"
+            checkpoint_dir = (
+                f"s3a://lakehouse/delta/checkpoints/gold_unified_{checkpoint_suffix}"
+            )
 
             query = (
                 spark.readStream.format("delta")
@@ -929,7 +943,7 @@ def _(conn, gold_unified_cashflow, mo):
         SELECT * FROM ranked WHERE rn = 1
         ORDER BY account_id, month
         """,
-        engine=conn
+        engine=conn,
     )
 
 
@@ -941,9 +955,11 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
     _test_holdback = dt.date(2026, 7, 31)
 
     # Create context DataFrame for batch processing
-    _context_df = make_context_df([
-        ("0001", 2026, _test_holdback, None, None),
-    ])
+    _context_df = make_context_df(
+        [
+            ("0001", 2026, _test_holdback, None, None),
+        ]
+    )
 
     _test_df = calculate_unified_cashflow(
         context_df=_context_df,
@@ -971,9 +987,11 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
     _test_holdback = dt.date(2026, 3, 31)
 
     # Create context DataFrame for batch processing
-    _context_df = make_context_df([
-        ("0001", 2026, _test_holdback, None, None),
-    ])
+    _context_df = make_context_df(
+        [
+            ("0001", 2026, _test_holdback, None, None),
+        ]
+    )
 
     # Run calculation twice for same account
     _df1 = calculate_unified_cashflow(
@@ -1002,18 +1020,22 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
 def _(F, calculate_unified_cashflow, dt, make_context_df):
     """Test 3: Bitemporal Support - Different holdback dates produce different results"""
     # March holdback
-    _march_context = make_context_df([
-        ("0001", 2026, dt.date(2026, 3, 31), None, None),
-    ])
+    _march_context = make_context_df(
+        [
+            ("0001", 2026, dt.date(2026, 3, 31), None, None),
+        ]
+    )
     march_df = calculate_unified_cashflow(
         context_df=_march_context,
         calculation_id="TEST_004",
     )
 
     # June holdback
-    _june_context = make_context_df([
-        ("0001", 2026, dt.date(2026, 6, 30), None, None),
-    ])
+    _june_context = make_context_df(
+        [
+            ("0001", 2026, dt.date(2026, 6, 30), None, None),
+        ]
+    )
     june_df = calculate_unified_cashflow(
         context_df=_june_context,
         calculation_id="TEST_005",
@@ -1030,15 +1052,21 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
 
     # In March holdback, April is projected
     assert len(april_march) == 1, "April should exist in March holdback"
-    assert april_march[0].is_settled == False, "April should be projected in March holdback"
+    assert april_march[0].is_settled == False, (
+        "April should be projected in March holdback"
+    )
 
     # In June holdback, April is settled
     assert len(april_june) == 1, "April should exist in June holdback"
     assert april_june[0].is_settled == True, "April should be settled in June holdback"
 
     print("✓ Test 3 Passed: Bitemporal support verified")
-    print(f"  March holdback: April amount = {april_march[0].amount}, settled = {april_march[0].is_settled}")
-    print(f"  June holdback: April amount = {april_june[0].amount}, settled = {april_june[0].is_settled}")
+    print(
+        f"  March holdback: April amount = {april_march[0].amount}, settled = {april_march[0].is_settled}"
+    )
+    print(
+        f"  June holdback: April amount = {april_june[0].amount}, settled = {april_june[0].is_settled}"
+    )
     return (june_df,)
 
 
@@ -1094,7 +1122,7 @@ def _(conn, gold_unified_cashflow, mo):
         """
         select * from gold_unified_cashflow where account_id = '0001'
         """,
-        engine=conn
+        engine=conn,
     )
 
 
@@ -1102,8 +1130,7 @@ def _(conn, gold_unified_cashflow, mo):
 def _(spark):
     hadoop_conf = spark.sparkContext._jsc.hadoopConfiguration()
     fs = spark.sparkContext._jvm.org.apache.hadoop.fs.FileSystem.get(
-        spark.sparkContext._jvm.java.net.URI("s3a://lakehouse"),
-        hadoop_conf
+        spark.sparkContext._jvm.java.net.URI("s3a://lakehouse"), hadoop_conf
     )
     # List checkpoint directory
     checkpoint_path = spark.sparkContext._jvm.org.apache.hadoop.fs.Path(
@@ -1125,9 +1152,11 @@ def _(F, calculate_unified_cashflow, dt, make_context_df):
     _test_holdback = dt.date(2026, 3, 31)
 
     # Create context DataFrame for batch processing
-    _context_df = make_context_df([
-        ("0001", 2026, _test_holdback, None, None),
-    ])
+    _context_df = make_context_df(
+        [
+            ("0001", 2026, _test_holdback, None, None),
+        ]
+    )
 
     _test_df = calculate_unified_cashflow(
         context_df=_context_df,
@@ -1163,7 +1192,7 @@ def _(bronze_estimates, conn, mo):
         """
         select * from bronze_estimates
         """,
-        engine=conn
+        engine=conn,
     )
 
 
@@ -1173,7 +1202,7 @@ def _(conn, mo, silver_estimates):
         """
         select * from silver_estimates;
         """,
-        engine=conn
+        engine=conn,
     )
 
 
@@ -1204,7 +1233,7 @@ def _(bronze_estimates, conn, mo):
         """
         select * from bronze_estimates
         """,
-        engine=conn
+        engine=conn,
     )
 
 
@@ -1214,7 +1243,7 @@ def _(conn, mo, silver_estimates):
         """
         SELECT * from silver_estimates
         """,
-        engine=conn
+        engine=conn,
     )
 
 
@@ -1253,7 +1282,7 @@ def _(bronze_estimates, conn, mo):
         """
         select * from bronze_estimates
         """,
-        engine=conn
+        engine=conn,
     )
 
 
@@ -1263,7 +1292,7 @@ def _(conn, mo, silver_estimates):
         """
         select * from silver_estimates
         """,
-        engine=conn
+        engine=conn,
     )
 
 
@@ -1273,6 +1302,7 @@ def _(silver_estimate_path, spark):
     # This shows every row that changed in Silver across all versions.
     # Use startingTimestamp to avoid retention issues - use a time well before table creation
     from datetime import datetime, timedelta
+
     start_time = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
     cdf_df = (
         spark.read.format("delta")
