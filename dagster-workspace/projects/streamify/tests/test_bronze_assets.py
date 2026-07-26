@@ -3,8 +3,8 @@
 from unittest.mock import MagicMock, patch
 
 import dagster as dg
-from dagster import build_op_context
 
+from dagster import build_op_context
 from streamify.defs.bronze_assets import bronze_streaming_job
 from streamify.defs.definitions import defs
 from streamify.defs.resources import StreamingJobConfig
@@ -32,21 +32,7 @@ def test_bronze_streaming_job_asset_exists():
 
 @patch("streamify.defs.bronze_assets.write_stream")
 @patch("streamify.defs.bronze_assets.process_stream")
-@patch("streamify.defs.bronze_assets.col")
-@patch("streamify.defs.bronze_assets.from_json")
-@patch("streamify.defs.bronze_assets.concat_ws")
-@patch("streamify.defs.bronze_assets.sha2")
-@patch("streamify.defs.bronze_assets.to_date")
-@patch("streamify.defs.bronze_assets.from_unixtime")
-@patch("streamify.defs.bronze_assets.current_timestamp")
 def test_bronze_streaming_job_asset_function(
-    mock_current_timestamp,
-    mock_from_unixtime,
-    mock_to_date,
-    mock_sha2,
-    mock_concat_ws,
-    mock_from_json,
-    mock_col,
     mock_process_stream,
     mock_write_stream,
 ):
@@ -94,24 +80,14 @@ def test_bronze_streaming_job_asset_function(
     assert mock_spark_session.sql.call_count >= 1
 
     # Verify streaming query was started for each topic (3 topics)
-    assert mock_write_stream.call_count == 3
+    assert mock_write_stream.call_count == 3  # noqa: PLR2004
 
 
-@patch("streamify.defs.bronze_assets.col")
-@patch("streamify.defs.bronze_assets.from_json")
-@patch("streamify.defs.bronze_assets.concat_ws")
-@patch("streamify.defs.bronze_assets.sha2")
-@patch("streamify.defs.bronze_assets.to_date")
-@patch("streamify.defs.bronze_assets.from_unixtime")
-@patch("streamify.defs.bronze_assets.current_timestamp")
+@patch("streamify.defs.bronze_assets.write_stream")
+@patch("streamify.defs.bronze_assets.process_stream")
 def test_bronze_streaming_job_metadata_content(
-    mock_current_timestamp,
-    mock_from_unixtime,
-    mock_to_date,
-    mock_sha2,
-    mock_concat_ws,
-    mock_from_json,
-    mock_col,
+    mock_process_stream,
+    mock_write_stream,
 ):
     """Test that the asset returns expected metadata fields."""
     # Create mock resources
@@ -144,22 +120,13 @@ def test_bronze_streaming_job_metadata_content(
     mock_read_stream.load.return_value = mock_df
     mock_spark_session.readStream = mock_read_stream
 
-    mock_write_stream = MagicMock()
-    mock_write_stream.format.return_value = mock_write_stream
-    mock_write_stream.outputMode.return_value = mock_write_stream
-    mock_write_stream.trigger.return_value = mock_write_stream
-    mock_write_stream.option.return_value = mock_write_stream
-    mock_write_stream.toTable.return_value = MagicMock()
-    mock_df.writeStream = mock_write_stream
-
-    # Mock the PySpark functions
-    mock_col.return_value = MagicMock()
-    mock_from_json.return_value = MagicMock()
-    mock_concat_ws.return_value = MagicMock()
-    mock_sha2.return_value = MagicMock()
-    mock_to_date.return_value = MagicMock()
-    mock_from_unixtime.return_value = MagicMock()
-    mock_current_timestamp.return_value = MagicMock()
+    mock_write_stream_obj = MagicMock()
+    mock_write_stream_obj.format.return_value = mock_write_stream_obj
+    mock_write_stream_obj.outputMode.return_value = mock_write_stream_obj
+    mock_write_stream_obj.trigger.return_value = mock_write_stream_obj
+    mock_write_stream_obj.option.return_value = mock_write_stream_obj
+    mock_write_stream_obj.toTable.return_value = MagicMock()
+    mock_df.writeStream = mock_write_stream_obj
 
     # Build the context with resources
     context = build_op_context(
@@ -190,4 +157,4 @@ def test_bronze_streaming_job_metadata_content(
     assert metadata["checkpoint_base"].text == "s3a://checkpoints/streaming"
     assert metadata["namespace"] == "bronze"
     assert metadata["kafka_servers"] == "kafka:9092"
-    assert metadata["num_streams"] == 3  # Three topics
+    assert metadata["num_streams"] == 3  # noqa: PLR2004  # Three topics

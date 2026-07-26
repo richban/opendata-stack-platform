@@ -78,6 +78,7 @@ AUTH_EVENTS_SCHEMA = StructType(
 
 meta_schema = [
     StructField("event_id", StringType(), True),
+    StructField("event_ts", TimestampType(), True),
     StructField("event_date", DateType(), True),
     StructField("_kafka_partition", IntegerType(), True),
     StructField("_kafka_offset", LongType(), True),

@@ -13,7 +13,6 @@ from pyspark.sql.functions import (
     concat_ws,
     current_timestamp,
     from_json,
-    from_unixtime,
     sha2,
     to_date,
     udf,
@@ -40,6 +39,22 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("streamify.main")
+
+
+def _string_decode_fn(s: str, encoding: str = "utf-8") -> str:
+    """Decodes unicode-escaped and octal-escaped strings into clean target encoding."""
+    if s:
+        try:
+            return (
+                s.encode("latin1")  # To bytes, required by 'unicode-escape'
+                .decode("unicode-escape")  # Perform the actual octal-escaping decode
+                .encode("latin1")  # 1:1 mapping back to bytes
+                .decode(encoding)  # Decode original encoding
+                .strip('"')
+            )
+        except Exception:
+            return s
+    return s
 
 
 class StreamifyDeclarativePipeline:
@@ -79,6 +94,8 @@ class StreamifyDeclarativePipeline:
 
         Parses JSON, generates event_id, and computes event_date.
         """
+        string_decode = udf(_string_decode_fn, StringType())
+
         parsed_df = (
             source_df.select(
                 from_json(col("value").cast("string"), schema).alias("data"),
@@ -104,8 +121,11 @@ class StreamifyDeclarativePipeline:
                     256,
                 ),
             )
-            .withColumn("event_date", to_date(from_unixtime(col("ts") / 1000)))
+            .withColumn("event_ts", (col("ts") / 1000).cast("timestamp"))
+            .withColumn("event_date", to_date(col("event_ts")))
             .withColumn("_processing_time", current_timestamp())
+            .withColumn("song", string_decode(col("song")))
+            .withColumn("artist", string_decode(col("artist")))
         )
 
         metadata_cols = [field.name for field in meta_schema]

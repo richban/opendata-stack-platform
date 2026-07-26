@@ -11,6 +11,8 @@ Streaming Configuration:
 - Checkpoint location: DuckDB-based for fault tolerance
 """
 
+import traceback
+
 import dagster as dg
 
 from pyspark.sql import SparkSession
@@ -19,7 +21,6 @@ from pyspark.sql.functions import (
     concat_ws,
     current_timestamp,
     from_json,
-    from_unixtime,
     sha2,
     to_date,
 )
@@ -51,12 +52,11 @@ def create_table_if_not_exists(
 
     table_name = f"{catalog}.{namespace}.bronze_{topic}"
 
-    # Check if table exists
     try:
-        spark.sql(f"DESCRIBE TABLE {table_name}")
-        return  # Table exists
+        if spark.catalog.tableExists(table_name):
+            return
     except Exception:
-        pass  # Table doesn't exist, create it
+        pass
 
     extended_fields = list(schema.fields) + meta_schema
     extended_schema = StructType(extended_fields)
@@ -73,13 +73,15 @@ def process_stream(
     streaming_config: StreamingJobConfig,
     topic: str,
     schema: StructType,
-    context: dg.AssetExecutionContext,
 ):
     """Transform Kafka stream: parse JSON, add event_id, extract event_date."""
 
+    # Map host address (localhost:9093) to container address (kafka:9092)
+    spark_kafka_servers = streaming_config.get_kafka_bootstrap_servers()
+
     kafka_df = (
         spark.readStream.format("kafka")
-        .option("kafka.bootstrap.servers", streaming_config.kafka_bootstrap_servers)
+        .option("kafka.bootstrap.servers", spark_kafka_servers)
         .option("subscribe", topic)
         .option("startingOffsets", "latest")
         .option("failOnDataLoss", "false")
@@ -113,7 +115,8 @@ def process_stream(
                 256,
             ),
         )
-        .withColumn("event_date", to_date(from_unixtime(col("ts") / 1000)))
+        .withColumn("event_ts", (col("ts") / 1000).cast("timestamp"))
+        .withColumn("event_date", to_date(col("event_ts")))
         .withColumn("_processing_time", current_timestamp())
     )
 
@@ -179,7 +182,7 @@ def bronze_streaming_job(
     - Running with a timeout or max duration
     - Using a separate scheduler/cron to restart if needed
     - Monitoring with sensors for health checks
-    - For historical backfill use `startingOffsets=earliest`, but for continuous streaming use `latest`
+    - Use `startingOffsets=earliest` for backfill, `latest` for continuous
     """
     try:
         context.log.info("STREAMIFY - Kafka to Iceberg Streaming (Spark Connect)")
@@ -195,8 +198,6 @@ def bronze_streaming_job(
         context.log.info("✓ Connected to Spark Connect")
     except Exception as e:
         context.log.error(f"Failed to connect to Spark: {e}")
-        import traceback
-
         context.log.error(traceback.format_exc())
         raise
 
@@ -222,7 +223,7 @@ def bronze_streaming_job(
         )
 
         context.log.info(f"Starting stream for {topic}...")
-        df_stream = process_stream(session, streaming_config, topic, schema, context)
+        df_stream = process_stream(session, streaming_config, topic, schema)
         df_out = write_stream(df_stream, streaming_config, topic, context)
         queries.append(df_out)
 
