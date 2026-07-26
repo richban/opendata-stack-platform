@@ -667,15 +667,15 @@ wheels = [
 
 [[package]]
 name = "delta-spark"
-version = "4.1.0"
+version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "importlib-metadata" },
     { name = "pyspark" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2f/09/d394015eb956c4475f6a949fb5fccedf7af19f97e981acbc81629e868a5e/delta_spark-4.1.0.tar.gz", hash = "sha256:98f73c2744f972919e0472974467f85d157810b617341ebf586374d91b8eadc7", size = 36808, upload-time = "2026-02-20T18:37:59.8Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/37/e4/dcf0afa219bc454d5edab65a4defd4dc90e196fdb8c6fb5156ec6d7fc468/delta_spark-4.2.0.tar.gz", hash = "sha256:198079cf74ee40788895a73111900095ebaed2c631205315868b4406c521e0d5", size = 45896, upload-time = "2026-04-10T23:31:30.102Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b7/03/2e440efd4a49c8ecfbcb665dea7db94583cf33a365d8480e47fb0aa0dc39/delta_spark-4.1.0-py3-none-any.whl", hash = "sha256:d80f6ebca542df48f257f2535f9c8c21bbfda65771b6ec21be843c0087e1dece", size = 43877, upload-time = "2026-02-20T18:37:58.15Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/86/766c7cb36a5209c09222be74bad9c047da22690c8e562fab4be29b6a5776/delta_spark-4.2.0-py3-none-any.whl", hash = "sha256:46327eaeb50915aec3b66bb4ab8fb8db7f90774f2a3bb65bb859333cedc6ef8f", size = 53929, upload-time = "2026-04-10T23:31:28.884Z" },
 ]
 
 [[package]]
@@ -1136,6 +1136,16 @@ duckdb = [
     { name = "pandas" },
     { name = "pyarrow" },
     { name = "pyarrow-hotfix" },
+    { name = "rich" },
+]
+pyspark = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "packaging" },
+    { name = "pandas" },
+    { name = "pyarrow" },
+    { name = "pyarrow-hotfix" },
+    { name = "pyspark" },
     { name = "rich" },
 ]
 
@@ -2186,17 +2196,17 @@ wheels = [
 
 [[package]]
 name = "protobuf"
-version = "6.33.6"
+version = "6.33.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/66/70/e908e9c5e52ef7c3a6c7902c9dfbb34c7e29c25d2f81ade3856445fd5c94/protobuf-6.33.6.tar.gz", hash = "sha256:a6768d25248312c297558af96a9f9c929e8c4cee0659cb07e780731095f38135", size = 444531, upload-time = "2026-03-18T19:05:00.988Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/03/a1440979a3f74f16cab3b75b0da1a1a7f922d56a8ddea96092391998edc0/protobuf-6.33.1.tar.gz", hash = "sha256:97f65757e8d09870de6fd973aeddb92f85435607235d20b2dfed93405d00c85b", size = 443432, upload-time = "2025-11-13T16:44:18.895Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fc/9f/2f509339e89cfa6f6a4c4ff50438db9ca488dec341f7e454adad60150b00/protobuf-6.33.6-cp310-abi3-win32.whl", hash = "sha256:7d29d9b65f8afef196f8334e80d6bc1d5d4adedb449971fefd3723824e6e77d3", size = 425739, upload-time = "2026-03-18T19:04:48.373Z" },
-    { url = "https://files.pythonhosted.org/packages/76/5d/683efcd4798e0030c1bab27374fd13a89f7c2515fb1f3123efdfaa5eab57/protobuf-6.33.6-cp310-abi3-win_amd64.whl", hash = "sha256:0cd27b587afca21b7cfa59a74dcbd48a50f0a6400cfb59391340ad729d91d326", size = 437089, upload-time = "2026-03-18T19:04:50.381Z" },
-    { url = "https://files.pythonhosted.org/packages/5c/01/a3c3ed5cd186f39e7880f8303cc51385a198a81469d53d0fdecf1f64d929/protobuf-6.33.6-cp39-abi3-macosx_10_9_universal2.whl", hash = "sha256:9720e6961b251bde64edfdab7d500725a2af5280f3f4c87e57c0208376aa8c3a", size = 427737, upload-time = "2026-03-18T19:04:51.866Z" },
-    { url = "https://files.pythonhosted.org/packages/ee/90/b3c01fdec7d2f627b3a6884243ba328c1217ed2d978def5c12dc50d328a3/protobuf-6.33.6-cp39-abi3-manylinux2014_aarch64.whl", hash = "sha256:e2afbae9b8e1825e3529f88d514754e094278bb95eadc0e199751cdd9a2e82a2", size = 324610, upload-time = "2026-03-18T19:04:53.096Z" },
-    { url = "https://files.pythonhosted.org/packages/9b/ca/25afc144934014700c52e05103c2421997482d561f3101ff352e1292fb81/protobuf-6.33.6-cp39-abi3-manylinux2014_s390x.whl", hash = "sha256:c96c37eec15086b79762ed265d59ab204dabc53056e3443e702d2681f4b39ce3", size = 339381, upload-time = "2026-03-18T19:04:54.616Z" },
-    { url = "https://files.pythonhosted.org/packages/16/92/d1e32e3e0d894fe00b15ce28ad4944ab692713f2e7f0a99787405e43533a/protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl", hash = "sha256:e9db7e292e0ab79dd108d7f1a94fe31601ce1ee3f7b79e0692043423020b0593", size = 323436, upload-time = "2026-03-18T19:04:55.768Z" },
-    { url = "https://files.pythonhosted.org/packages/c4/72/02445137af02769918a93807b2b7890047c32bfb9f90371cbc12688819eb/protobuf-6.33.6-py3-none-any.whl", hash = "sha256:77179e006c476e69bf8e8ce866640091ec42e1beb80b213c3900006ecfba6901", size = 170656, upload-time = "2026-03-18T19:04:59.826Z" },
+    { url = "https://files.pythonhosted.org/packages/06/f1/446a9bbd2c60772ca36556bac8bfde40eceb28d9cc7838755bc41e001d8f/protobuf-6.33.1-cp310-abi3-win32.whl", hash = "sha256:f8d3fdbc966aaab1d05046d0240dd94d40f2a8c62856d41eaa141ff64a79de6b", size = 425593, upload-time = "2025-11-13T16:44:06.275Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/79/8780a378c650e3df849b73de8b13cf5412f521ca2ff9b78a45c247029440/protobuf-6.33.1-cp310-abi3-win_amd64.whl", hash = "sha256:923aa6d27a92bf44394f6abf7ea0500f38769d4b07f4be41cb52bd8b1123b9ed", size = 436883, upload-time = "2025-11-13T16:44:09.222Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/93/26213ff72b103ae55bb0d73e7fb91ea570ef407c3ab4fd2f1f27cac16044/protobuf-6.33.1-cp39-abi3-macosx_10_9_universal2.whl", hash = "sha256:fe34575f2bdde76ac429ec7b570235bf0c788883e70aee90068e9981806f2490", size = 427522, upload-time = "2025-11-13T16:44:10.475Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/32/df4a35247923393aa6b887c3b3244a8c941c32a25681775f96e2b418f90e/protobuf-6.33.1-cp39-abi3-manylinux2014_aarch64.whl", hash = "sha256:f8adba2e44cde2d7618996b3fc02341f03f5bc3f2748be72dc7b063319276178", size = 324445, upload-time = "2025-11-13T16:44:11.869Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/d0/d796e419e2ec93d2f3fa44888861c3f88f722cde02b7c3488fcc6a166820/protobuf-6.33.1-cp39-abi3-manylinux2014_s390x.whl", hash = "sha256:0f4cf01222c0d959c2b399142deb526de420be8236f22c71356e2a544e153c53", size = 339161, upload-time = "2025-11-13T16:44:12.778Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/2a/3c5f05a4af06649547027d288747f68525755de692a26a7720dced3652c0/protobuf-6.33.1-cp39-abi3-manylinux2014_x86_64.whl", hash = "sha256:8fd7d5e0eb08cd5b87fd3df49bc193f5cfd778701f47e11d127d0afc6c39f1d1", size = 323171, upload-time = "2025-11-13T16:44:14.035Z" },
+    { url = "https://files.pythonhosted.org/packages/08/b4/46310463b4f6ceef310f8348786f3cff181cea671578e3d9743ba61a459e/protobuf-6.33.1-py3-none-any.whl", hash = "sha256:d595a9fd694fdeb061a62fbe10eb039cc1e444df81ec9bb70c7fc59ebcb1eafa", size = 170477, upload-time = "2025-11-13T16:44:17.633Z" },
 ]
 
 [[package]]
@@ -2521,12 +2531,12 @@ wheels = [
 
 [[package]]
 name = "pyspark"
-version = "4.2.0"
+version = "4.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "py4j" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c3/33/c987434f5d50aa802779a004ca0fd45ee4350caab50554ad7283d5a22b50/pyspark-4.2.0.tar.gz", hash = "sha256:5ad689d53570ee1674193fd4f9bda065f0db3be9363a27d2a3406cc457b70b61", size = 450129423, upload-time = "2026-07-14T22:16:46Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/96/89/408b42c803db71f4a4d8a3f1ab0745a40dfe41aeacdfc453545665a171f4/pyspark-4.0.2.tar.gz", hash = "sha256:938b4a1883383374d331ebfcb5d92debfa1891cf3d7a6d730520a1a2d23f1a90", size = 434209940, upload-time = "2026-02-05T19:31:13.6Z" }
 
 [[package]]
 name = "pytest"
@@ -3012,12 +3022,11 @@ dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },
     { name = "grpcio-status" },
-    { name = "ibis-framework", extra = ["duckdb"] },
+    { name = "ibis-framework", extra = ["duckdb", "pyspark"] },
     { name = "kafka-python" },
     { name = "marimo" },
     { name = "obstore" },
     { name = "pandas" },
-    { name = "protobuf" },
     { name = "pyarrow" },
     { name = "pyiceberg", extra = ["pyarrow"] },
     { name = "pyspark" },
@@ -3046,15 +3055,14 @@ requires-dist = [
     { name = "googleapis-common-protos", specifier = ">=1.56.4" },
     { name = "grpcio", specifier = ">=1.48.1" },
     { name = "grpcio-status", specifier = ">=1.48.1" },
-    { name = "ibis-framework", extras = ["duckdb"], specifier = ">=12.0.0" },
+    { name = "ibis-framework", extras = ["duckdb", "pyspark"], specifier = ">=12.0.0" },
     { name = "kafka-python", specifier = "==2.0.2" },
     { name = "marimo", specifier = ">=0.21.1" },
     { name = "obstore", specifier = ">=0.9.2" },
     { name = "pandas", specifier = ">=1.0.5" },
-    { name = "protobuf", specifier = ">=6.33.5" },
     { name = "pyarrow", specifier = ">=10.0.0" },
     { name = "pyiceberg", extras = ["pyarrow"], specifier = "==0.8.1" },
-    { name = "pyspark", specifier = "==4.2.0" },
+    { name = "pyspark", specifier = "==4.0.2" },
     { name = "python-lsp-server", specifier = ">=1.14.0" },
     { name = "redis", specifier = ">=8.0.1" },
     { name = "ty", specifier = ">=0.0.26" },

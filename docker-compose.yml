@@ -237,13 +237,13 @@ services:
       - opendata_network
 
   # ---------------------------------------------------------------------------
-  # Spark 4.2.0 — Scala 2.13, Java 21
+  # Spark 4.0.2 — Scala 2.13, Java 21
   # Iceberg 1.10.1 (iceberg-spark-runtime-4.0_2.13) — latest stable for Spark 4
   # Hadoop AWS 3.4.1 — matches Spark 4.x bundled Hadoop
   # ---------------------------------------------------------------------------
 
   spark-master:
-    image: apache/spark:4.2.0
+    image: apache/spark:4.0.2
     command: /opt/spark/sbin/start-master.sh -h spark-master
     environment:
       SPARK_NO_DAEMONIZE: "true"
@@ -261,7 +261,7 @@ services:
       - ./dagster-workspace/projects/streamify:/opt/streamify
 
   spark-worker:
-    image: apache/spark:4.2.0
+    image: apache/spark:4.0.2
     user: root
     command: /opt/spark/sbin/start-worker.sh spark://spark-master:7077
     depends_on:
@@ -281,7 +281,7 @@ services:
       - ./dagster-workspace/projects/streamify:/opt/streamify
 
   spark-connect:
-    image: apache/spark:4.2.0
+    image: apache/spark:4.0.2
     user: root
     entrypoint: /bin/bash
     command:
@@ -296,7 +296,7 @@ services:
         org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.1,\
         org.apache.iceberg:iceberg-aws-bundle:1.10.1,\
         org.apache.hadoop:hadoop-aws:3.4.1,\
-        org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0,\
+        org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.2,\
         io.dataflint:dataflint-spark4_2.13:0.8.8"
 
         # 1. Pre-download packages via a throwaway SparkPi run so the ivy cache
