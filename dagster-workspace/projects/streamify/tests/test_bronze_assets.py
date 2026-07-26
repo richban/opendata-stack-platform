@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import dagster as dg
 from dagster import build_op_context
 
-from streamify.defs.assets import bronze_streaming_job
+from streamify.defs.bronze_assets import bronze_streaming_job
 from streamify.defs.definitions import defs
 from streamify.defs.resources import StreamingJobConfig
 
@@ -30,13 +30,15 @@ def test_bronze_streaming_job_asset_exists():
     assert len(bronze_streaming_job.keys) == 1
 
 
-@patch("streamify.defs.assets.col")
-@patch("streamify.defs.assets.from_json")
-@patch("streamify.defs.assets.concat_ws")
-@patch("streamify.defs.assets.sha2")
-@patch("streamify.defs.assets.to_date")
-@patch("streamify.defs.assets.from_unixtime")
-@patch("streamify.defs.assets.current_timestamp")
+@patch("streamify.defs.bronze_assets.write_stream")
+@patch("streamify.defs.bronze_assets.process_stream")
+@patch("streamify.defs.bronze_assets.col")
+@patch("streamify.defs.bronze_assets.from_json")
+@patch("streamify.defs.bronze_assets.concat_ws")
+@patch("streamify.defs.bronze_assets.sha2")
+@patch("streamify.defs.bronze_assets.to_date")
+@patch("streamify.defs.bronze_assets.from_unixtime")
+@patch("streamify.defs.bronze_assets.current_timestamp")
 def test_bronze_streaming_job_asset_function(
     mock_current_timestamp,
     mock_from_unixtime,
@@ -45,6 +47,8 @@ def test_bronze_streaming_job_asset_function(
     mock_concat_ws,
     mock_from_json,
     mock_col,
+    mock_process_stream,
+    mock_write_stream,
 ):
     """Test the bronze_streaming_job function directly with mocked dependencies."""
     # Create mock resources
@@ -68,38 +72,6 @@ def test_bronze_streaming_job_asset_function(
     # Mock SQL execution (for CREATE NAMESPACE and DESCRIBE TABLE)
     mock_spark_session.sql.return_value = MagicMock()
 
-    # Mock DataFrame operations for streaming
-    mock_df = MagicMock()
-
-    # Setup readStream chain
-    mock_read_stream = MagicMock()
-    mock_read_stream.format.return_value = mock_read_stream
-    mock_read_stream.option.return_value = mock_read_stream
-    mock_read_stream.load.return_value = mock_df
-    mock_spark_session.readStream = mock_read_stream
-
-    # Setup writeStream chain
-    mock_write_stream = MagicMock()
-    mock_write_stream.format.return_value = mock_write_stream
-    mock_write_stream.outputMode.return_value = mock_write_stream
-    mock_write_stream.trigger.return_value = mock_write_stream
-    mock_write_stream.option.return_value = mock_write_stream
-    mock_write_stream.toTable.return_value = MagicMock()
-    mock_df.writeStream = mock_write_stream
-
-    # Mock the select operations
-    mock_df.select.return_value = mock_df
-    mock_df.withColumn.return_value = mock_df
-
-    # Mock the PySpark functions
-    mock_col.return_value = MagicMock()
-    mock_from_json.return_value = MagicMock()
-    mock_concat_ws.return_value = MagicMock()
-    mock_sha2.return_value = MagicMock()
-    mock_to_date.return_value = MagicMock()
-    mock_from_unixtime.return_value = MagicMock()
-    mock_current_timestamp.return_value = MagicMock()
-
     # Build the context with resources
     context = build_op_context(
         resources={
@@ -122,16 +94,16 @@ def test_bronze_streaming_job_asset_function(
     assert mock_spark_session.sql.call_count >= 1
 
     # Verify streaming query was started for each topic (3 topics)
-    assert mock_write_stream.toTable.call_count == 3
+    assert mock_write_stream.call_count == 3
 
 
-@patch("streamify.defs.assets.col")
-@patch("streamify.defs.assets.from_json")
-@patch("streamify.defs.assets.concat_ws")
-@patch("streamify.defs.assets.sha2")
-@patch("streamify.defs.assets.to_date")
-@patch("streamify.defs.assets.from_unixtime")
-@patch("streamify.defs.assets.current_timestamp")
+@patch("streamify.defs.bronze_assets.col")
+@patch("streamify.defs.bronze_assets.from_json")
+@patch("streamify.defs.bronze_assets.concat_ws")
+@patch("streamify.defs.bronze_assets.sha2")
+@patch("streamify.defs.bronze_assets.to_date")
+@patch("streamify.defs.bronze_assets.from_unixtime")
+@patch("streamify.defs.bronze_assets.current_timestamp")
 def test_bronze_streaming_job_metadata_content(
     mock_current_timestamp,
     mock_from_unixtime,
