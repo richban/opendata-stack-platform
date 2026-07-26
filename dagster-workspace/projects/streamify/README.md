@@ -333,7 +333,7 @@ From `pyproject.toml`:
 dagster==1.12.3
 dagster-aws==0.28.3         # S3Resource (MinIO)
 dagster-pipes>=1.12.3       # Available but not currently used
-pyspark==3.5.3              # Spark Connect client + streaming
+pyspark==4.2.0              # Spark Connect client + streaming
 kafka-python==2.0.2
 pyiceberg[pyarrow]==0.8.1   # Iceberg Python API (available for future use)
 pandas>=1.0.5               # Required by Spark Connect
