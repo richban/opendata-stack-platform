@@ -86,6 +86,17 @@ meta_schema = [
     StructField("_processing_time", TimestampType(), True),
 ]
 
+ENRICHED_USER_PROFILE_SCHEMA = StructType(
+    [
+        StructField("enriched_first_name", StringType(), True),
+        StructField("enriched_last_name", StringType(), True),
+        StructField("enriched_gender", StringType(), True),
+        StructField("enriched_city", StringType(), True),
+        StructField("enriched_state", StringType(), True),
+        StructField("enriched_zip", StringType(), True),
+    ]
+)
+
 SCHEMAS = {
     "listen_events": LISTEN_EVENTS_SCHEMA,
     "page_view_events": PAGE_VIEW_EVENTS_SCHEMA,
