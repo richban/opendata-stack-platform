@@ -1,15 +1,19 @@
 import logging
 import sys
 
-import redis
+from collections.abc import Iterator
 
+import pandas as pd
+import pyarrow as pa
+
+from cachetools import TTLCache
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import (
+    broadcast,
     col,
     concat_ws,
     current_timestamp,
     from_json,
-    lit,
     sha2,
     to_date,
     udf,
@@ -25,9 +29,11 @@ from streamify.defs.resources import (
     create_clickhouse_resource,
     create_s3_resource,
     create_spark_session,
+    get_executor_redis_client,
     get_streaming_config,
 )
 from streamify.schemas import (
+    ENRICHED_USER_PROFILE_SCHEMA,
     SCHEMAS as TOPIC_SCHEMAS,
     meta_schema,
 )
@@ -98,6 +104,8 @@ def ensure_clickhouse_table_exists(
                 enriched_city String,
                 enriched_state String,
                 enriched_zip String,
+                song_year String,
+                artist_location String,
                 _processing_time DateTime64(3)
             ) ENGINE = ReplacingMergeTree(event_ts)
             ORDER BY (state, toYYYYMMDD(event_ts), event_id)
@@ -109,131 +117,93 @@ def ensure_clickhouse_table_exists(
 
 
 # ------------------------------------------------------------------
-# Redis batch lookup helper
+# Executor-side mapInPandas logic
 # ------------------------------------------------------------------
-def _redis_batch_lookup(
-    user_ids: list[int],
+_executor_profile_cache = TTLCache(maxsize=10000, ttl=600)
+
+def _enrich_profiles_partition(
+    batches: Iterator[pa.RecordBatch],
     redis_host: str,
     redis_port: int,
-) -> dict[int, dict[str, str]]:
-    """Pipeline HGETALL for a list of user_ids against Redis."""
-    profile_map: dict[int, dict[str, str]] = {}
-    if not user_ids:
-        return profile_map
+) -> Iterator[pa.RecordBatch]:
+    """PyArrow partition iterator for executor-side Redis lookups.
+    
+    Why this pattern?
+    1. Executor-side lookup: By using mapInArrow, we push the Redis lookups down to 
+       the distributed Spark worker nodes rather than bottlenecking the single driver JVM.
+    2. Pure Arrow Iterator: Spark partitions the data and sends Apache Arrow batches. 
+       By receiving and yielding pure `pyarrow.RecordBatch` objects, we eliminate the 
+       costly Arrow <-> Pandas conversion overhead completely (zero-copy).
+    3. TTLCache: We maintain a local LRU cache in the Python worker memory to avoid 
+       network I/O to Redis for active users who appear multiple times within the TTL.
+    4. Pipelined I/O: Cache misses are collected and fetched in a single pipelined Redis 
+       network round-trip to drastically reduce latency.
+    """
+    r_client = get_executor_redis_client(redis_host, redis_port)
+    cols_to_keep = ENRICHED_USER_PROFILE_SCHEMA.fieldNames()
 
-    r_client = redis.Redis(
-        host=redis_host,
-        port=redis_port,
-        decode_responses=True,
-    )
-    try:
-        with r_client.pipeline(transaction=False) as pipe:
-            for uid in user_ids:
-                pipe.hgetall(f"user:{uid}")
-            results = pipe.execute()
-            for uid, prof in zip(user_ids, results):
-                if prof:
-                    profile_map[uid] = prof
-    finally:
-        r_client.close()
-    return profile_map
+    for batch in batches:
+        if batch.num_rows == 0:
+            yield batch
+            continue
+
+        user_ids = batch.column("userId").to_pylist()
+
+        missing_ids = list({
+            uid for uid in user_ids 
+            if uid is not None and uid not in _executor_profile_cache
+        })
+
+        if missing_ids:
+            with r_client.pipeline(transaction=False) as pipe:
+                for uid in missing_ids:
+                    pipe.hgetall(f"user:{uid}")
+                results = pipe.execute()
+                for uid, prof in zip(missing_ids, results):
+                    _executor_profile_cache[uid] = prof or {}
+
+        fn_list, ln_list, gen_list = [], [], []
+        city_list, state_list, zip_list = [], [], []
+        
+        for uid in user_ids:
+            prof = _executor_profile_cache.get(uid, {}) if uid is not None else {}
+            fn_list.append(prof.get("first_name", ""))
+            ln_list.append(prof.get("last_name", ""))
+            gen_list.append(prof.get("gender", ""))
+            city_list.append(prof.get("city", ""))
+            state_list.append(prof.get("state", ""))
+            zip_list.append(prof.get("zip_code", ""))
+
+        arr_fn = pa.array(fn_list, type=pa.string())
+        arr_ln = pa.array(ln_list, type=pa.string())
+        arr_gen = pa.array(gen_list, type=pa.string())
+        arr_city = pa.array(city_list, type=pa.string())
+        arr_state = pa.array(state_list, type=pa.string())
+        arr_zip = pa.array(zip_list, type=pa.string())
+
+        new_arrays = [
+            *batch.columns,
+            arr_fn, arr_ln, arr_gen, arr_city, arr_state, arr_zip
+        ]
+        new_names = [*batch.schema.names, *cols_to_keep]
+        
+        yield pa.RecordBatch.from_arrays(new_arrays, names=new_names)
 
 
 # ------------------------------------------------------------------
-# foreachBatch sink: Redis enrich → JDBC write to ClickHouse
+# foreachBatch sink: pure JDBC write to ClickHouse
 # ------------------------------------------------------------------
-def make_clickhouse_redis_sink(
-    spark: SparkSession,
-    config: StreamingJobConfig,
-):
-    """foreachBatch handler: Redis enrichment → JDBC write to ClickHouse."""
-    redis_host = config.redis_host
-    redis_port = config.redis_port
-    ch_jdbc_url = config.clickhouse_jdbc_url
-    ch_table = "silver_playback_events"
-
-    jdbc_props = {
-        "driver": CLICKHOUSE_DRIVER,
-        "user": config.clickhouse_user,
-        "password": config.clickhouse_password,
-        "batchsize": "10000",
-        "isolationLevel": "NONE",
-    }
+def make_clickhouse_sink(config: StreamingJobConfig):
+    """foreachBatch handler: write to ClickHouse via clickhouse-connect."""
+    # Map localhost to clickhouse container name for executor
+    ch_host = config.clickhouse_host.replace("localhost", "clickhouse").replace("127.0.0.1", "clickhouse")
+    ch_port = config.clickhouse_port
+    ch_user = config.clickhouse_user
+    ch_password = config.clickhouse_password
+    ch_db = config.clickhouse_db
 
     def write_batch(batch_df: DataFrame, batch_id: int):
-        if batch_df.isEmpty():
-            return
-
-        # --- 1. Collect distinct user_ids on the driver ---
-        uid_rows = batch_df.select("userId").distinct().collect()
-        user_ids = [r["userId"] for r in uid_rows if r["userId"] is not None]
-
-        # --- 2. Pipelined Redis lookup (single RTT) ---
-        profile_map = _redis_batch_lookup(user_ids, redis_host, redis_port)
-        logger.info(
-            "Batch %d: Redis lookup %d/%d profiles hit.",
-            batch_id,
-            len(profile_map),
-            len(user_ids),
-        )
-
-        # --- 3. Build a broadcast-sized profiles DF and join ---
-        if profile_map:
-            profile_rows = [
-                (
-                    uid,
-                    prof.get("first_name", ""),
-                    prof.get("last_name", ""),
-                    prof.get("gender", ""),
-                    prof.get("city", ""),
-                    prof.get("state", ""),
-                    prof.get("zip_code", ""),
-                )
-                for uid, prof in profile_map.items()
-            ]
-            profiles_df = spark.createDataFrame(
-                profile_rows,
-                schema=[
-                    "p_userId",
-                    "enriched_first_name",
-                    "enriched_last_name",
-                    "enriched_gender",
-                    "enriched_city",
-                    "enriched_state",
-                    "enriched_zip",
-                ],
-            )
-            enriched_df = batch_df.join(
-                profiles_df,
-                batch_df["userId"] == profiles_df["p_userId"],
-                "left",
-            ).drop("p_userId")
-        else:
-            # No profiles found — add empty enrichment cols
-            enriched_df = batch_df
-            for f in [
-                "enriched_first_name",
-                "enriched_last_name",
-                "enriched_gender",
-                "enriched_city",
-                "enriched_state",
-                "enriched_zip",
-            ]:
-                enriched_df = enriched_df.withColumn(f, lit(""))
-
-        # Fill nulls from left-join misses
-        for f in [
-            "enriched_first_name",
-            "enriched_last_name",
-            "enriched_gender",
-            "enriched_city",
-            "enriched_state",
-            "enriched_zip",
-        ]:
-            enriched_df = enriched_df.fillna({f: ""})
-
-        # --- 4. Project to ClickHouse target schema ---
-        out_df = enriched_df.select(
+        out_df = batch_df.select(
             col("event_id"),
             col("userId").alias("user_id"),
             col("artist"),
@@ -249,30 +219,35 @@ def make_clickhouse_redis_sink(
             col("enriched_city"),
             col("enriched_state"),
             col("enriched_zip"),
+            col("song_year"),
+            col("artist_location"),
             col("_processing_time"),
         )
 
-        # --- 5. JDBC write (distributed across executors) ---
-        (
-            out_df.write.format("jdbc")
-            .option("url", ch_jdbc_url)
-            .option("dbtable", ch_table)
-            .option("driver", jdbc_props["driver"])
-            .option("user", jdbc_props["user"])
-            .option("password", jdbc_props["password"])
-            .option("batchsize", jdbc_props["batchsize"])
-            .option(
-                "isolationLevel",
-                jdbc_props["isolationLevel"],
+        out_df = out_df.fillna({
+            "event_id": "", "user_id": 0, "artist": "", "song": "", "duration": 0.0, 
+            "session_id": "", "city": "", "state": "",
+            "enriched_first_name": "", "enriched_last_name": "", "enriched_gender": "", 
+            "enriched_city": "", "enriched_state": "", "enriched_zip": "",
+            "song_year": "", "artist_location": ""
+        })
+
+        pdf = out_df.toPandas()
+        if not pdf.empty:
+            import clickhouse_connect
+            client = clickhouse_connect.get_client(
+                host=ch_host,
+                port=ch_port,
+                username=ch_user,
+                password=ch_password,
+                database=ch_db
             )
-            .mode("append")
-            .save()
-        )
+            client.insert_df("silver_playback_events", pdf)
 
         logger.info(
-            "✓ Batch %d: wrote %d enriched rows to ClickHouse via JDBC.",
+            "✓ Batch %d: wrote %d enriched rows to ClickHouse via clickhouse-connect.",
             batch_id,
-            out_df.count(),
+            len(pdf),
         )
 
     return write_batch
@@ -293,7 +268,8 @@ class StreamifyDeclarativePipeline:
 
     def declare_kafka_source(self, topic: str) -> DataFrame:
         """Kafka readStream source specification."""
-        bootstrap = self.config.get_kafka_bootstrap_servers()
+        # Map localhost to kafka container name for executor
+        bootstrap = self.config.kafka_bootstrap_servers.replace("localhost:9093", "kafka:9092").replace("127.0.0.1:9093", "kafka:9092")
         logger.info(
             "Declaring Kafka source for '%s' (bootstrap=%s)...",
             topic,
@@ -354,6 +330,48 @@ class StreamifyDeclarativePipeline:
         data_cols = [f.name for f in schema.fields]
         return parsed_df.select(*data_cols, *metadata_cols)
 
+    def enrich_user_profiles(self, df: DataFrame) -> DataFrame:
+        """Apply executor-side Redis lookup via mapInArrow."""
+        # Combine schemas: incoming df schema + enriched fields
+        from pyspark.sql.types import StructType
+        out_schema = StructType(list(df.schema) + list(ENRICHED_USER_PROFILE_SCHEMA))
+
+        # Map localhost to redis container name for executor
+        redis_host = self.config.redis_host.replace("localhost", "redis").replace("127.0.0.1", "redis")
+        redis_port = self.config.redis_port
+
+        def _arrow_func(batches):
+            yield from _enrich_profiles_partition(batches, redis_host, redis_port)
+
+        return df.mapInArrow(_arrow_func, schema=out_schema)
+
+    def enrich_content_metadata(self, df: DataFrame) -> DataFrame:
+        """Demonstrate Broadcast Join pattern for low-cardinality dimension dataset."""
+        # Read 2MB static songs catalog via Pandas locally, then ship to Spark Connect
+        catalog_path = (
+            "/Users/melchior/Developer/opendata-stack-platform/"
+            "opendata_stack_platform_sqlmesh/seeds/songs.csv"
+        )
+        catalog_pdf = pd.read_csv(catalog_path)
+        
+        # spark.createDataFrame ships the local Pandas DF to the remote Spark cluster
+        catalog_df = self.spark.createDataFrame(catalog_pdf)
+
+        # Select and deduplicate required dimensions
+        dim_df = catalog_df.select(
+            col("artist_name"),
+            col("title"),
+            col("year").cast("string").alias("song_year"),
+            col("artist_location"),
+        ).dropDuplicates(["artist_name", "title"])
+
+        logger.info("Applying broadcast join for content metadata on 'artist' & 'song'.")
+        return df.join(
+            broadcast(dim_df),
+            on=[df["artist"] == dim_df["artist_name"], df["song"] == dim_df["title"]],
+            how="left",
+        ).drop("artist_name", "title")
+
     def declare_iceberg_sink(
         self,
         transformed_df: DataFrame,
@@ -385,9 +403,9 @@ class StreamifyDeclarativePipeline:
         topic: str,
         trigger_interval: str = "10 seconds",
     ):
-        """writeStream sink → ClickHouse via JDBC with Redis enrichment."""
+        """writeStream sink → ClickHouse via JDBC."""
         chkpt = f"{self.config.checkpoint_path}/{topic}_clickhouse"
-        sink_fn = make_clickhouse_redis_sink(self.spark, self.config)
+        sink_fn = make_clickhouse_sink(self.config)
 
         logger.info(
             "Declaring ClickHouse JDBC sink → %s (trigger=%s)...",
@@ -442,11 +460,15 @@ class StreamifyDeclarativePipeline:
 
         # 2. Pipeline declarations
         source_df = self.declare_kafka_source(topic)
-        transformed_df = self.declare_transformations(source_df, schema)
+        base_df = self.declare_transformations(source_df, schema)
+
+        # 3. Joins & Enrichment
+        content_enriched_df = self.enrich_content_metadata(base_df)
+        enriched_df = self.enrich_user_profiles(content_enriched_df)
 
         # Dual sinks
-        iceberg_q = self.declare_iceberg_sink(transformed_df, topic)
-        clickhouse_q = self.declare_clickhouse_sink(transformed_df, topic)
+        iceberg_q = self.declare_iceberg_sink(base_df, topic)
+        clickhouse_q = self.declare_clickhouse_sink(enriched_df, topic)
 
         logger.info(
             "✓ Streams started: Iceberg=%s, ClickHouse=%s.",
