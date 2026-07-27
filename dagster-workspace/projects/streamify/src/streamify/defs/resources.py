@@ -128,8 +128,20 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
     @property
     def clickhouse_jdbc_url(self) -> str:
         """Build ClickHouse JDBC connection URL."""
-        host = self.clickhouse_host
-        return f"jdbc:clickhouse://{host}:{self.clickhouse_port}/{self.clickhouse_db}"
+        return f"jdbc:clickhouse://{self.clickhouse_host}:{self.clickhouse_port}/{self.clickhouse_db}"
+
+
+# ------------------------------------------------------------------
+# Executor-side Redis client pool
+# ------------------------------------------------------------------
+_executor_redis_client = None
+
+def get_executor_redis_client(host: str, port: int) -> redis.Redis:
+    """Get or create a Redis client for the executor task."""
+    global _executor_redis_client  # noqa: PLW0603
+    if _executor_redis_client is None:
+        _executor_redis_client = redis.Redis(host=host, port=port, decode_responses=True)
+    return _executor_redis_client
 
 
 @lru_cache(maxsize=1)
@@ -215,7 +227,7 @@ def create_clickhouse_resource(
         config = get_streaming_config()
 
     return clickhouse_connect.get_client(
-        host=config.get_clickhouse_host(),
+        host=config.clickhouse_host,
         port=config.clickhouse_port,
         username=config.clickhouse_user,
         password=config.clickhouse_password,
