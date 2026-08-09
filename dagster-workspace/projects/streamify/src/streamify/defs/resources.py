@@ -11,6 +11,11 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pyspark.sql import SparkSession
 
+from streamify.clients import (
+    get_executor_clickhouse_client,
+    get_executor_redis_client,
+)
+
 
 class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
     """Configuration for Spark Structured Streaming, S3, Polaris, and Dagster jobs.
@@ -149,18 +154,6 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
 # ------------------------------------------------------------------
 
 
-@cache
-def get_executor_redis_client(host: str, port: int) -> redis.Redis:  # type: ignore[type-arg]
-    """Return a cached Redis client for the given *host*/*port*.
-
-    ``@lru_cache`` is used instead of a mutable module-level global because it
-    provides a thread-safe singleton on CPython without requiring explicit
-    locking: the GIL guarantees that the first call completes before any
-    concurrent call can observe the cached value.
-    """
-    return redis.Redis(host=host, port=port, decode_responses=True)
-
-
 # ------------------------------------------------------------------
 # Singleton config / session factories
 # ------------------------------------------------------------------
@@ -247,28 +240,4 @@ def create_clickhouse_resource(
         port=config.clickhouse_port,
         username=config.clickhouse_user,
         password=config.clickhouse_password,
-    )
-
-
-@cache
-def get_executor_clickhouse_client(
-    host: str,
-    port: int,
-    username: str,
-    password: str,
-    database: str,
-) -> clickhouse_connect.driver.Client:
-    """Return a cached ``clickhouse-connect`` client for executor use.
-
-    Client is reused across micro-batches in the same Python worker process.
-
-    Distinct from ``create_clickhouse_resource``, which is uncached and used
-    only for short-lived driver-side DDL operations.
-    """
-    return clickhouse_connect.get_client(
-        host=host,
-        port=port,
-        username=username,
-        password=password,
-        database=database,
     )
