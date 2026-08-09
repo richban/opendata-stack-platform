@@ -260,7 +260,7 @@ def _enrich_profiles_partition(
 
 def make_clickhouse_sink(config: StreamingJobConfig):
     """Return a ``foreachBatch`` handler that writes enriched rows to ClickHouse."""
-    ch_host = config.clickhouse_host
+    ch_host = config.executor_clickhouse_host
     ch_port = config.clickhouse_port
     ch_user = config.clickhouse_user
     ch_password = config.clickhouse_password
@@ -326,7 +326,7 @@ class StreamifyDeclarativePipeline:
 
     def declare_kafka_source(self, topic: str) -> DataFrame:
         """Return a streaming ``DataFrame`` reading from the given Kafka topic."""
-        bootstrap = self.config.kafka_bootstrap_servers
+        bootstrap = self.config.executor_kafka_bootstrap_servers
         logger.info(
             "Declaring Kafka source for '%s' (bootstrap=%s)...",
             topic,
@@ -336,7 +336,7 @@ class StreamifyDeclarativePipeline:
             self.spark.readStream.format("kafka")
             .option("kafka.bootstrap.servers", bootstrap)
             .option("subscribe", topic)
-            .option("startingOffsets", "latest")
+            .option("startingOffsets", "earliest")
             .option("failOnDataLoss", "false")
             .option("maxOffsetsPerTrigger", self.config.max_offsets_per_trigger)
             .load()
@@ -391,7 +391,7 @@ class StreamifyDeclarativePipeline:
         """Apply executor-side Redis lookup via ``mapInArrow``."""
         out_schema = StructType(list(df.schema) + list(ENRICHED_USER_PROFILE_SCHEMA))
 
-        redis_host = self.config.redis_host
+        redis_host = self.config.executor_redis_host
         redis_port = self.config.redis_port
 
         def _arrow_func(

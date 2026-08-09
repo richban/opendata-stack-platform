@@ -29,12 +29,17 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
         case_sensitive=False,
         extra="ignore",
         populate_by_name=True,
+        env_file=(".env", ".env.dev", ".env.polaris"),
     )
 
     # ------------------------------------------------------------------ Kafka
     kafka_bootstrap_servers: str = Field(
         default="localhost:9093",
         validation_alias="KAFKA_BOOTSTRAP_SERVERS",
+    )
+    executor_kafka_bootstrap_servers: str = Field(
+        default="kafka:9092",
+        validation_alias="EXECUTOR_KAFKA_BOOTSTRAP_SERVERS",
     )
     max_offsets_per_trigger: int = Field(
         default=100_000,
@@ -86,6 +91,10 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
         default="localhost",
         validation_alias="REDIS_HOST",
     )
+    executor_redis_host: str = Field(
+        default="redis",
+        validation_alias="EXECUTOR_REDIS_HOST",
+    )
     redis_port: int = Field(
         default=6379,
         validation_alias="REDIS_PORT",
@@ -95,6 +104,10 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
     clickhouse_host: str = Field(
         default="localhost",
         validation_alias="CLICKHOUSE_HOST",
+    )
+    executor_clickhouse_host: str = Field(
+        default="clickhouse",
+        validation_alias="EXECUTOR_CLICKHOUSE_HOST",
     )
     clickhouse_port: int = Field(
         default=8123,
