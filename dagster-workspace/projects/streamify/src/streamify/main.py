@@ -1,12 +1,14 @@
+"""Streamify - Spark Structured Streaming pipeline."""
+
 import logging
 import sys
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 
-from cachetools import TTLCache
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import (
     broadcast,
@@ -14,10 +16,11 @@ from pyspark.sql.functions import (
     concat_ws,
     current_timestamp,
     from_json,
+    pandas_udf,
     sha2,
     to_date,
-    udf,
 )
+from pyspark.sql.streaming import StreamingQuery
 from pyspark.sql.types import StringType, StructType
 
 from streamify.defs.bronze_assets import (
@@ -27,8 +30,8 @@ from streamify.defs.bronze_assets import (
 from streamify.defs.resources import (
     StreamingJobConfig,
     create_clickhouse_resource,
-    create_s3_resource,
     create_spark_session,
+    get_executor_clickhouse_client,
     get_executor_redis_client,
     get_streaming_config,
 )
@@ -120,73 +123,84 @@ def ensure_clickhouse_table_exists(
 # Executor-side mapInPandas logic
 # ------------------------------------------------------------------
 _executor_profile_cache = TTLCache(maxsize=10000, ttl=600)
+# ---------------------------------------------------------------------------
+# Executor-side mapInArrow: Redis profile enrichment
+# ---------------------------------------------------------------------------
+
+
+# Field names fetched from each ``user:<id>`` Redis hash, ordered to match
+# ``ENRICHED_USER_PROFILE_SCHEMA``.
+_PROFILE_FIELDS: tuple[str, ...] = (
+    "first_name",
+    "last_name",
+    "gender",
+    "city",
+    "state",
+    "zip_code",
+)
+
 
 def _enrich_profiles_partition(
-    batches: Iterator[pa.RecordBatch],
+    batches: Iterable[pa.RecordBatch],
     redis_host: str,
     redis_port: int,
 ) -> Iterator[pa.RecordBatch]:
     """PyArrow partition iterator for executor-side Redis lookups.
-    
-    Why this pattern?
-    1. Executor-side lookup: By using mapInArrow, we push the Redis lookups down to 
-       the distributed Spark worker nodes rather than bottlenecking the single driver JVM.
-    2. Pure Arrow Iterator: Spark partitions the data and sends Apache Arrow batches. 
-       By receiving and yielding pure `pyarrow.RecordBatch` objects, we eliminate the 
-       costly Arrow <-> Pandas conversion overhead completely (zero-copy).
-    3. TTLCache: We maintain a local LRU cache in the Python worker memory to avoid 
-       network I/O to Redis for active users who appear multiple times within the TTL.
-    4. Pipelined I/O: Cache misses are collected and fetched in a single pipelined Redis 
-       network round-trip to drastically reduce latency.
+
+    Design
+    ------
+    * **Executor-side** - Redis I/O happens on distributed worker nodes, not
+      the driver JVM.
+    * **Arrow-native alignment** - dedup, re-ordering, and column assembly all
+      happen inside ``pyarrow.compute``.  The only data that round-trips through
+      Python is the *set of distinct user IDs* needed to build Redis keys; the
+      fetched profiles are re-aligned to the original row order with
+      ``index_in``/``take`` instead of a per-row Python dict loop.
+    * **Per-batch dedup + pipeline** - unique user IDs within each Arrow batch
+      are collected, then fetched in a *single* pipelined Redis round-trip.
+      There is intentionally no cross-batch in-memory cache: at Spotify/Netflix
+      scale (300 M+ users) an unbounded executor-side cache creates severe
+      memory pressure.  Redis is designed to serve millions of ops/sec; let it
+      do its job.
     """
     r_client = get_executor_redis_client(redis_host, redis_port)
-    cols_to_keep = ENRICHED_USER_PROFILE_SCHEMA.fieldNames()
+    enriched_fields = ENRICHED_USER_PROFILE_SCHEMA.fieldNames()
 
     for batch in batches:
         if batch.num_rows == 0:
             yield batch
             continue
 
-        user_ids = batch.column("userId").to_pylist()
+        uid_col = batch.column("userId")
+        unique_ids = pc.drop_null(pc.unique(uid_col))  # ty: ignore[unresolved-attribute]
+        uid_list = unique_ids.to_pylist()
 
-        missing_ids = list({
-            uid for uid in user_ids 
-            if uid is not None and uid not in _executor_profile_cache
-        })
-
-        if missing_ids:
+        profiles: list[tuple[str, ...]] = []
+        if uid_list:
             with r_client.pipeline(transaction=False) as pipe:
-                for uid in missing_ids:
-                    pipe.hgetall(f"user:{uid}")
+                for uid in uid_list:
+                    pipe.hmget(f"user:{uid}", *_PROFILE_FIELDS)
                 results = pipe.execute()
-                for uid, prof in zip(missing_ids, results):
-                    _executor_profile_cache[uid] = prof or {}
+            profiles = [tuple(v or "" for v in res) for res in results]
 
-        fn_list, ln_list, gen_list = [], [], []
-        city_list, state_list, zip_list = [], [], []
-        
-        for uid in user_ids:
-            prof = _executor_profile_cache.get(uid, {}) if uid is not None else {}
-            fn_list.append(prof.get("first_name", ""))
-            ln_list.append(prof.get("last_name", ""))
-            gen_list.append(prof.get("gender", ""))
-            city_list.append(prof.get("city", ""))
-            state_list.append(prof.get("state", ""))
-            zip_list.append(prof.get("zip_code", ""))
-
-        arr_fn = pa.array(fn_list, type=pa.string())
-        arr_ln = pa.array(ln_list, type=pa.string())
-        arr_gen = pa.array(gen_list, type=pa.string())
-        arr_city = pa.array(city_list, type=pa.string())
-        arr_state = pa.array(state_list, type=pa.string())
-        arr_zip = pa.array(zip_list, type=pa.string())
-
-        new_arrays = [
-            *batch.columns,
-            arr_fn, arr_ln, arr_gen, arr_city, arr_state, arr_zip
+        # One Arrow array per profile field, plus a trailing "" sentinel row
+        # standing in for null user IDs. ``take`` then re-aligns every row in
+        # the batch back to its original order.
+        sentinel_idx = pa.scalar(len(profiles), type=pa.int32())
+        profile_arrays = [
+            pa.array([row[i] for row in profiles] + [""], type=pa.string())
+            for i in range(len(_PROFILE_FIELDS))
         ]
-        new_names = [*batch.schema.names, *cols_to_keep]
-        
+        positions = pc.fill_null(
+            pc.index_in(  # ty: ignore[unresolved-attribute]
+                uid_col, unique_ids, skip_nulls=True
+            ),
+            sentinel_idx,
+        )
+        aligned_arrays = [col.take(positions) for col in profile_arrays]
+
+        new_arrays = [*batch.columns, *aligned_arrays]
+        new_names = [*batch.schema.names, *enriched_fields]
         yield pa.RecordBatch.from_arrays(new_arrays, names=new_names)
 
 
