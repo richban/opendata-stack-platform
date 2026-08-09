@@ -289,15 +289,15 @@ def make_clickhouse_sink(config: StreamingJobConfig):
             col("_processing_time"),
         ).fillna(_CLICKHOUSE_NULL_DEFAULTS)
 
-        pdf = out_df.toPandas()
+        arrow_table = out_df.toArrow()
         client = get_executor_clickhouse_client(
             ch_host, ch_port, ch_user, ch_password, ch_db
         )
-        client.insert_df("silver_playback_events", pdf)
+        client.insert_arrow("silver_playback_events", arrow_table)
         logger.info(
             "✓ Batch %d: wrote %d enriched rows to ClickHouse.",
             batch_id,
-            len(pdf),
+            arrow_table.num_rows,
         )
 
     return write_batch
