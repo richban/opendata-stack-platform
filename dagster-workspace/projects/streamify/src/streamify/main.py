@@ -76,9 +76,8 @@ def _string_decode_fn(s: str, encoding: str = "utf-8") -> str:
     return s
 
 
-@pandas_udf(StringType())  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
 def string_decode_vec(series: pd.Series) -> pd.Series:  # type: ignore[type-arg]
-    """Vectorised ``pandas_udf`` wrapper around ``_string_decode_fn``."""
+    """Vectorised wrapper around ``_string_decode_fn``."""
     return series.apply(_string_decode_fn)  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
 
@@ -380,8 +379,8 @@ class StreamifyDeclarativePipeline:
             .withColumn("event_date", to_date(col("event_ts")))
             .withColumn("_processing_time", current_timestamp())
             # Vectorised pandas_udf — no per-row Python call overhead
-            .withColumn("song", string_decode_vec(col("song")))
-            .withColumn("artist", string_decode_vec(col("artist")))
+            .withColumn("song", pandas_udf(StringType())(string_decode_vec)(col("song")))
+            .withColumn("artist", pandas_udf(StringType())(string_decode_vec)(col("artist")))
         )
 
         metadata_cols = [f.name for f in meta_schema]
