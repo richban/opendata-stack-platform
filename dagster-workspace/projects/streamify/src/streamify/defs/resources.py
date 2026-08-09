@@ -1,7 +1,10 @@
-from functools import lru_cache
+"""Streamify resource definitions: config, Spark session, and service clients."""
+
+from functools import cache
 
 import clickhouse_connect
 import dagster as dg
+import redis
 
 from dagster_aws.s3 import S3Resource
 from pydantic import Field
@@ -10,7 +13,12 @@ from pyspark.sql import SparkSession
 
 
 class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
-    """Configuration for Spark Structured Streaming, S3, Polaris, and Dagster jobs."""
+    """Configuration for Spark Structured Streaming, S3, Polaris, and Dagster jobs.
+
+    Populated from environment variables (via ``pydantic-settings``) when used
+    stand-alone, or from Dagster's resource system when used as a
+    ``ConfigurableResource``.
+    """
 
     model_config = SettingsConfigDict(
         case_sensitive=False,
@@ -18,13 +26,24 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
         populate_by_name=True,
     )
 
+    # ------------------------------------------------------------------ Kafka
     kafka_bootstrap_servers: str = Field(
         default="localhost:9093",
         validation_alias="KAFKA_BOOTSTRAP_SERVERS",
     )
+    max_offsets_per_trigger: int = Field(
+        default=100_000,
+        validation_alias="MAX_OFFSETS_PER_TRIGGER",
+    )
+
+    # ------------------------------------------------------------------ Storage / catalog
     checkpoint_path: str = Field(
         default="s3a://checkpoints/streaming",
         validation_alias="CHECKPOINT_PATH",
+    )
+    songs_catalog_path: str = Field(
+        default="s3a://datalake/seeds/songs.csv",
+        validation_alias="SONGS_CATALOG_PATH",
     )
     polaris_uri: str = Field(
         default="http://localhost:8181/api/catalog",
@@ -46,6 +65,8 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
         default="streamify",
         validation_alias="POLARIS_NAMESPACE",
     )
+
+    # ------------------------------------------------------------------ Dagster / S3
     dagster_pipes_bucket: str = Field(
         default="dagster-pipes",
         validation_alias="DAGSTER_PIPES_BUCKET",
@@ -54,6 +75,8 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
         default="http://localhost:8081",
         validation_alias="SCHEMA_REGISTRY_URL",
     )
+
+    # ------------------------------------------------------------------ Redis
     redis_host: str = Field(
         default="localhost",
         validation_alias="REDIS_HOST",
@@ -62,6 +85,8 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
         default=6379,
         validation_alias="REDIS_PORT",
     )
+
+    # ------------------------------------------------------------------ ClickHouse
     clickhouse_host: str = Field(
         default="localhost",
         validation_alias="CLICKHOUSE_HOST",
@@ -79,9 +104,11 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
         validation_alias="CLICKHOUSE_USER",
     )
     clickhouse_password: str = Field(
-        default="",
+        default="clickhouse",
         validation_alias="CLICKHOUSE_PASSWORD",
     )
+
+    # ------------------------------------------------------------------ Spark / AWS
     spark_remote: str = Field(
         default="sc://localhost:15002",
         validation_alias="SPARK_REMOTE",
@@ -99,54 +126,49 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
         validation_alias="AWS_ENDPOINT_URL",
     )
 
+    # ------------------------------------------------------------------ Trigger intervals
+    iceberg_trigger_interval: str = Field(
+        default="30 seconds",
+        validation_alias="ICEBERG_TRIGGER_INTERVAL",
+    )
+    clickhouse_trigger_interval: str = Field(
+        default="10 seconds",
+        validation_alias="CLICKHOUSE_TRIGGER_INTERVAL",
+    )
+
+    # ---------------------------------------------------------------- Computed properties
+
     @property
     def polaris_credential(self) -> str:
-        """Get formatted Polaris credential string."""
+        """Formatted ``client_id:client_secret`` string for Polaris auth."""
         return f"{self.polaris_client_id}:{self.polaris_client_secret}"
-
-    @property
-    def kafka_bootstrap_servers(self) -> str:
-        """Get processed Kafka bootstrap servers for container environment."""
-        return (
-            self.kafka_bootstrap_servers.replace("localhost:9093", "kafka:9092")
-            .replace("127.0.0.1:9093", "kafka:9092")
-            .replace("localhost:9092", "kafka:9092")
-        )
-
-    @property
-    def redis_host(self) -> str:
-        """Get processed Redis host for container environment."""
-        return self.redis_host.replace("localhost", "redis").replace("127.0.0.1", "redis")
-
-    @property
-    def clickhouse_host(self) -> str:
-        """Get processed ClickHouse host for container environment."""
-        return self.clickhouse_host.replace("localhost", "clickhouse").replace(
-            "127.0.0.1", "clickhouse"
-        )
-
-    @property
-    def clickhouse_jdbc_url(self) -> str:
-        """Build ClickHouse JDBC connection URL."""
-        return f"jdbc:clickhouse://{self.clickhouse_host}:{self.clickhouse_port}/{self.clickhouse_db}"
 
 
 # ------------------------------------------------------------------
 # Executor-side Redis client pool
 # ------------------------------------------------------------------
-_executor_redis_client = None
-
-def get_executor_redis_client(host: str, port: int) -> redis.Redis:
-    """Get or create a Redis client for the executor task."""
-    global _executor_redis_client  # noqa: PLW0603
-    if _executor_redis_client is None:
-        _executor_redis_client = redis.Redis(host=host, port=port, decode_responses=True)
-    return _executor_redis_client
 
 
-@lru_cache(maxsize=1)
+@cache
+def get_executor_redis_client(host: str, port: int) -> redis.Redis:  # type: ignore[type-arg]
+    """Return a cached Redis client for the given *host*/*port*.
+
+    ``@lru_cache`` is used instead of a mutable module-level global because it
+    provides a thread-safe singleton on CPython without requiring explicit
+    locking: the GIL guarantees that the first call completes before any
+    concurrent call can observe the cached value.
+    """
+    return redis.Redis(host=host, port=port, decode_responses=True)
+
+
+# ------------------------------------------------------------------
+# Singleton config / session factories
+# ------------------------------------------------------------------
+
+
+@cache
 def get_streaming_config() -> StreamingJobConfig:
-    """Return a singleton StreamingJobConfig instance from environment."""
+    """Return a singleton ``StreamingJobConfig`` instance from environment."""
     return StreamingJobConfig()
 
 
@@ -154,17 +176,12 @@ def create_spark_session(
     app_name: str = "StreamifyDagsterJob",
     config: StreamingJobConfig | None = None,
 ) -> SparkSession:
-    """Create a SparkSession for Iceberg and Spark Connect using Pydantic settings."""
+    """Create a SparkSession for Iceberg (Polaris REST catalog) via Spark Connect."""
     if config is None:
         config = get_streaming_config()
 
-    config_polaris_uri = (
-        config.polaris_uri.replace("localhost", "polaris")
-        .replace("127.0.0.1", "polaris")
-        .replace("192.168.1.47", "polaris")
-    )
-    if not config_polaris_uri:
-        config_polaris_uri = "http://polaris:8181/api/catalog"
+    polaris_uri = config.polaris_uri
+    catalog = config.catalog
 
     builder = SparkSession.builder.appName(app_name)
 
@@ -173,42 +190,37 @@ def create_spark_session(
 
     return (
         builder.config(
-            f"spark.sql.catalog.{config.catalog}",
+            f"spark.sql.catalog.{catalog}",
             "org.apache.iceberg.spark.SparkCatalog",
         )
-        .config(f"spark.sql.catalog.{config.catalog}.type", "rest")
-        .config(f"spark.sql.catalog.{config.catalog}.uri", config_polaris_uri)
+        .config(f"spark.sql.catalog.{catalog}.type", "rest")
+        .config(f"spark.sql.catalog.{catalog}.uri", polaris_uri)
         .config(
-            f"spark.sql.catalog.{config.catalog}.oauth2-server-uri",
-            f"{config_polaris_uri}/v1/oauth/tokens",
+            f"spark.sql.catalog.{catalog}.oauth2-server-uri",
+            f"{polaris_uri}/v1/oauth/tokens",
         )
-        .config(f"spark.sql.catalog.{config.catalog}.warehouse", config.catalog)
+        .config(f"spark.sql.catalog.{catalog}.warehouse", catalog)
+        .config(f"spark.sql.catalog.{catalog}.credential", config.polaris_credential)
+        .config(f"spark.sql.catalog.{catalog}.scope", "PRINCIPAL_ROLE:ALL")
+        .config(f"spark.sql.catalog.{catalog}.s3.endpoint", "http://minio:9000")
         .config(
-            f"spark.sql.catalog.{config.catalog}.credential",
-            config.get_polaris_credential(),
-        )
-        .config(f"spark.sql.catalog.{config.catalog}.scope", "PRINCIPAL_ROLE:ALL")
-        .config(
-            f"spark.sql.catalog.{config.catalog}.s3.endpoint",
-            "http://minio:9000",
-        )
-        .config(
-            f"spark.sql.catalog.{config.catalog}.s3.access-key-id",
+            f"spark.sql.catalog.{catalog}.s3.access-key-id",
             config.aws_access_key_id,
         )
         .config(
-            f"spark.sql.catalog.{config.catalog}.s3.secret-access-key",
+            f"spark.sql.catalog.{catalog}.s3.secret-access-key",
             config.aws_secret_access_key,
         )
-        .config(f"spark.sql.catalog.{config.catalog}.s3.path-style-access", "true")
-        .config(f"spark.sql.catalog.{config.catalog}.token-refresh-enabled", "true")
-        .config("spark.sql.defaultCatalog", config.catalog)
+        .config(f"spark.sql.catalog.{catalog}.s3.path-style-access", "true")
+        .config(f"spark.sql.catalog.{catalog}.token-refresh-enabled", "true")
+        .config("spark.sql.defaultCatalog", catalog)
+        .config("spark.executorEnv.PYTHONPATH", "/opt/streamify/src")
         .getOrCreate()
     )
 
 
 def create_s3_resource(config: StreamingJobConfig | None = None) -> S3Resource:
-    """Create S3 resource using Pydantic settings."""
+    """Create an S3Resource from Pydantic settings."""
     if config is None:
         config = get_streaming_config()
 
@@ -222,7 +234,11 @@ def create_s3_resource(config: StreamingJobConfig | None = None) -> S3Resource:
 def create_clickhouse_resource(
     config: StreamingJobConfig | None = None,
 ) -> clickhouse_connect.driver.Client:
-    """Create a clickhouse-connect Client using Pydantic settings."""
+    """Create a *new* ``clickhouse-connect`` client from Pydantic settings.
+
+    This is intentionally uncached: it is used by the driver for short-lived
+    DDL operations.
+    """
     if config is None:
         config = get_streaming_config()
 
@@ -231,4 +247,28 @@ def create_clickhouse_resource(
         port=config.clickhouse_port,
         username=config.clickhouse_user,
         password=config.clickhouse_password,
+    )
+
+
+@cache
+def get_executor_clickhouse_client(
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    database: str,
+) -> clickhouse_connect.driver.Client:
+    """Return a cached ``clickhouse-connect`` client for executor use.
+
+    Client is reused across micro-batches in the same Python worker process.
+
+    Distinct from ``create_clickhouse_resource``, which is uncached and used
+    only for short-lived driver-side DDL operations.
+    """
+    return clickhouse_connect.get_client(
+        host=host,
+        port=port,
+        username=username,
+        password=password,
+        database=database,
     )

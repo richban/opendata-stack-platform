@@ -274,6 +274,12 @@ services:
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ENDPOINT_URL: http://minio:9000
+      PYTHONPATH: /opt/streamify/src
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      REDIS_HOST: redis
+      CLICKHOUSE_HOST: clickhouse
+      POLARIS_URI: http://polaris:8181/api/catalog
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
     networks:
       - opendata_network
     volumes:
@@ -353,6 +359,12 @@ services:
       AWS_ENDPOINT_URL: http://minio:9000
       POLARIS_CLIENT_ID: ${POLARIS_CLIENT_ID}
       POLARIS_CLIENT_SECRET: ${POLARIS_CLIENT_SECRET}
+      PYTHONPATH: /opt/streamify/src
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      REDIS_HOST: redis
+      CLICKHOUSE_HOST: clickhouse
+      POLARIS_URI: http://polaris:8181/api/catalog
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
     ports:
       - "15002:15002"
       - "4041:4040"
