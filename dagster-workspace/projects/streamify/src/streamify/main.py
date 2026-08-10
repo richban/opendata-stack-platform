@@ -37,6 +37,7 @@ from streamify.defs.resources import (
     create_spark_session,
     get_streaming_config,
 )
+from streamify.log import configure_logging
 from streamify.schemas import (
     ENRICHED_USER_PROFILE_SCHEMA,
     SCHEMAS as TOPIC_SCHEMAS,
@@ -46,12 +47,7 @@ from streamify.schemas import (
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+configure_logging()
 logger = logging.getLogger("streamify.main")
 
 

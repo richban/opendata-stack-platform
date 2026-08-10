@@ -12,14 +12,10 @@ from confluent_kafka.schema_registry.avro import AsyncAvroDeserializer
 from confluent_kafka.serialization import MessageField, SerializationContext
 
 from streamify.defs.resources import get_streaming_config
+from streamify.log import configure_logging
 
 # Configure structured logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+configure_logging()
 logger = logging.getLogger("streamify.seed_redis")
 
 BATCH_SIZE_LIMIT = 1000  # Size-based trigger
