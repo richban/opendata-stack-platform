@@ -376,7 +376,9 @@ class StreamifyDeclarativePipeline:
             .withColumn("_processing_time", current_timestamp())
             # Vectorised pandas_udf — no per-row Python call overhead
             .withColumn("song", pandas_udf(StringType())(string_decode_vec)(col("song")))
-            .withColumn("artist", pandas_udf(StringType())(string_decode_vec)(col("artist")))
+            .withColumn(
+                "artist", pandas_udf(StringType())(string_decode_vec)(col("artist"))
+            )
         )
 
         metadata_cols = [f.name for f in meta_schema]
@@ -439,13 +441,20 @@ class StreamifyDeclarativePipeline:
         )
         catalog_df = self.spark.createDataFrame(catalog_pdf)
 
-        dim_df = catalog_df.select(
-            col("artist_name"),
-            col("title"),
-            col("year").cast("string").alias("song_year"),
-            col("artist_location"),
-        ).dropDuplicates(["artist_name", "title"])
-        logger.info("✓ Songs catalog loaded (%d rows after dedup).", dim_df.count())
+        dim_df = (
+            catalog_df.select(
+                col("artist_name"),
+                col("title"),
+                col("year").cast("string").alias("song_year"),
+                col("artist_location"),
+            )
+            .dropDuplicates(["artist_name", "title"])
+            .cache()
+        )
+
+        # Force materialization of the cache immediately
+        num_rows = dim_df.count()
+        logger.info("✓ Songs catalog loaded (%d rows after dedup).", num_rows)
         return dim_df
 
     # ------------------------------------------------------------------
