@@ -77,6 +77,8 @@ The primary goal of this project is to develop a **modern data stack pipeline** 
 
 ### Infrastructure Services
 
+> 📌 **Prerequisite**: `eventsim` requires `eventsim/target/eventsim-assembly-2.0.jar` to be built prior to running `docker compose up`. See [eventsim/README.md](./eventsim/README.md#building-eventsim-assembly-20jar-manually) for instructions.
+
 Start all services with Docker Compose:
 
 ```bash

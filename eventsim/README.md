@@ -56,8 +56,31 @@ eventsim/
 │   ├── Gaz_zcta_national.txt      # US ZIP-code centroid data
 │   └── user agents.txt            # Common browser user-agent strings
 └── target/
-    └── eventsim-assembly-2.0.jar  # Fat JAR (must be present before building image)
+    └── eventsim-assembly-2.0.jar  # Fat JAR (REQUIRED dependency before building image)
 ```
+
+> ⚠️ **Build Dependency Requirement**: The `Dockerfile` copies `target/eventsim-assembly-2.0.jar`. This compiled Scala fat JAR must be present in `eventsim/target/` prior to running `docker build` or `docker compose up --build`.
+
+### Building `eventsim-assembly-2.0.jar` Manually
+
+If the JAR is missing from `eventsim/target/`, build it from the `eventsim` Scala source repository using `sbt`:
+
+1. **Build using `sbt` (locally or via Docker):**
+   ```bash
+   # Option A: Local sbt
+   cd /path/to/eventsim
+   sbt assembly
+
+   # Option B: Via Docker
+   docker run --rm -v /path/to/eventsim:/app -w /app \
+     sbtscala/scala-sbt:eclipse-temurin-11.0.17_8_1.8.2_2.12.17 sbt assembly
+   ```
+
+2. **Copy the compiled JAR to `eventsim/target/`:**
+   ```bash
+   mkdir -p eventsim/target
+   cp /path/to/eventsim/target/scala-2.12/eventsim-assembly-2.0.jar eventsim/target/eventsim-assembly-2.0.jar
+   ```
 
 ---
 
