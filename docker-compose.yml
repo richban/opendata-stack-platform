@@ -251,8 +251,8 @@ services:
         while ! ksql http://ksqldb-server:8088 -e "SHOW STREAMS;" > /dev/null 2>&1; do
           sleep 2
         done
-        echo "Executing KSQL queries via RUN SCRIPT..."
-        ksql http://ksqldb-server:8088 -e "RUN SCRIPT '/etc/ksql/queries.sql';"
+        echo "Executing KSQL queries via script file..."
+        ksql http://ksqldb-server:8088 -f /tmp/ksql-queries.sql
         echo "KSQL queries executed."
     networks:
       - opendata_network
