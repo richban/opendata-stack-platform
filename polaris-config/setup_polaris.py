@@ -94,7 +94,7 @@ def ensure_catalog(headers: dict) -> None:
             },
             "storageConfigInfo": {
                 "storageType": "S3",
-                "allowedLocations": [f"s3://{CATALOG_NAME}/*"],
+                "allowedLocations": [f"s3://{CATALOG_NAME}", f"s3://{CATALOG_NAME}/*"],
                 "region": "us-east-1",
                 "endpoint": f"http://{MINIO_HOST}:9000",
                 "pathStyleAccess": True,
