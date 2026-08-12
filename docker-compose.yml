@@ -408,23 +408,22 @@ services:
     networks:
       - opendata_network
     environment:
-      - JAVA_OPTS=-Xmx4G
+      - JAVA_OPTS=-Xmx2048M
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
         /opt/eventsim/eventsim.sh \
           -c /opt/eventsim/examples/example-config.json \
-          --from 1 \
+          --from 0 \
           --end-time 2035-01-01T00:00:00 \
-          --nusers 3000 \
+          --nusers 2500 \
           --growth-rate 0.01 \
           --userid 1 \
           --kafkaBrokerList kafka:9092 \
-          --randomseed $$(shuf -i 1-10000 -n 1) \
+          --randomseed 42 \
           --continuous
     restart: unless-stopped
-    mem_limit: 6g
-    memswap_limit: 8g
+    mem_limit: 3g
 
   kafdrop:
     image: obsidiandynamics/kafdrop:latest
