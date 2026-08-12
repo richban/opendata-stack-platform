@@ -1,7 +1,6 @@
 import asyncio
 import datetime
 import logging
-import sys
 import time
 
 import redis.asyncio as aioredis
@@ -10,6 +9,7 @@ from confluent_kafka import Consumer
 from confluent_kafka.schema_registry import AsyncSchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AsyncAvroDeserializer
 from confluent_kafka.serialization import MessageField, SerializationContext
+from pydantic import BaseModel, Field
 
 from streamify.defs.resources import get_streaming_config
 from streamify.log import configure_logging
@@ -22,26 +22,22 @@ BATCH_SIZE_LIMIT = 1000  # Size-based trigger
 BATCH_TIME_LIMIT = 1.0  # Timer-based trigger (1 second)
 
 
-def transform_avro_to_redis(avro_dict: dict) -> dict:
-    """Normalizes Avro datatypes and keys to Redis hash format in a single pass."""
+class UserProfile(BaseModel):
+    """Typed model for the `user_profiles` Avro topic.
 
-    def clean_val(val) -> str:
-        if val is None:
-            return ""
-        if isinstance(val, datetime.datetime):
-            return val.isoformat()
-        return str(val)
+    `alias` is the UPPERCASE field name as registered in the Schema Registry;
+    pydantic binds incoming Avro dicts to these typed fields.
+    """
 
-    return {
-        "first_name": clean_val(avro_dict.get("FIRSTNAME")),
-        "last_name": clean_val(avro_dict.get("LASTNAME")),
-        "gender": clean_val(avro_dict.get("GENDER")),
-        "city": clean_val(avro_dict.get("CITY")),
-        "state": clean_val(avro_dict.get("STATE")),
-        "zip_code": clean_val(avro_dict.get("ZIP")),
-        "event_time": clean_val(avro_dict.get("EVENT_TIME")),
-        "ingestion_time": clean_val(avro_dict.get("INGESTION_TIME")),
-    }
+    user_id: int | None = Field(default=None, alias="USERID")
+    first_name: str | None = Field(default=None, alias="FIRSTNAME")
+    last_name: str | None = Field(default=None, alias="LASTNAME")
+    gender: str | None = Field(default=None, alias="GENDER")
+    city: str | None = Field(default=None, alias="CITY")
+    state: str | None = Field(default=None, alias="STATE")
+    zip_code: str | None = Field(default=None, alias="ZIP")
+    event_time: datetime.datetime | None = Field(default=None, alias="EVENT_TIME")
+    ingestion_time: datetime.datetime | None = Field(default=None, alias="INGESTION_TIME")
 
 
 async def flush_batch_to_redis(batch: list, redis_client, consumer) -> float:
@@ -49,12 +45,15 @@ async def flush_batch_to_redis(batch: list, redis_client, consumer) -> float:
     start_flush = time.perf_counter()
     # flush to redis via pipeline
     async with redis_client.pipeline(transaction=False) as pipe:
-        for user_data in batch:
-            user_id = user_data.get("USERID")
-            if user_id:
-                redis_key = f"user:{user_id}"
-                redis_hash = transform_avro_to_redis(user_data)
-                pipe.hset(redis_key, mapping=redis_hash)
+        for profile in batch:
+            if profile.user_id:
+                redis_key = f"user:{profile.user_id}"
+                pipe.hset(
+                    redis_key,
+                    mapping=profile.model_dump(
+                        mode="json", exclude={"user_id"}, exclude_none=True
+                    ),
+                )
 
         # Send all commands to Redis in a single network round-trip
         await pipe.execute()
@@ -83,7 +82,9 @@ async def main():
 
     logger.info("Connecting to Schema Registry at %s...", cfg.schema_registry_url)
     schema_client = AsyncSchemaRegistryClient({"url": cfg.schema_registry_url})
-    deserializer = await AsyncAvroDeserializer(schema_client)  # type: ignore
+    deserializer = await AsyncAvroDeserializer(
+        schema_client, from_dict=lambda data, ctx: UserProfile.model_validate(data)
+    )  # type: ignore
 
     consumer_config = {
         "bootstrap.servers": cfg.kafka_bootstrap_servers,
