@@ -27,6 +27,8 @@ dependencies = [
     "pydantic-settings>=2.14.2",
     "apache-polaris>=1.6.0",
     "clickhouse-connect>=0.8.0",
+    "cachetools>=5.3.3",
+    "s3fs>=2026.7.0",
 ]
 
 [dependency-groups]
