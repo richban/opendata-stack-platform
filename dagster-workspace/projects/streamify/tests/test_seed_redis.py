@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from pydantic import ValidationError
-from streamify.seed_redis import UserProfile, flush_batch_to_redis
+from streamify.seed_redis import UserProfile, flush_batch_to_redis, should_flush
 
 USER_ID = 42
 EVENT_TS = datetime.datetime(2025, 12, 31, 12, 0, 0, tzinfo=datetime.timezone.utc)
@@ -25,6 +25,11 @@ def mock_avro_input():
         "EVENT_TIME": EVENT_TS,
         "INGESTION_TIME": EVENT_TS,
     }
+
+
+@pytest.fixture
+def profile(mock_avro_input):
+    return UserProfile.model_validate(mock_avro_input)
 
 
 class TestUserProfile:
@@ -56,3 +61,21 @@ class TestUserProfile:
         assert profile.user_id is None
         assert profile.zip_code is None
         assert profile.event_time is None
+
+
+class TestShouldFlush:
+    def test_empty_batch_neither_trigger_returns_false(self):
+        assert should_flush([], 0.0) is False
+
+    def test_size_trigger_ignores_time(self):
+        batch = [None] * 1000
+        assert should_flush(batch, 0.0) is True
+
+    def test_time_trigger_with_nonempty_batch(self):
+        assert should_flush([UserProfile()], 1.0) is True
+
+    def test_time_below_threshold_returns_false(self):
+        assert should_flush([UserProfile()], 0.9) is False
+
+    def test_empty_batch_does_not_flush_on_time(self):
+        assert should_flush([], 5.0) is False

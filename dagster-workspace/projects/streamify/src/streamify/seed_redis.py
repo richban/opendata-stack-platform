@@ -40,7 +40,7 @@ class UserProfile(BaseModel):
     ingestion_time: datetime.datetime | None = Field(default=None, alias="INGESTION_TIME")
 
 
-async def flush_batch_to_redis(batch: list, redis_client, consumer) -> float:
+async def flush_batch_to_redis(batch: list[UserProfile], redis_client, consumer) -> float:
     """Flush batch to Redis via pipeline and commit offsets."""
     start_flush = time.perf_counter()
     # flush to redis via pipeline
@@ -62,6 +62,12 @@ async def flush_batch_to_redis(batch: list, redis_client, consumer) -> float:
     # commit offset that we have successfully written to redis
     consumer.commit(asynchronous=True)
     return duration
+
+
+def should_flush(batch: list, time_since_last_flush_s: float) -> bool:
+    return len(batch) >= BATCH_SIZE_LIMIT or (
+        len(batch) > 0 and time_since_last_flush_s >= BATCH_TIME_LIMIT
+    )
 
 
 async def main():
@@ -136,9 +142,7 @@ async def main():
             current_time = time.perf_counter()
             time_since_last_flush = current_time - last_flush_time
 
-            if len(batch) >= BATCH_SIZE_LIMIT or (
-                len(batch) > 0 and time_since_last_flush >= BATCH_TIME_LIMIT
-            ):
+            if should_flush(batch, time_since_last_flush):
                 flush_dur = await flush_batch_to_redis(batch, redis_client, consumer)
                 logger.info(
                     "✓ Flushed batch of %d records to Redis in one RTT (%.3fs).",
