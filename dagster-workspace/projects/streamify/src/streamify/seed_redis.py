@@ -3,6 +3,9 @@ import datetime
 import logging
 import time
 
+from collections.abc import Coroutine
+from typing import Any, cast
+
 import redis.asyncio as aioredis
 
 from confluent_kafka import Consumer
@@ -88,10 +91,12 @@ async def main():
 
     logger.info("Connecting to Schema Registry at %s...", cfg.schema_registry_url)
     schema_client = AsyncSchemaRegistryClient({"url": cfg.schema_registry_url})
-    # this returns a coroutine
-    deserializer = await AsyncAvroDeserializer(
-        schema_client, from_dict=lambda data, ctx: UserProfile.model_validate(data)
-    )  # type: ignore
+    deserializer = await cast(
+        Coroutine[Any, Any, AsyncAvroDeserializer],
+        AsyncAvroDeserializer(
+            schema_client, from_dict=lambda data, ctx: UserProfile.model_validate(data)
+        ),
+    )
 
     consumer_config = {
         "bootstrap.servers": cfg.kafka_bootstrap_servers,

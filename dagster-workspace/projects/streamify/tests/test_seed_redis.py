@@ -1,13 +1,11 @@
-import asyncio
 import datetime
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pydantic import ValidationError
-from streamify.seed_redis import UserProfile, flush_batch_to_redis, should_flush
 from streamify import seed_redis
+from streamify.seed_redis import UserProfile, flush_batch_to_redis, should_flush
 
 USER_ID = 42
 EVENT_TS = datetime.datetime(2025, 12, 31, 12, 0, 0, tzinfo=datetime.timezone.utc)
@@ -133,24 +131,19 @@ class TestUserProfile:
 
 
 class TestShouldFlush:
-    @pytest.mark.unit
     def test_empty_batch_neither_trigger_returns_false(self):
         assert should_flush([], 0.0) is False
 
-    @pytest.mark.unit
     def test_size_trigger_ignores_time(self):
         batch = [None] * 1000
         assert should_flush(batch, 0.0) is True
 
-    @pytest.mark.unit
     def test_time_trigger_with_nonempty_batch(self):
         assert should_flush([UserProfile()], 1.0) is True
 
-    @pytest.mark.unit
     def test_time_below_threshold_returns_false(self):
         assert should_flush([UserProfile()], 0.9) is False
 
-    @pytest.mark.unit
     def test_empty_batch_does_not_flush_on_time(self):
         assert should_flush([], 5.0) is False
 
@@ -190,7 +183,7 @@ class TestFlushBatchToRedis:
 
     @pytest.mark.anyio
     async def test_commits_offset_asynchronously(self, redis_resources, profile):
-        redis_client, pipe, consumer = redis_resources
+        redis_client, _pipe, consumer = redis_resources
 
         await flush_batch_to_redis([profile], redis_client, consumer)
 
@@ -198,7 +191,7 @@ class TestFlushBatchToRedis:
 
     @pytest.mark.anyio
     async def test_returns_float_duration(self, redis_resources, profile):
-        redis_client, pipe, consumer = redis_resources
+        redis_client, _pipe, consumer = redis_resources
 
         duration = await flush_batch_to_redis([profile], redis_client, consumer)
 
@@ -229,7 +222,7 @@ class TestMain:
     async def test_deserializes_message_and_flushes_on_time_trigger(
         self, main_resources, mocker, profile
     ):
-        cfg, redis_client, schema_client, deserializer, consumer = main_resources
+        _, redis_client, _, deserializer, consumer = main_resources
 
         deserializer.return_value = profile
         consumer.consume.side_effect = [[FakeMessage()], KeyboardInterrupt]
