@@ -21,6 +21,7 @@ def _():
         create_iceberg_catalog,
         get_minio_config,
         get_polaris_config,
+        get_s3_store,
     )
 
     # Configure logging to see INFO messages
@@ -29,21 +30,14 @@ def _():
     # Load configuration from environment
     polaris_config = get_polaris_config()
     minio_config = get_minio_config()
-    return (
-        create_duckdb_connection,
-        create_iceberg_catalog,
-        duckdb,
-        minio_config,
-        mo,
-        polaris_config,
-        sqlalchemy,
-    )
+    s3_store = get_s3_store()
+    return create_duckdb_connection, create_iceberg_catalog, mo, sqlalchemy
 
 
 @app.cell
 def _(create_iceberg_catalog):
     catalog = create_iceberg_catalog()
-    return (catalog,)
+    return
 
 
 @app.cell
@@ -63,11 +57,12 @@ def _(sqlalchemy):
 @app.cell
 def _(mo, postgres_engine):
     _df = mo.sql(
-        """
+        f"""
         SELECT * FROM polaris_schema.principal_authentication_data
         """,
-        engine=postgres_engine,
+        engine=postgres_engine
     )
+    return
 
 
 @app.cell(hide_code=True)
@@ -79,23 +74,25 @@ def _(sqlalchemy):
 @app.cell
 def _(mo, sqlite_engine):
     _df = mo.sql(
-        """
+        f"""
         select * from main.dq_results
         """,
-        engine=sqlite_engine,
+        engine=sqlite_engine
     )
+    return
 
 
 @app.cell
-def _(con):
-    # Preview rows
-    df = con.execute("""
+def _(con, mo):
+    _df = mo.sql(
+        f"""
         SELECT *
         FROM lakehouse.streamify.bronze_listen_events
         LIMIT 10
-    """).df()
-
-    df
+        """,
+        engine=con
+    )
+    return
 
 
 @app.cell
@@ -114,57 +111,62 @@ def _(con):
     """).df()
 
     top_artists
+    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         SELECT * FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events');
         """,
-        engine=con,
+        engine=con
     )
+    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         select * from lakehouse.streamify.bronze_auth_events
         """,
-        engine=con,
+        engine=con
     )
-    return _df
+    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         SELECT * FROM lakehouse.streamify.bronze_listen_events
         """,
-        engine=con,
+        engine=con
     )
+    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         SELECT * FROM lakehouse.streamify.bronze_page_view_events
         """,
-        engine=con,
+        engine=con
     )
+    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         SELECT * FROM lakehouse.streamify.silver_auth_events
         """,
-        engine=con,
+        engine=con
     )
+    return
 
 
 @app.cell

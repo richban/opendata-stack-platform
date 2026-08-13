@@ -2,7 +2,7 @@
 
 Eventsim is a **fake music web-site event generator** written in Scala. It produces realistic-looking streams of page-request events — think Spotify user behaviour — without containing any real user data. Events can be written to JSON files or streamed directly to Apache Kafka.
 
-> **Attribution** — This Docker image is based on [viirya/eventsim](https://github.com/viirya/eventsim).
+> **Author** — This Docker image is based on [viirya/eventsim](https://github.com/viirya/eventsim).
 
 ---
 
@@ -30,10 +30,10 @@ Eventsim is a **fake music web-site event generator** written in Scala. It produ
 Eventsim models each user as a state machine that traverses a configurable set of web-site pages. Internally:
 
 1. **User generation** — On start-up a pool of N users is created. Each user is assigned random properties (name, location, engagement level) drawn from real-world statistical distributions.
-2. **Priority queue** — All user sessions are placed in a min-heap ordered by the timestamp of their next event. The simulator pops the earliest session, emits the event, computes the *next* event for that session (or schedules the next session for the user), and re-inserts it.
+2. **Priority queue** — All user sessions are placed in a min-heap ordered by the timestamp of their next event. The simulator pops the earliest session, emits the event, computes the _next_ event for that session (or schedules the next session for the user), and re-inserts it.
 3. **Session timing** — The inter-event gap follows a **log-normal distribution** (mean = `alpha` seconds). The gap between sessions follows an **exponential distribution** (mean = `beta` seconds), with a configurable minimum floor (`session-gap`).
 4. **State transitions** — From any page the config file defines a set of `(dest, probability)` pairs. If the probabilities sum to less than 1.0, the remainder becomes the probability of ending the session.
-5. **Song events** — `NextSong` transitions are special: the next event fires *after the song duration* rather than after a random log-normal delay.
+5. **Song events** — `NextSong` transitions are special: the next event fires _after the song duration_ rather than after a random log-normal delay.
 6. **Redirect events** — Pages like `Login` (status 307) fire their follow-up at a fixed short delay to model form-submit redirects.
 7. **Traffic shaping** — Optional damping factors reduce traffic at night or on weekends by scaling arrival probabilities with a sine curve (night) or a linear ramp around midnight (weekends/holidays).
 
@@ -66,6 +66,7 @@ eventsim/
 If the JAR is missing from `eventsim/target/`, build it from the `eventsim` Scala source repository using `sbt`:
 
 1. **Build using `sbt` (locally or via Docker):**
+
    ```bash
    # Option A: Local sbt
    cd /path/to/eventsim
@@ -86,15 +87,15 @@ If the JAR is missing from `eventsim/target/`, build it from the `eventsim` Scal
 
 ## Data files
 
-| File | Source | Purpose |
-|------|--------|---------|
-| `songs_analysis.txt.gz` | Million Song Dataset | Song titles, artists, durations |
-| `listen_counts.txt.gz` | Derived | Popularity weights used for song selection |
-| `Top1000Surnames.csv` | US Census Bureau | Random last-name generation |
-| `yob1990.txt` | Social Security Administration | Random first-name generation |
-| `US.txt` | GeoNames | City / state assignment |
-| `Gaz_zcta_national.txt` | US Census Bureau | ZIP code coordinates |
-| `user agents.txt` | willshouse.com survey | Realistic browser user-agent strings |
+| File                    | Source                         | Purpose                                    |
+| ----------------------- | ------------------------------ | ------------------------------------------ |
+| `songs_analysis.txt.gz` | Million Song Dataset           | Song titles, artists, durations            |
+| `listen_counts.txt.gz`  | Derived                        | Popularity weights used for song selection |
+| `Top1000Surnames.csv`   | US Census Bureau               | Random last-name generation                |
+| `yob1990.txt`           | Social Security Administration | Random first-name generation               |
+| `US.txt`                | GeoNames                       | City / state assignment                    |
+| `Gaz_zcta_national.txt` | US Census Bureau               | ZIP code coordinates                       |
+| `user agents.txt`       | willshouse.com survey          | Realistic browser user-agent strings       |
 
 These files are baked into the Docker image (`COPY data /opt/eventsim/data`) and loaded at start-up. The song file alone contains ~385 k tracks and may take a few seconds to parse.
 
@@ -132,6 +133,7 @@ eventsim:
 ```
 
 **What this does:**
+
 - Replays **2 years** of simulated history (`--from 730 --to 0`), then switches to **real-time continuous** streaming (`--continuous`).
 - Starts with **10 users** growing at 0.1 % annually, generating a manageable but realistic flow.
 - Outputs events to the **`kafka:9092`** broker. Topics are auto-created by Kafka.
@@ -162,24 +164,24 @@ docker exec -it kafka kafka-console-consumer \
 eventsim.sh [options] [output-dir]
 ```
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-c, --config <file>` | *(required)* | Path to the JSON config file |
-| `-n, --nusers <N>` | `1` | Initial number of simulated users |
-| `-u, --userid <N>` | `1` | User ID assigned to the first generated user (sequential from here) |
-| `-r, --randomseed <N>` | random | Seed for the PRNG — fix this for reproducible data |
-| `-g, --growth-rate <f>` | `0.0` | Annual user growth rate as a fraction (`0.01` = 1 %) |
-| `-a, --attrition-rate <f>` | `0.0` | Annual user attrition rate as a fraction |
-| `--from <days>` | `15` | Start time = N days ago |
-| `--to <days>` | `1` | End time = N days ago |
-| `-s, --start-time <ISO8601>` | derived | Explicit start timestamp |
-| `-e, --end-time <ISO8601>` | derived | Explicit end timestamp |
-| `--continuous` / `--nocontinuous` | `--nocontinuous` | Keep running in real-time after reaching end time |
-| `-k, --kafkaBrokerList <host:port>` | *(none)* | Stream events to Kafka instead of files |
-| `--useAvro` / `--nouseAvro` | `--nouseAvro` | Output Avro binary instead of JSON |
-| `--tag <string>` | *(none)* | Tag appended to every event (useful for A/B test labelling) |
-| `--generate-counts` | — | Pre-compute listen-counts file then exit |
-| `--generate-similars` | — | Pre-compute similar-song file then exit |
+| Flag                                | Default          | Description                                                         |
+| ----------------------------------- | ---------------- | ------------------------------------------------------------------- |
+| `-c, --config <file>`               | _(required)_     | Path to the JSON config file                                        |
+| `-n, --nusers <N>`                  | `1`              | Initial number of simulated users                                   |
+| `-u, --userid <N>`                  | `1`              | User ID assigned to the first generated user (sequential from here) |
+| `-r, --randomseed <N>`              | random           | Seed for the PRNG — fix this for reproducible data                  |
+| `-g, --growth-rate <f>`             | `0.0`            | Annual user growth rate as a fraction (`0.01` = 1 %)                |
+| `-a, --attrition-rate <f>`          | `0.0`            | Annual user attrition rate as a fraction                            |
+| `--from <days>`                     | `15`             | Start time = N days ago                                             |
+| `--to <days>`                       | `1`              | End time = N days ago                                               |
+| `-s, --start-time <ISO8601>`        | derived          | Explicit start timestamp                                            |
+| `-e, --end-time <ISO8601>`          | derived          | Explicit end timestamp                                              |
+| `--continuous` / `--nocontinuous`   | `--nocontinuous` | Keep running in real-time after reaching end time                   |
+| `-k, --kafkaBrokerList <host:port>` | _(none)_         | Stream events to Kafka instead of files                             |
+| `--useAvro` / `--nouseAvro`         | `--nouseAvro`    | Output Avro binary instead of JSON                                  |
+| `--tag <string>`                    | _(none)_         | Tag appended to every event (useful for A/B test labelling)         |
+| `--generate-counts`                 | —                | Pre-compute listen-counts file then exit                            |
+| `--generate-similars`               | —                | Pre-compute similar-song file then exit                             |
 
 Parameters are resolved in this order (highest wins): **CLI flag > config file > built-in default**.
 
@@ -193,15 +195,15 @@ The config file (`examples/example-config.json`) is a single JSON object that co
 
 ```jsonc
 {
-  "seed": 1,              // PRNG seed — change for different fake data
-  "alpha": 90.0,          // Mean seconds between events within a session (log-normal)
-  "beta": 604800.0,       // Mean seconds between sessions (exponential, ~1 week)
-  "damping": 0.09375,     // Depth of the day/night traffic cycle (0 = flat)
+  "seed": 1, // PRNG seed — change for different fake data
+  "alpha": 90.0, // Mean seconds between events within a session (log-normal)
+  "beta": 604800.0, // Mean seconds between sessions (exponential, ~1 week)
+  "damping": 0.09375, // Depth of the day/night traffic cycle (0 = flat)
   "weekend-damping": 0.5, // Traffic multiplier on weekends/holidays (0.5 = 50 % of weekday)
-  "weekend-damping-offset": 180,  // Minutes before midnight that weekend starts
-  "weekend-damping-scale": 360,   // Duration of the traffic ramp, in minutes
-  "session-gap": 1800,    // Minimum seconds between two sessions for the same user
-  "churned-state": "Cancelled"    // Auth state that marks a user as permanently churned
+  "weekend-damping-offset": 180, // Minutes before midnight that weekend starts
+  "weekend-damping-scale": 360, // Duration of the traffic ramp, in minutes
+  "session-gap": 1800, // Minimum seconds between two sessions for the same user
+  "churned-state": "Cancelled", // Auth state that marks a user as permanently churned
 }
 ```
 
@@ -235,7 +237,7 @@ Levels and auth states are the two dimensions of a user's current state. They ap
 
 ### Session entry points (`new-session`)
 
-`new-session` defines the distribution of pages that users can *start* a session on. Each entry is a fully-qualified state (page + method + status + auth + level) with a `weight`:
+`new-session` defines the distribution of pages that users can _start_ a session on. Each entry is a fully-qualified state (page + method + status + auth + level) with a `weight`:
 
 ```jsonc
 "new-session": [
@@ -256,31 +258,44 @@ The `transitions` array is the core of the simulation. Each entry defines one di
 
 ```jsonc
 {
-  "source": {"page":"Home","method":"GET","status":200,"auth":"Logged In","level":"free"},
-  "dest":   {"page":"NextSong","method":"PUT","status":200,"auth":"Logged In","level":"free"},
-  "p": 0.6
+  "source": {
+    "page": "Home",
+    "method": "GET",
+    "status": 200,
+    "auth": "Logged In",
+    "level": "free",
+  },
+  "dest": {
+    "page": "NextSong",
+    "method": "PUT",
+    "status": 200,
+    "auth": "Logged In",
+    "level": "free",
+  },
+  "p": 0.6,
 }
 ```
 
 **Rules:**
-- **`p`** is the probability of taking this transition *given the user is currently in `source`*.
+
+- **`p`** is the probability of taking this transition _given the user is currently in `source`_.
 - All `p` values for a given source state are summed. If the sum is `S < 1.0`, then `1.0 - S` is the probability that the session **ends** after this state.
 - Setting `S = 1.0` for a state means the user never leaves voluntarily from there (this is intentional for redirect pages like `Logout`).
 - A transition that **changes `auth`** (e.g. `Logged Out → Logged In` via the `Login` page) or **changes `level`** (e.g. `free → paid` via `Submit Upgrade`) models real account-state transitions.
 
 **Example flow for a free logged-in user from `Home`:**
 
-| Destination | p |
-|-------------|---|
-| `NextSong` | 0.600 |
-| `Home` (refresh) | 0.010 |
-| `Settings` | 0.020 |
-| `Upgrade` | 0.010 |
-| `Logout` | 0.010 |
-| `Error` (404) | 0.001 |
-| `About` | 0.002 |
-| `Help` | 0.002 |
-| **End session** | **0.345** |
+| Destination      | p         |
+| ---------------- | --------- |
+| `NextSong`       | 0.600     |
+| `Home` (refresh) | 0.010     |
+| `Settings`       | 0.020     |
+| `Upgrade`        | 0.010     |
+| `Logout`         | 0.010     |
+| `Error` (404)    | 0.001     |
+| `About`          | 0.002     |
+| `Help`           | 0.002     |
+| **End session**  | **0.345** |
 
 **Monitoring session-end probability**: if the total `p` for a state seems lower than expected, sessions will terminate there more often. This is useful for modelling high-bounce landing pages.
 
@@ -305,16 +320,16 @@ Setting `"show": false` for `Guest` and `"Logged Out"` means anonymous and logge
 
 ## Tuning the traffic shape
 
-| Goal | What to change |
-|------|---------------|
-| More events per user session | Lower `alpha` (e.g. `60.0`) |
-| Users return more frequently | Lower `beta` (e.g. `86400.0` = daily) |
-| Stronger day/night pattern | Raise `damping` (e.g. `0.2`) |
-| Suppress weekend traffic entirely | Set `weekend-damping` to `0` |
-| Faster user growth | Set `--growth-rate 0.05` (5 % annually) |
-| Scale data volume | Increase `--nusers` |
-| Reproducible runs | Fix `--randomseed` |
-| Longer historical backfill | Increase `--from` (e.g. `--from 1095` for 3 years) |
+| Goal                              | What to change                                     |
+| --------------------------------- | -------------------------------------------------- |
+| More events per user session      | Lower `alpha` (e.g. `60.0`)                        |
+| Users return more frequently      | Lower `beta` (e.g. `86400.0` = daily)              |
+| Stronger day/night pattern        | Raise `damping` (e.g. `0.2`)                       |
+| Suppress weekend traffic entirely | Set `weekend-damping` to `0`                       |
+| Faster user growth                | Set `--growth-rate 0.05` (5 % annually)            |
+| Scale data volume                 | Increase `--nusers`                                |
+| Reproducible runs                 | Fix `--randomseed`                                 |
+| Longer historical backfill        | Increase `--from` (e.g. `--from 1095` for 3 years) |
 
 ---
 
@@ -349,6 +364,7 @@ eventsim.sh \
 ```
 
 **Key rules for parallel runs:**
+
 - Use **non-overlapping `--userid` ranges** — user IDs are assigned sequentially and must be unique across files.
 - Use **different `--randomseed` values** — same seed produces identical data.
 - Keep **start and end times identical** — the generator produces partial (incomplete) sessions at the boundaries; mixing time windows will produce inconsistent data.
