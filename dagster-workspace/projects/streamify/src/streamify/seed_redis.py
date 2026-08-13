@@ -88,6 +88,7 @@ async def main():
 
     logger.info("Connecting to Schema Registry at %s...", cfg.schema_registry_url)
     schema_client = AsyncSchemaRegistryClient({"url": cfg.schema_registry_url})
+    # this returns a coroutine
     deserializer = await AsyncAvroDeserializer(
         schema_client, from_dict=lambda data, ctx: UserProfile.model_validate(data)
     )  # type: ignore
