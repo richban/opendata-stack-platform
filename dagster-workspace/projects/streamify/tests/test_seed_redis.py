@@ -191,7 +191,7 @@ class TestFlushBatchToRedis:
 
     @pytest.mark.anyio
     async def test_returns_float_duration(self, redis_resources, profile):
-        redis_client, _pipe, consumer = redis_resources
+        redis_client, _, consumer = redis_resources
 
         duration = await flush_batch_to_redis([profile], redis_client, consumer)
 
@@ -234,5 +234,127 @@ class TestMain:
         await seed_redis.main()
 
         flush_mock.assert_awaited_once()
+        consumer.close.assert_called_once()
+        redis_client.aclose.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_flushes_when_batch_size_is_reached(
+        self, main_resources, mocker, profile
+    ):
+        _, redis_client, _, deserializer, consumer = main_resources
+        deserializer.return_value = profile
+        consumer.consume.side_effect = [[FakeMessage()] * 1000, KeyboardInterrupt]
+
+        flush_mock = AsyncMock(return_value=0.001)
+        mocker.patch.object(seed_redis, "flush_batch_to_redis", flush_mock)
+        mocker.patch(
+            "streamify.seed_redis.time.perf_counter",
+            side_effect=[0.0, 0.5, 1.0, 1.005],
+        )
+
+        await seed_redis.main()
+
+        flush_mock.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_skips_messages_with_consumer_error(
+        self, main_resources, mocker, caplog
+    ):
+        _, redis_client, _, deserializer, consumer = main_resources
+
+        bad_msg = FakeMessage(error="partition error")
+        consumer.consume.side_effect = [
+            [bad_msg, FakeMessage()],
+            KeyboardInterrupt,
+        ]
+
+        flush_mock = AsyncMock(return_value=0.001)
+        mocker.patch.object(seed_redis, "flush_batch_to_redis", flush_mock)
+        mocker.patch(
+            "streamify.seed_redis.time.perf_counter",
+            side_effect=[0.0, 1.1, 1.0, 1.005],
+        )
+
+        await seed_redis.main()
+
+        assert "Kafka consumer error: partition error" in caplog.text
+
+        # topic is None on the error message -> skipped, no flush
+        flush_mock.assert_awaited_once()
+        deserializer.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_skips_messages_without_topic(self, main_resources, mocker, caplog):
+        _, redis_client, _, deserializer, consumer = main_resources
+        no_topic = FakeMessage(topic=None)
+        consumer.consume.side_effect = [
+            [no_topic, FakeMessage()],
+            KeyboardInterrupt,
+        ]
+
+        flush_mock = AsyncMock(return_value=0.001)
+        mocker.patch.object(seed_redis, "flush_batch_to_redis", flush_mock)
+        mocker.patch(
+            "streamify.seed_redis.time.perf_counter",
+            side_effect=[0.0, 2.0, 1.0, 1.005],
+        )
+
+        await seed_redis.main()
+
+        assert "Received message without valid topic name" in caplog.text
+
+        flush_mock.assert_awaited_once()
+        consumer.close.assert_called_once()
+        redis_client.aclose.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_cleanup_runs_on_keyboard_interrupt(self, main_resources, mocker):
+
+        _, redis_client, _, _, consumer = main_resources
+        consumer.consume.side_effect = [KeyboardInterrupt]
+
+        await seed_redis.main()
+
+        consumer.close.assert_called_once()
+        redis_client.aclose.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_end_to_end_flush_writes_to_redis(
+        self, main_resources, mocker, profile
+    ):
+        """Real flush_batch_to_redis + mocked redis pipeline."""
+        _, redis_client, _, deserializer, consumer = main_resources
+
+        deserializer.return_value = profile
+        consumer.consume.side_effect = [
+            [FakeMessage()],
+            KeyboardInterrupt,
+        ]
+
+        pipe = AsyncMock()
+        pipe.hset = MagicMock()
+        pipe.execute = AsyncMock()
+        pipe.__aenter__.return_value = pipe
+
+        redis_client.pipeline = MagicMock(return_value=pipe)
+        self._force_time_trigger(mocker)
+
+        await seed_redis.main()
+
+        pipe.hset.assert_called_once_with(
+            "user:42",
+            mapping={
+                "first_name": "Jane",
+                "last_name": "Doe",
+                "gender": "F",
+                "city": "Seattle",
+                "state": "WA",
+                "zip_code": "98101",
+                "event_time": "2025-12-31T12:00:00Z",
+                "ingestion_time": "2025-12-31T12:00:00Z",
+            },
+        )
+        pipe.execute.assert_awaited_once()
+        consumer.commit.assert_called_once_with(asynchronous=True)
         consumer.close.assert_called_once()
         redis_client.aclose.assert_awaited_once()
