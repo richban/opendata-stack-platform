@@ -1,5 +1,8 @@
 import datetime
 
+from collections.abc import Generator
+from contextlib import contextmanager
+from typing import NamedTuple
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -31,9 +34,15 @@ def profile(mock_avro_input):
     return UserProfile.model_validate(mock_avro_input)
 
 
+class RedisKafkaMocks(NamedTuple):
+    redis_client: MagicMock
+    pipe: MagicMock
+    consumer: MagicMock
+
+
 @pytest.fixture
-def redis_resources():
-    """Mock redis dependencies."""
+def mock_redis_kafka() -> RedisKafkaMocks:
+    """Encapsulates isolated mocking for the Redis pipeline and consumer."""
     pipe = AsyncMock()
     pipe.hset = MagicMock()
     pipe.execute = AsyncMock()
@@ -44,7 +53,7 @@ def redis_resources():
 
     consumer = MagicMock()
 
-    return redis_client, pipe, consumer
+    return RedisKafkaMocks(redis_client=redis_client, pipe=pipe, consumer=consumer)
 
 
 class FakeMessage:
@@ -151,13 +160,13 @@ class TestShouldFlush:
 class TestFlushBatchToRedis:
     @pytest.mark.anyio
     async def test_writes_hset_with_correct_key_and_mappings(
-        self, redis_resources, profile
+        self, profile, mock_redis_kafka
     ):
-        redis_client, pipe, consumer = redis_resources
+        await flush_batch_to_redis(
+            [profile], mock_redis_kafka.redis_client, mock_redis_kafka.consumer
+        )
 
-        await flush_batch_to_redis([profile], redis_client, consumer)
-
-        pipe.hset.assert_called_once_with(
+        mock_redis_kafka.pipe.hset.assert_called_once_with(
             "user:42",
             mapping={
                 "first_name": "Jane",
@@ -172,41 +181,42 @@ class TestFlushBatchToRedis:
         )
 
     @pytest.mark.anyio
-    async def test_skip_profile_without_user_id(self, redis_resources):
-        redis_client, pipe, consumer = redis_resources
+    async def test_skip_profile_without_user_id(self, mock_redis_kafka):
         anonymous = UserProfile.model_validate({"FIRSTNAME": "Jane"})
 
-        await flush_batch_to_redis([anonymous], redis_client, consumer)
+        await flush_batch_to_redis(
+            [anonymous], mock_redis_kafka.redis_client, mock_redis_kafka.consumer
+        )
 
-        pipe.hset.assert_not_called()
-        consumer.commit.assert_called_once_with(asynchronous=True)
-
-    @pytest.mark.anyio
-    async def test_commits_offset_asynchronously(self, redis_resources, profile):
-        redis_client, _pipe, consumer = redis_resources
-
-        await flush_batch_to_redis([profile], redis_client, consumer)
-
-        consumer.commit.assert_called_once_with(asynchronous=True)
+        mock_redis_kafka.pipe.hset.assert_not_called()
+        mock_redis_kafka.consumer.commit.assert_called_once_with(asynchronous=True)
 
     @pytest.mark.anyio
-    async def test_returns_float_duration(self, redis_resources, profile):
-        redis_client, _, consumer = redis_resources
+    async def test_commits_offset_asynchronously(self, profile, mock_redis_kafka):
+        await flush_batch_to_redis(
+            [profile], mock_redis_kafka.redis_client, mock_redis_kafka.consumer
+        )
 
-        duration = await flush_batch_to_redis([profile], redis_client, consumer)
+        mock_redis_kafka.consumer.commit.assert_called_once_with(asynchronous=True)
+
+    @pytest.mark.anyio
+    async def test_returns_float_duration(self, profile, mock_redis_kafka):
+        duration = await flush_batch_to_redis(
+            [profile], mock_redis_kafka.redis_client, mock_redis_kafka.consumer
+        )
 
         assert isinstance(duration, float)
         assert duration >= 0.0
 
     @pytest.mark.anyio
-    async def test_empty_batch_still_executes_and_commits(self, redis_resources):
-        redis_client, pipe, consumer = redis_resources
+    async def test_empty_batch_still_executes_and_commits(self, mock_redis_kafka):
+        await flush_batch_to_redis(
+            [], mock_redis_kafka.redis_client, mock_redis_kafka.consumer
+        )
 
-        await flush_batch_to_redis([], redis_client, consumer)
-
-        pipe.hset.assert_not_called()
-        pipe.execute.assert_awaited_once()
-        consumer.commit.assert_called_once_with(asynchronous=True)
+        mock_redis_kafka.pipe.hset.assert_not_called()
+        mock_redis_kafka.pipe.execute.assert_awaited_once()
+        mock_redis_kafka.consumer.commit.assert_called_once_with(asynchronous=True)
 
 
 class TestMain:
@@ -320,7 +330,7 @@ class TestMain:
 
     @pytest.mark.anyio
     async def test_end_to_end_flush_writes_to_redis(
-        self, main_resources, mocker, profile
+        self, main_resources, mocker, profile, mock_redis_kafka
     ):
         """Real flush_batch_to_redis + mocked redis pipeline."""
         _, redis_client, _, deserializer, consumer = main_resources
@@ -331,17 +341,12 @@ class TestMain:
             KeyboardInterrupt,
         ]
 
-        pipe = AsyncMock()
-        pipe.hset = MagicMock()
-        pipe.execute = AsyncMock()
-        pipe.__aenter__.return_value = pipe
-
-        redis_client.pipeline = MagicMock(return_value=pipe)
+        redis_client.pipeline = MagicMock(return_value=mock_redis_kafka.pipe)
         self._force_time_trigger(mocker)
 
         await seed_redis.main()
 
-        pipe.hset.assert_called_once_with(
+        mock_redis_kafka.pipe.hset.assert_called_once_with(
             "user:42",
             mapping={
                 "first_name": "Jane",
@@ -354,7 +359,7 @@ class TestMain:
                 "ingestion_time": "2025-12-31T12:00:00Z",
             },
         )
-        pipe.execute.assert_awaited_once()
+        mock_redis_kafka.pipe.execute.assert_awaited_once()
         consumer.commit.assert_called_once_with(asynchronous=True)
         consumer.close.assert_called_once()
         redis_client.aclose.assert_awaited_once()
