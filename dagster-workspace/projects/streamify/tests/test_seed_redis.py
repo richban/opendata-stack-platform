@@ -3,7 +3,7 @@ import datetime
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import NamedTuple
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -34,15 +34,24 @@ def profile(mock_avro_input):
     return UserProfile.model_validate(mock_avro_input)
 
 
-class RedisKafkaMocks(NamedTuple):
+class MainMocks(NamedTuple):
+    cfg: MagicMock
     redis_client: MagicMock
     pipe: MagicMock
+    schema_client: MagicMock
+    deserializer: AsyncMock
     consumer: MagicMock
 
 
 @pytest.fixture
-def mock_redis_kafka() -> RedisKafkaMocks:
-    """Encapsulates isolated mocking for the Redis pipeline and consumer."""
+def mock_redis_kafka() -> MainMocks:
+    """Static mock collaborators for main() (no patching)."""
+    cfg = MagicMock()
+    cfg.redis_host = "localhost"
+    cfg.redis_port = 6379
+    cfg.schema_registry_url = "http://localhost:8081"
+    cfg.kafka_bootstrap_servers = "localhost:9093"
+
     pipe = AsyncMock()
     pipe.hset = MagicMock()
     pipe.execute = AsyncMock()
@@ -50,10 +59,24 @@ def mock_redis_kafka() -> RedisKafkaMocks:
 
     redis_client = MagicMock()
     redis_client.pipeline = MagicMock(return_value=pipe)
+    redis_client.ping = AsyncMock(return_value=True)
+    redis_client.aclose = AsyncMock()
+
+    schema_client = MagicMock()
+    deserializer = AsyncMock()
 
     consumer = MagicMock()
+    consumer.subscribe = MagicMock()
+    consumer.close = MagicMock()
 
-    return RedisKafkaMocks(redis_client=redis_client, pipe=pipe, consumer=consumer)
+    return MainMocks(
+        cfg=cfg,
+        redis_client=redis_client,
+        pipe=pipe,
+        schema_client=schema_client,
+        deserializer=deserializer,
+        consumer=consumer,
+    )
 
 
 class FakeMessage:
@@ -74,38 +97,23 @@ class FakeMessage:
         return self._value
 
 
-@pytest.fixture
-def main_resources(mocker):
-    """Mock every external dependency of main()."""
-
-    cfg = MagicMock()
-    cfg.redis_host = "localhost"
-    cfg.redis_port = 6379
-    cfg.schema_registry_url = "http://localhost:8081"
-    cfg.kafka_bootstrap_servers = "localhost:9093"
-    mocker.patch("streamify.seed_redis.get_streaming_config", return_value=cfg)
-
-    redis_client = AsyncMock()
-    redis_client.ping = AsyncMock(return_value=True)
-    redis_client.aclose = AsyncMock()
-    mocker.patch("streamify.seed_redis.aioredis.Redis", return_value=redis_client)
-
-    schema_client = MagicMock()
-    mocker.patch(
-        "streamify.seed_redis.AsyncSchemaRegistryClient", return_value=schema_client
-    )
-    deserializer = AsyncMock()  # the instance
-    mocker.patch(
-        "streamify.seed_redis.AsyncAvroDeserializer",
-        AsyncMock(return_value=deserializer),
-    )  # the Class
-
-    consumer = MagicMock()
-    consumer.subscribe = MagicMock()
-    consumer.close = MagicMock()
-    mocker.patch("streamify.seed_redis.Consumer", return_value=consumer)
-
-    return cfg, redis_client, schema_client, deserializer, consumer
+@contextmanager
+def mock_main_dependencies(mocks: MainMocks) -> Generator[MainMocks, None, None]:
+    """Wire the static mocks into seed_redis's module-level constructor calls."""
+    with (
+        patch.object(seed_redis, "get_streaming_config", return_value=mocks.cfg),
+        patch("streamify.seed_redis.aioredis.Redis", return_value=mocks.redis_client),
+        patch.object(
+            seed_redis, "AsyncSchemaRegistryClient", return_value=mocks.schema_client
+        ),
+        patch.object(
+            seed_redis,
+            "AsyncAvroDeserializer",
+            AsyncMock(return_value=mocks.deserializer),
+        ),
+        patch.object(seed_redis, "Consumer", return_value=mocks.consumer),
+    ):
+        yield mocks
 
 
 class TestUserProfile:
@@ -230,136 +238,133 @@ class TestMain:
 
     @pytest.mark.anyio
     async def test_deserializes_message_and_flushes_on_time_trigger(
-        self, main_resources, mocker, profile
+        self, mock_redis_kafka, mocker, profile
     ):
-        _, redis_client, _, deserializer, consumer = main_resources
+        with mock_main_dependencies(mock_redis_kafka) as mocks:
+            mocks.deserializer.return_value = profile
+            mocks.consumer.consume.side_effect = [[FakeMessage()], KeyboardInterrupt]
 
-        deserializer.return_value = profile
-        consumer.consume.side_effect = [[FakeMessage()], KeyboardInterrupt]
+            flush_mock = AsyncMock(return_value=0.001)
+            mocker.patch.object(seed_redis, "flush_batch_to_redis", flush_mock)
+            self._force_time_trigger(mocker)
 
-        flush_mock = AsyncMock(return_value=0.001)
-        mocker.patch.object(seed_redis, "flush_batch_to_redis", flush_mock)
-        self._force_time_trigger(mocker)
+            await seed_redis.main()
 
-        await seed_redis.main()
-
-        flush_mock.assert_awaited_once()
-        consumer.close.assert_called_once()
-        redis_client.aclose.assert_awaited_once()
+            flush_mock.assert_awaited_once()
+            mocks.consumer.close.assert_called_once()
+            mocks.redis_client.aclose.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_flushes_when_batch_size_is_reached(
-        self, main_resources, mocker, profile
+        self, mock_redis_kafka, mocker, profile
     ):
-        _, redis_client, _, deserializer, consumer = main_resources
-        deserializer.return_value = profile
-        consumer.consume.side_effect = [[FakeMessage()] * 1000, KeyboardInterrupt]
+        with mock_main_dependencies(mock_redis_kafka) as mocks:
+            mocks.deserializer.return_value = profile
+            mocks.consumer.consume.side_effect = [
+                [FakeMessage()] * 1000,
+                KeyboardInterrupt,
+            ]
 
-        flush_mock = AsyncMock(return_value=0.001)
-        mocker.patch.object(seed_redis, "flush_batch_to_redis", flush_mock)
-        mocker.patch(
-            "streamify.seed_redis.time.perf_counter",
-            side_effect=[0.0, 0.5, 1.0, 1.005],
-        )
+            flush_mock = AsyncMock(return_value=0.001)
+            mocker.patch.object(seed_redis, "flush_batch_to_redis", flush_mock)
+            mocker.patch(
+                "streamify.seed_redis.time.perf_counter",
+                side_effect=[0.0, 0.5, 1.0, 1.005],
+            )
 
-        await seed_redis.main()
+            await seed_redis.main()
 
-        flush_mock.assert_awaited_once()
+            flush_mock.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_skips_messages_with_consumer_error(
-        self, main_resources, mocker, caplog
+        self, mock_redis_kafka, mocker, caplog
     ):
-        _, redis_client, _, deserializer, consumer = main_resources
+        with mock_main_dependencies(mock_redis_kafka) as mocks:
+            bad_msg = FakeMessage(error="partition error")
+            mocks.consumer.consume.side_effect = [
+                [bad_msg, FakeMessage()],
+                KeyboardInterrupt,
+            ]
 
-        bad_msg = FakeMessage(error="partition error")
-        consumer.consume.side_effect = [
-            [bad_msg, FakeMessage()],
-            KeyboardInterrupt,
-        ]
+            flush_mock = AsyncMock(return_value=0.001)
+            mocker.patch.object(seed_redis, "flush_batch_to_redis", flush_mock)
+            mocker.patch(
+                "streamify.seed_redis.time.perf_counter",
+                side_effect=[0.0, 1.1, 1.0, 1.005],
+            )
 
-        flush_mock = AsyncMock(return_value=0.001)
-        mocker.patch.object(seed_redis, "flush_batch_to_redis", flush_mock)
-        mocker.patch(
-            "streamify.seed_redis.time.perf_counter",
-            side_effect=[0.0, 1.1, 1.0, 1.005],
-        )
+            await seed_redis.main()
 
-        await seed_redis.main()
+            assert "Kafka consumer error: partition error" in caplog.text
 
-        assert "Kafka consumer error: partition error" in caplog.text
-
-        # topic is None on the error message -> skipped, no flush
-        flush_mock.assert_awaited_once()
-        deserializer.assert_awaited_once()
-
-    @pytest.mark.anyio
-    async def test_skips_messages_without_topic(self, main_resources, mocker, caplog):
-        _, redis_client, _, deserializer, consumer = main_resources
-        no_topic = FakeMessage(topic=None)
-        consumer.consume.side_effect = [
-            [no_topic, FakeMessage()],
-            KeyboardInterrupt,
-        ]
-
-        flush_mock = AsyncMock(return_value=0.001)
-        mocker.patch.object(seed_redis, "flush_batch_to_redis", flush_mock)
-        mocker.patch(
-            "streamify.seed_redis.time.perf_counter",
-            side_effect=[0.0, 2.0, 1.0, 1.005],
-        )
-
-        await seed_redis.main()
-
-        assert "Received message without valid topic name" in caplog.text
-
-        flush_mock.assert_awaited_once()
-        consumer.close.assert_called_once()
-        redis_client.aclose.assert_awaited_once()
+            # topic is None on the error message -> skipped, no flush
+            flush_mock.assert_awaited_once()
+            mocks.deserializer.assert_awaited_once()
 
     @pytest.mark.anyio
-    async def test_cleanup_runs_on_keyboard_interrupt(self, main_resources, mocker):
+    async def test_skips_messages_without_topic(self, mock_redis_kafka, mocker, caplog):
+        with mock_main_dependencies(mock_redis_kafka) as mocks:
+            no_topic = FakeMessage(topic=None)
+            mocks.consumer.consume.side_effect = [
+                [no_topic, FakeMessage()],
+                KeyboardInterrupt,
+            ]
 
-        _, redis_client, _, _, consumer = main_resources
-        consumer.consume.side_effect = [KeyboardInterrupt]
+            flush_mock = AsyncMock(return_value=0.001)
+            mocker.patch.object(seed_redis, "flush_batch_to_redis", flush_mock)
+            mocker.patch(
+                "streamify.seed_redis.time.perf_counter",
+                side_effect=[0.0, 2.0, 1.0, 1.005],
+            )
 
-        await seed_redis.main()
+            await seed_redis.main()
 
-        consumer.close.assert_called_once()
-        redis_client.aclose.assert_awaited_once()
+            assert "Received message without valid topic name" in caplog.text
+
+            flush_mock.assert_awaited_once()
+            mocks.consumer.close.assert_called_once()
+            mocks.redis_client.aclose.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_cleanup_runs_on_keyboard_interrupt(self, mock_redis_kafka, mocker):
+        with mock_main_dependencies(mock_redis_kafka) as mocks:
+            mocks.consumer.consume.side_effect = [KeyboardInterrupt]
+
+            await seed_redis.main()
+
+            mocks.consumer.close.assert_called_once()
+            mocks.redis_client.aclose.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_end_to_end_flush_writes_to_redis(
-        self, main_resources, mocker, profile, mock_redis_kafka
+        self, mock_redis_kafka, mocker, profile
     ):
         """Real flush_batch_to_redis + mocked redis pipeline."""
-        _, redis_client, _, deserializer, consumer = main_resources
+        with mock_main_dependencies(mock_redis_kafka) as mocks:
+            mocks.deserializer.return_value = profile
+            mocks.consumer.consume.side_effect = [
+                [FakeMessage()],
+                KeyboardInterrupt,
+            ]
+            self._force_time_trigger(mocker)
 
-        deserializer.return_value = profile
-        consumer.consume.side_effect = [
-            [FakeMessage()],
-            KeyboardInterrupt,
-        ]
+            await seed_redis.main()
 
-        redis_client.pipeline = MagicMock(return_value=mock_redis_kafka.pipe)
-        self._force_time_trigger(mocker)
-
-        await seed_redis.main()
-
-        mock_redis_kafka.pipe.hset.assert_called_once_with(
-            "user:42",
-            mapping={
-                "first_name": "Jane",
-                "last_name": "Doe",
-                "gender": "F",
-                "city": "Seattle",
-                "state": "WA",
-                "zip_code": "98101",
-                "event_time": "2025-12-31T12:00:00Z",
-                "ingestion_time": "2025-12-31T12:00:00Z",
-            },
-        )
-        mock_redis_kafka.pipe.execute.assert_awaited_once()
-        consumer.commit.assert_called_once_with(asynchronous=True)
-        consumer.close.assert_called_once()
-        redis_client.aclose.assert_awaited_once()
+            mocks.pipe.hset.assert_called_once_with(
+                "user:42",
+                mapping={
+                    "first_name": "Jane",
+                    "last_name": "Doe",
+                    "gender": "F",
+                    "city": "Seattle",
+                    "state": "WA",
+                    "zip_code": "98101",
+                    "event_time": "2025-12-31T12:00:00Z",
+                    "ingestion_time": "2025-12-31T12:00:00Z",
+                },
+            )
+            mocks.pipe.execute.assert_awaited_once()
+            mocks.consumer.commit.assert_called_once_with(asynchronous=True)
+            mocks.consumer.close.assert_called_once()
+            mocks.redis_client.aclose.assert_awaited_once()
