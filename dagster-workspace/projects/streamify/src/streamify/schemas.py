@@ -76,7 +76,7 @@ AUTH_EVENTS_SCHEMA = StructType(
     ]
 )
 
-meta_schema = [
+META_SCHEMA = [
     StructField("event_id", StringType(), True),
     StructField("event_ts", TimestampType(), True),
     StructField("event_date", DateType(), True),
@@ -102,3 +102,73 @@ SCHEMAS = {
     "page_view_events": PAGE_VIEW_EVENTS_SCHEMA,
     "auth_events": AUTH_EVENTS_SCHEMA,
 }
+
+DLQ_SCHEMA = StructType(
+    [
+        StructField("raw_payload", StringType(), True),
+        StructField("error_stage", StringType(), True),
+        StructField("error_reason", StringType(), True),
+        StructField("topic", StringType(), True),
+        StructField("_kafka_partition", IntegerType(), True),
+        StructField("_kafka_offset", LongType(), True),
+        StructField("_kafka_timestamp", TimestampType(), True),
+        StructField("_processing_time", TimestampType(), True),
+    ]
+)
+
+# ---------------------------------------------------------------------------
+# ClickHouse null defaults (single source of truth)
+# ---------------------------------------------------------------------------
+
+CLICKHOUSE_NULL_DEFAULTS: dict[str, int | float | str] = {
+    "event_id": "",
+    "user_id": 0,
+    "artist": "",
+    "song": "",
+    "duration": 0.0,
+    "session_id": "",
+    "city": "",
+    "state": "",
+    "enriched_first_name": "",
+    "enriched_last_name": "",
+    "enriched_gender": "",
+    "enriched_city": "",
+    "enriched_state": "",
+    "enriched_zip": "",
+    "song_year": "",
+    "artist_location": "",
+}
+
+# Ordered list of columns written to ClickHouse
+CLICKHOUSE_COLUMNS: list[str] = [
+    "event_id",
+    "user_id",
+    "artist",
+    "song",
+    "duration",
+    "event_ts",
+    "session_id",
+    "city",
+    "state",
+    "enriched_first_name",
+    "enriched_last_name",
+    "enriched_gender",
+    "enriched_city",
+    "enriched_state",
+    "enriched_zip",
+    "song_year",
+    "artist_location",
+    "_processing_time",
+]
+
+
+# Field names fetched from each ``user:<id>`` Redis hash, ordered to match
+# ``ENRICHED_USER_PROFILE_SCHEMA``.
+PROFILE_FIELDS: tuple[str, ...] = (
+    "first_name",
+    "last_name",
+    "gender",
+    "city",
+    "state",
+    "zip_code",
+)
