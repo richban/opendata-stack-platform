@@ -23,10 +23,7 @@ from pyspark.sql.functions import (
 from pyspark.sql.streaming import StreamingQuery
 from pyspark.sql.types import StringType, StructType
 
-from streamify.defs.bronze_assets import (
-    create_namespace_if_not_exists,
-    create_table_if_not_exists,
-)
+from streamify.bootstrap import create_table_if_not_exists, ensure_clickhouse_table_exists
 from streamify.clients import (
     get_executor_clickhouse_client,
     get_executor_redis_client,
@@ -37,23 +34,17 @@ from streamify.defs.resources import (
     create_spark_session,
     get_streaming_config,
 )
-from streamify.log import configure_logging
+import streamify.logging
 from streamify.schemas import (
     ENRICHED_USER_PROFILE_SCHEMA,
     SCHEMAS as TOPIC_SCHEMAS,
-    meta_schema,
+    META_SCHEMA,
+    CLICKHOUSE_NULL_DEFAULTS,
+    CLICKHOUSE_COLUMNS,
+    PROFILE_FIELDS,
 )
 
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-configure_logging()
-logger = logging.getLogger("streamify.main")
-
-
-# ---------------------------------------------------------------------------
-# Vectorised string decode
-# ---------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 
 
 def _string_decode_fn(s: str, encoding: str = "utf-8") -> str:
@@ -77,120 +68,7 @@ def string_decode_vec(series: pd.Series) -> pd.Series:  # type: ignore[type-arg]
     return series.apply(_string_decode_fn)  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
 
-# ---------------------------------------------------------------------------
-# ClickHouse DDL bootstrap
-# ---------------------------------------------------------------------------
-
-
-def ensure_clickhouse_table_exists(config: StreamingJobConfig) -> None:
-    """Create ClickHouse database and ``ReplacingMergeTree`` table if absent."""
-    logger.info(
-        "Ensuring ClickHouse table '%s.silver_playback_events' exists (host=%s:%d)...",
-        config.clickhouse_db,
-        config.clickhouse_host,
-        config.clickhouse_port,
-    )
-
-    client = create_clickhouse_resource(config)
-    try:
-        client.command(f"CREATE DATABASE IF NOT EXISTS {config.clickhouse_db}")
-        logger.info("✓ ClickHouse database '%s' ensured.", config.clickhouse_db)
-
-        client.command(f"""
-            CREATE TABLE IF NOT EXISTS
-            {config.clickhouse_db}.silver_playback_events (
-                event_id String,
-                user_id UInt64,
-                artist String,
-                song String,
-                duration Float64,
-                event_ts DateTime64(3),
-                session_id String,
-                city String,
-                state String,
-                enriched_first_name String,
-                enriched_last_name String,
-                enriched_gender String,
-                enriched_city String,
-                enriched_state String,
-                enriched_zip String,
-                song_year String,
-                artist_location String,
-                _processing_time DateTime64(3)
-            ) ENGINE = ReplacingMergeTree(event_ts)
-            ORDER BY (state, toYYYYMMDD(event_ts), event_id)
-            SETTINGS index_granularity = 8192
-        """)
-        logger.info("✓ ClickHouse table 'silver_playback_events' ensured.")
-    finally:
-        client.close()
-
-
-# ---------------------------------------------------------------------------
-# ClickHouse null defaults (single source of truth)
-# ---------------------------------------------------------------------------
-
-_CLICKHOUSE_NULL_DEFAULTS: dict[str, int | float | str] = {
-    "event_id": "",
-    "user_id": 0,
-    "artist": "",
-    "song": "",
-    "duration": 0.0,
-    "session_id": "",
-    "city": "",
-    "state": "",
-    "enriched_first_name": "",
-    "enriched_last_name": "",
-    "enriched_gender": "",
-    "enriched_city": "",
-    "enriched_state": "",
-    "enriched_zip": "",
-    "song_year": "",
-    "artist_location": "",
-}
-
-# Ordered list of columns written to ClickHouse - derived from the table DDL
-# rather than repeated inline in write_batch.
-_CLICKHOUSE_COLUMNS: list[str] = [
-    "event_id",
-    "user_id",
-    "artist",
-    "song",
-    "duration",
-    "event_ts",
-    "session_id",
-    "city",
-    "state",
-    "enriched_first_name",
-    "enriched_last_name",
-    "enriched_gender",
-    "enriched_city",
-    "enriched_state",
-    "enriched_zip",
-    "song_year",
-    "artist_location",
-    "_processing_time",
-]
-
-
-# ---------------------------------------------------------------------------
-# Executor-side mapInArrow: Redis profile enrichment
-# ---------------------------------------------------------------------------
-
-
-# Field names fetched from each ``user:<id>`` Redis hash, ordered to match
-# ``ENRICHED_USER_PROFILE_SCHEMA``.
-_PROFILE_FIELDS: tuple[str, ...] = (
-    "first_name",
-    "last_name",
-    "gender",
-    "city",
-    "state",
-    "zip_code",
-)
-
-
-def _enrich_profiles_partition(
+def enrich_profiles_partition(
     batches: Iterable[pa.RecordBatch],
     redis_host: str,
     redis_port: int,
@@ -229,7 +107,7 @@ def _enrich_profiles_partition(
         if uid_list:
             with r_client.pipeline(transaction=False) as pipe:
                 for uid in uid_list:
-                    pipe.hmget(f"user:{uid}", *_PROFILE_FIELDS)
+                    pipe.hmget(f"user:{uid}", *PROFILE_FIELDS)
                 results = pipe.execute()
             profiles = [tuple(v or "" for v in res) for res in results]
 
@@ -239,7 +117,7 @@ def _enrich_profiles_partition(
         sentinel_idx = pa.scalar(len(profiles), type=pa.int32())
         profile_arrays = [
             pa.array([row[i] for row in profiles] + [""], type=pa.string())
-            for i in range(len(_PROFILE_FIELDS))
+            for i in range(len(PROFILE_FIELDS))
         ]
         positions = pc.fill_null(
             pc.index_in(  # ty: ignore[unresolved-attribute]
@@ -282,7 +160,7 @@ def make_clickhouse_sink(config: StreamingJobConfig):
             col("song_year"),
             col("artist_location"),
             col("_processing_time"),
-        ).fillna(_CLICKHOUSE_NULL_DEFAULTS)
+        ).fillna(CLICKHOUSE_NULL_DEFAULTS)
 
         arrow_table = out_df.toArrow()
         client = get_executor_clickhouse_client(
@@ -381,7 +259,7 @@ class StreamifyDeclarativePipeline:
             )
         )
 
-        metadata_cols = [f.name for f in meta_schema]
+        metadata_cols = [f.name for f in META_SCHEMA]
         data_cols = [f.name for f in schema.fields]
         return parsed_df.select(*data_cols, *metadata_cols)
 
@@ -395,7 +273,7 @@ class StreamifyDeclarativePipeline:
         def _arrow_func(
             batches: Iterable[pa.RecordBatch],
         ) -> Iterable[pa.RecordBatch]:
-            yield from _enrich_profiles_partition(batches, redis_host, redis_port)
+            yield from enrich_profiles_partition(batches, redis_host, redis_port)
 
         return df.mapInArrow(_arrow_func, schema=out_schema)
 
@@ -467,7 +345,7 @@ class StreamifyDeclarativePipeline:
         topic: str,
     ) -> StreamingQuery:
         """Start a writeStream sink targeting the Iceberg lakehouse (bronze layer)."""
-        table = f"{self.config.catalog}.{self.config.namespace}.bronze_{topic}"
+        table = f"bronze_{topic}"
         chkpt = f"{self.config.checkpoint_path}/{topic}"
         trigger_interval = self.config.iceberg_trigger_interval
 
@@ -515,28 +393,11 @@ class StreamifyDeclarativePipeline:
 
     def ensure_target_schema(self, topic: str, schema: StructType) -> None:
         """Ensure the Iceberg namespace and bronze table exist before streaming."""
-        logger.info(
-            "Ensuring Iceberg namespace '%s.%s'...",
-            self.config.catalog,
-            self.config.namespace,
-        )
-        create_namespace_if_not_exists(
-            self.spark,
-            self.config.catalog,
-            self.config.namespace,
-        )
-
-        logger.info(
-            "Ensuring Iceberg table '%s.%s.bronze_%s'...",
-            self.config.catalog,
-            self.config.namespace,
-            topic,
-        )
+        table_name = f"bronze_{topic}"
+        logger.info("Ensuring Iceberg table '%s'...", table_name)
         create_table_if_not_exists(
             self.spark,
-            self.config.catalog,
-            self.config.namespace,
-            topic,
+            table_name,
             schema,
         )
 
