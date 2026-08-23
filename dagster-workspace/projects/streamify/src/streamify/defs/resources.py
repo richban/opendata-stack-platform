@@ -162,16 +162,6 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
         return f"{self.polaris_client_id}:{self.polaris_client_secret}"
 
 
-# ------------------------------------------------------------------
-# Executor-side Redis client pool
-# ------------------------------------------------------------------
-
-
-# ------------------------------------------------------------------
-# Singleton config / session factories
-# ------------------------------------------------------------------
-
-
 @cache
 def get_streaming_config() -> StreamingJobConfig:
     """Return a singleton ``StreamingJobConfig`` instance from environment."""
@@ -194,7 +184,7 @@ def create_spark_session(
     if config.spark_remote:
         builder = builder.remote(config.spark_remote)
 
-    return (
+    session = (
         builder.config(
             f"spark.sql.catalog.{catalog}",
             "org.apache.iceberg.spark.SparkCatalog",
@@ -223,6 +213,18 @@ def create_spark_session(
         .config("spark.executorEnv.PYTHONPATH", "/opt/streamify/src")
         .getOrCreate()
     )
+
+    # Ensure active catalog + namespace context
+    session.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.{config.namespace}")
+    session.sql(f"USE {catalog}.{config.namespace}")
+
+    return session
+
+
+@dg.resource
+def spark_resource() -> SparkSession:
+    """Lazy Dagster resource factory for SparkSession."""
+    return create_spark_session()
 
 
 def create_s3_resource(config: StreamingJobConfig | None = None) -> S3Resource:
