@@ -46,10 +46,9 @@ from streamify.schemas import (
     DLQ_SCHEMA,
     ENRICHED_USER_PROFILE_SCHEMA,
     META_SCHEMA,
-    CLICKHOUSE_NULL_DEFAULTS,
-    CLICKHOUSE_COLUMNS,
     PROFILE_FIELDS,
     RAW_LISTEN_EVENTS_SCHEMA,
+    RAW_SCHEMAS,
     SCHEMAS as TOPIC_SCHEMAS,
 )
 
@@ -255,7 +254,6 @@ class StreamifyDeclarativePipeline:
         topic: str = "listen_events",
     ) -> tuple[DataFrame, DataFrame]:
         """Parse JSON payload with PERMISSIVE mode, splitting into valid and DLQ DataFrames."""
-
         parsed_raw = source_df.select(
             col("value").cast("string").alias("_raw_payload"),
             from_json(
@@ -321,7 +319,6 @@ class StreamifyDeclarativePipeline:
             .withColumn("event_ts", (col("ts") / 1000).cast("timestamp"))
             .withColumn("event_date", to_date(col("event_ts")))
             .withColumn("_processing_time", current_timestamp())
-            # Vectorised pandas_udf — no per-row Python call overhead
             .withColumn("song", pandas_udf(StringType())(string_decode_vec)(col("song")))
             .withColumn(
                 "artist", pandas_udf(StringType())(string_decode_vec)(col("artist"))
@@ -526,21 +523,22 @@ class StreamifyDeclarativePipeline:
         schema = TOPIC_SCHEMAS[topic]
         table_name = f"bronze_{topic}"
 
-        # Iceberg table: bronze_liste_events
+        # Iceberg table: bronze_listen_events
         create_table_if_not_exists(
             self.spark,
             table_name,
             schema,
         )
 
-        # clickhouse table: silver_playback_events
+        # ClickHouse table: silver_playback_events
         ensure_clickhouse_table_exists(self.config)
 
-        # iceberg table: dlq_events_ingestion
+        # Iceberg table: dlq_events_ingestion
         create_table_if_not_exists(
             self.spark,
             "dlq_events_ingestion",
             DLQ_SCHEMA,
+            partition_col="_processing_date",
         )
 
     # ------------------------------------------------------------------
@@ -549,10 +547,10 @@ class StreamifyDeclarativePipeline:
 
     def run_topic_stream(self, topic: str = "listen_events") -> None:
         """Launch the streaming pipeline with dual sinks + DLQ sink."""
-        if topic not in TOPIC_SCHEMAS:
+        if topic not in RAW_SCHEMAS:
             raise ValueError(f"Schema not registered for topic '{topic}'")
 
-        schema = TOPIC_SCHEMAS[topic]
+        raw_schema = RAW_SCHEMAS[topic]
 
         # 1. Bootstrap pipeline
         self.init_pipeline(topic)
@@ -561,7 +559,7 @@ class StreamifyDeclarativePipeline:
         source_df = self.declare_kafka_source(topic)
 
         # 3. Transformations (splitting into valid & DLQ)
-        base_df, dlq_df = self.declare_transformations(source_df, schema, topic)
+        base_df, dlq_df = self.declare_transformations(source_df, raw_schema, topic)
 
         # 4. Enrichment (broadcast join first, then executor-side Redis lookup)
         content_enriched_df = self.enrich_content_metadata(base_df)
