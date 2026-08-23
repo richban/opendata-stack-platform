@@ -33,6 +33,10 @@ LISTEN_EVENTS_SCHEMA = StructType(
     ]
 )
 
+RAW_LISTEN_EVENTS_SCHEMA = StructType(
+    LISTEN_EVENTS_SCHEMA.fields + [StructField("_corrupt_record", StringType(), True)]
+)
+
 PAGE_VIEW_EVENTS_SCHEMA = StructType(
     [
         StructField("ts", LongType(), True),
@@ -55,6 +59,10 @@ PAGE_VIEW_EVENTS_SCHEMA = StructType(
     ]
 )
 
+RAW_PAGE_VIEW_EVENTS_SCHEMA = StructType(
+    PAGE_VIEW_EVENTS_SCHEMA.fields + [StructField("_corrupt_record", StringType(), True)]
+)
+
 AUTH_EVENTS_SCHEMA = StructType(
     [
         StructField("ts", LongType(), True),
@@ -75,6 +83,11 @@ AUTH_EVENTS_SCHEMA = StructType(
         StructField("success", StringType(), True),
     ]
 )
+
+RAW_AUTH_EVENTS_SCHEMA = StructType(
+    AUTH_EVENTS_SCHEMA.fields + [StructField("_corrupt_record", StringType(), True)]
+)
+
 
 META_SCHEMA = [
     StructField("event_id", StringType(), True),
@@ -103,6 +116,12 @@ SCHEMAS = {
     "auth_events": AUTH_EVENTS_SCHEMA,
 }
 
+RAW_SCHEMAS = {
+    "listen_events": RAW_LISTEN_EVENTS_SCHEMA,
+    "page_view_events": RAW_PAGE_VIEW_EVENTS_SCHEMA,
+    "auth_events": RAW_AUTH_EVENTS_SCHEMA,
+}
+
 DLQ_SCHEMA = StructType(
     [
         StructField("raw_payload", StringType(), True),
@@ -113,6 +132,7 @@ DLQ_SCHEMA = StructType(
         StructField("_kafka_offset", LongType(), True),
         StructField("_kafka_timestamp", TimestampType(), True),
         StructField("_processing_time", TimestampType(), True),
+        StructField("_processing_date", DateType(), True),
     ]
 )
 

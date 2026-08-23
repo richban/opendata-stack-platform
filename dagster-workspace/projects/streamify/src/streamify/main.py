@@ -36,13 +36,16 @@ from streamify.defs.resources import (
 )
 import streamify.logging
 from streamify.schemas import (
+    CLICKHOUSE_COLUMNS,
+    CLICKHOUSE_NULL_DEFAULTS,
+    DLQ_SCHEMA,
     ENRICHED_USER_PROFILE_SCHEMA,
-    SCHEMAS as TOPIC_SCHEMAS,
     META_SCHEMA,
     CLICKHOUSE_NULL_DEFAULTS,
     CLICKHOUSE_COLUMNS,
     PROFILE_FIELDS,
-    DLQ_SCHEMA,
+    RAW_LISTEN_EVENTS_SCHEMA,
+    SCHEMAS as TOPIC_SCHEMAS,
 )
 
 logger = logging.getLogger(__name__)
