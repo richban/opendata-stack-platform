@@ -27,45 +27,11 @@ from pyspark.sql.functions import (
 from pyspark.sql.types import StructType
 
 from streamify.defs.resources import StreamingJobConfig
-from streamify.schemas import SCHEMAS as TOPIC_SCHEMAS, meta_schema
-
-
-def create_namespace_if_not_exists(
-    spark: SparkSession, catalog: str, namespace: str
-) -> None:
-    """Create Iceberg namespace if it doesn't exist."""
-    try:
-        spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.{namespace}")
-    except Exception:
-        # Namespace might already exist, that's fine
-        pass
-
-
-def create_table_if_not_exists(
-    spark: SparkSession,
-    catalog: str,
-    namespace: str,
-    topic: str,
-    schema: StructType,
-) -> None:
-    """Create Iceberg table if it doesn't exist using Spark Catalog API."""
-
-    table_name = f"{catalog}.{namespace}.bronze_{topic}"
-
-    try:
-        if spark.catalog.tableExists(table_name):
-            return
-    except Exception:
-        pass
-
-    extended_fields = list(schema.fields) + meta_schema
-    extended_schema = StructType(extended_fields)
-
-    cols = ", ".join([f"{f.name} {f.dataType.simpleString()}" for f in extended_schema])
-    spark.sql(
-        f"CREATE TABLE IF NOT EXISTS {table_name} ({cols}) "
-        f"USING iceberg PARTITIONED BY (event_date)"
-    )
+from streamify.schemas import SCHEMAS as TOPIC_SCHEMAS, META_SCHEMA
+from streamify.bootstrap import (
+    create_namespace_if_not_exists,
+    create_table_if_not_exists,
+)
 
 
 def process_stream(
@@ -120,7 +86,7 @@ def process_stream(
         .withColumn("_processing_time", current_timestamp())
     )
 
-    metadata_cols = [field.name for field in meta_schema]
+    metadata_cols = [field.name for field in META_SCHEMA]
     data_cols = [field.name for field in schema.fields]
 
     return parsed_df.select(*data_cols, *metadata_cols)
@@ -136,7 +102,7 @@ def write_stream(
 
     Uses processingTime trigger to write every 30 seconds, avoiding small file problems.
     """
-    table_name = f"{streaming_config.catalog}.{streaming_config.namespace}.bronze_{topic}"
+    table_name = f"bronze_{topic}"
     checkpoint_location = f"{streaming_config.checkpoint_path}/{topic}"
 
     df_out = (
@@ -172,9 +138,8 @@ def bronze_streaming_job(
 
     This asset uses Spark Connect to:
     1. Connect to the remote Spark cluster (no jar transfer needed)
-    2. Create Iceberg namespace and tables
-    3. Start streaming queries for each Kafka topic
-    4. Monitor the streams
+    2. Start streaming queries for each Kafka topic
+    3. Monitor the streams
 
     The streaming job runs continuously. This is a long-running asset.
 
@@ -201,27 +166,9 @@ def bronze_streaming_job(
         context.log.error(traceback.format_exc())
         raise
 
-    # Create namespace
-    context.log.info(
-        f"Creating namespace {streaming_config.catalog}.{streaming_config.namespace}..."
-    )
-    create_namespace_if_not_exists(
-        session, streaming_config.catalog, streaming_config.namespace
-    )
-    context.log.info("✓ Namespace ready")
-
     # Start streams for each topic
     queries = []
     for topic, schema in TOPIC_SCHEMAS.items():
-        context.log.info(f"Creating table for {topic}...")
-        create_table_if_not_exists(
-            session,
-            streaming_config.catalog,
-            streaming_config.namespace,
-            topic,
-            schema,
-        )
-
         context.log.info(f"Starting stream for {topic}...")
         df_stream = process_stream(session, streaming_config, topic, schema)
         df_out = write_stream(df_stream, streaming_config, topic, context)
