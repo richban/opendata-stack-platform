@@ -296,11 +296,36 @@ class TestMain:
 
             await seed_redis.main()
 
-            assert "Kafka consumer error: partition error" in caplog.text
+            assert "Kafka consumer error on message" in caplog.text
 
             # topic is None on the error message -> skipped, no flush
             flush_mock.assert_awaited_once()
             mocks.deserializer.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_skips_messages_with_deserializer_error(
+        self, mock_redis_kafka, mocker, caplog
+    ):
+        with mock_main_dependencies(mock_redis_kafka) as mocks:
+            mocks.deserializer.side_effect = [
+                RuntimeError("Invalid Avro schema magic byte"),
+                UserProfile.model_validate({"USERID": 100, "FIRSTNAME": "Valid"}),
+            ]
+            mocks.consumer.consume.side_effect = [
+                [FakeMessage(), FakeMessage()],
+                KeyboardInterrupt,
+            ]
+
+            flush_mock = AsyncMock(return_value=0.001)
+            mocker.patch.object(seed_redis, "flush_batch_to_redis", flush_mock)
+            self._force_time_trigger(mocker)
+
+            await seed_redis.main()
+
+            assert "Failed to deserialize Avro profile" in caplog.text
+            flush_mock.assert_awaited_once()
+            mocks.consumer.close.assert_called_once()
+            mocks.redis_client.aclose.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_skips_messages_without_topic(self, mock_redis_kafka, mocker, caplog):

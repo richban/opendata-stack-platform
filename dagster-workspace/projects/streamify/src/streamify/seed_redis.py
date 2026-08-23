@@ -126,22 +126,30 @@ async def main():
 
             for msg in messages:
                 if msg.error():
-                    # log error
-                    # Should write to DLQ?
-                    logger.error("Kafka consumer error: %s", msg.error())
+                    logger.error(
+                        "Kafka consumer error on message (offset=%s): %s",
+                        msg.offset() if hasattr(msg, "offset") else "unknown",
+                        msg.error(),
+                    )
                     continue
 
                 topic = msg.topic()
                 if topic is None:
-                    # Should write to DLQ?
                     logger.warning("Received message without valid topic name.")
-                    continue  # Skip if the message has no valid topic name
+                    continue
 
-                context = SerializationContext(topic, MessageField.VALUE)
-                user_data = await deserializer(msg.value(), context)
-
-                if user_data:
-                    batch.append(user_data)
+                try:
+                    context = SerializationContext(topic, MessageField.VALUE)
+                    user_data = await deserializer(msg.value(), context)
+                    if user_data:
+                        batch.append(user_data)
+                except Exception as exc:
+                    logger.error(
+                        "Failed to deserialize Avro profile at offset %s (topic=%s): %s",
+                        msg.offset() if hasattr(msg, "offset") else "unknown",
+                        topic,
+                        exc,
+                    )
 
             current_time = time.perf_counter()
             time_since_last_flush = current_time - last_flush_time
