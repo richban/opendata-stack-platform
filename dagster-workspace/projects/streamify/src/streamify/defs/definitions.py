@@ -20,8 +20,8 @@ from streamify.defs import (
 from streamify.defs.dq_store import DQResultStore
 from streamify.defs.resources import (
     create_s3_resource,
-    create_spark_session,
     get_streaming_config,
+    spark_resource,
 )
 from streamify.defs.schedules import (
     gold_batch_job,
@@ -48,7 +48,7 @@ defs = dg.Definitions(
     schedules=[bronze_compaction_schedule, silver_daily_schedule, gold_daily_schedule],
     jobs=[silver_batch_job, gold_batch_job],
     resources={
-        "spark": create_spark_session(),
+        "spark": spark_resource,
         "s3": create_s3_resource(),
         "streaming_config": get_streaming_config(),
         "dq_store": DQResultStore(),
