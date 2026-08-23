@@ -42,6 +42,7 @@ from streamify.schemas import (
     CLICKHOUSE_NULL_DEFAULTS,
     CLICKHOUSE_COLUMNS,
     PROFILE_FIELDS,
+    DLQ_SCHEMA,
 )
 
 logger = logging.getLogger(__name__)
@@ -285,7 +286,7 @@ class StreamifyDeclarativePipeline:
         lifetime of the pipeline session.
         """
         if self._catalog_df is None:
-            self._catalog_df = self._load_songs_catalog()
+            self._catalog_df = self.load_songs_catalog()
 
         logger.info("Applying broadcast join for content metadata on 'artist' & 'song'.")
         return df.join(
@@ -297,7 +298,7 @@ class StreamifyDeclarativePipeline:
             how="left",
         ).drop("artist_name", "title")
 
-    def _load_songs_catalog(self) -> DataFrame:
+    def load_songs_catalog(self) -> DataFrame:
         """Load the songs catalog from S3 and return a deduplicated dim DataFrame.
 
         The catalog path is driven by ``config.songs_catalog_path``
@@ -391,14 +392,37 @@ class StreamifyDeclarativePipeline:
     # Schema bootstrapping
     # ------------------------------------------------------------------
 
-    def ensure_target_schema(self, topic: str, schema: StructType) -> None:
+    def init_pipeline(self, topic: str) -> None:
         """Ensure the Iceberg namespace and bronze table exist before streaming."""
+        logger.info(
+            "Init pipeline: topic=%s, catalog=%s, namespace=%s",
+            topic,
+            self.config.catalog,
+            self.config.namespace,
+        )
+
+        if topic not in TOPIC_SCHEMAS:
+            raise ValueError(f"Schema not registered for topic '{topic}'")
+
+        schema = TOPIC_SCHEMAS[topic]
+
         table_name = f"bronze_{topic}"
-        logger.info("Ensuring Iceberg table '%s'...", table_name)
+
+        # Iceberg table: bronze_liste_events
         create_table_if_not_exists(
             self.spark,
             table_name,
             schema,
+        )
+
+        # clickhouse table: silver_playback_events
+        ensure_clickhouse_table_exists(self.config)
+
+        # iceberg table: dlq_events_ingestion
+        create_table_if_not_exists(
+            self.spark,
+            "dlq_events_ingestion",
+            DLQ_SCHEMA,
         )
 
     # ------------------------------------------------------------------
@@ -406,15 +430,11 @@ class StreamifyDeclarativePipeline:
     # ------------------------------------------------------------------
 
     def run_topic_stream(self, topic: str = "listen_events") -> None:
-        """Launch the dual-sink streaming pipeline for *topic*."""
-        if topic not in TOPIC_SCHEMAS:
-            raise ValueError(f"Schema not registered for topic '{topic}'")
-
+        """Launch the streaming pipeline for a topic."""
         schema = TOPIC_SCHEMAS[topic]
 
-        # 1. Target schema preparation
-        self.ensure_target_schema(topic, schema)
-        ensure_clickhouse_table_exists(self.config)
+        # 1. Boostrap pipeline
+        self.init_pipeline(topic)
 
         # 2. Source
         source_df = self.declare_kafka_source(topic)

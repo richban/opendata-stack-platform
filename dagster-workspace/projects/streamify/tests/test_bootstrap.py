@@ -34,8 +34,6 @@ def test_create_table_if_not_exists_session_agnostic():
         partition_col="event_date",
     )
 
-    assert mock_spark.catalog.tableExists.called
-    assert mock_spark.catalog.tableExists.call_args[0][0] == "bronze_listen_events"
     assert mock_spark.sql.called
     sql_arg = mock_spark.sql.call_args[0][0]
     assert (
@@ -61,30 +59,8 @@ def test_create_table_if_not_exists_fully_qualified():
         namespace="bronze",
     )
 
-    assert mock_spark.catalog.tableExists.called
-    assert (
-        mock_spark.catalog.tableExists.call_args[0][0]
-        == "lakehouse.bronze.bronze_page_views"
-    )
     sql_arg = mock_spark.sql.call_args[0][0]
     assert (
         "CREATE TABLE IF NOT EXISTS lakehouse.bronze.bronze_page_views (item STRING)"
         in sql_arg
     )
-
-
-def test_create_table_skips_when_table_exists():
-    """Verify SQL CREATE is skipped if table already exists in catalog."""
-    mock_spark = MagicMock()
-    mock_spark.catalog.tableExists.return_value = True
-
-    mock_schema = MagicMock(spec=StructType)
-
-    create_table_if_not_exists(
-        mock_spark,
-        table_name="bronze_page_views",
-        schema=mock_schema,
-    )
-
-    assert mock_spark.catalog.tableExists.called
-    assert not mock_spark.sql.called

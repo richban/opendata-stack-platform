@@ -42,16 +42,11 @@ def create_table_if_not_exists(
         f"{catalog}.{namespace}.{table_name}" if catalog and namespace else table_name
     )
 
-    try:
-        if spark.catalog.tableExists(target_table):
-            return
-    except Exception as e:
-        logger.debug("Table existence check bypassed: %s", e)
-
     spark.sql(
         f"CREATE TABLE IF NOT EXISTS {target_table} ({schema.toDDL()}) "
         f"USING iceberg PARTITIONED BY ({partition_col})"
     )
+    logger.info("Table created: %s", target_table)
 
 
 # ---------------------------------------------------------------------------
