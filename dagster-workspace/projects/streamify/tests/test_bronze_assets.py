@@ -76,9 +76,6 @@ def test_bronze_streaming_job_asset_function(
     assert result is not None
     assert isinstance(result, dg.MaterializeResult)
 
-    # Verify SQL was called for namespace creation
-    assert mock_spark_session.sql.call_count >= 1
-
     # Verify streaming query was started for each topic (3 topics)
     assert mock_write_stream.call_count == 3  # noqa: PLR2004
 

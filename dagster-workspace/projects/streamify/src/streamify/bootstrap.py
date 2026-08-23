@@ -49,7 +49,7 @@ def create_table_if_not_exists(
         logger.debug("Table existence check bypassed: %s", e)
 
     spark.sql(
-        f"CREATE TABLE IF NOT EXISTS {target_table} ({schema.toDDL}) "
+        f"CREATE TABLE IF NOT EXISTS {target_table} ({schema.toDDL()}) "
         f"USING iceberg PARTITIONED BY ({partition_col})"
     )
 

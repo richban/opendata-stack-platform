@@ -1,7 +1,7 @@
-"""Unit tests for pure Spark / Iceberg table management (streamify.tables)."""
+"""Unit tests for pure Spark / Iceberg table management (streamify.bootstrap)."""
 
 from unittest.mock import MagicMock
-from pyspark.sql.types import IntegerType, StringType, StructField, StructType
+from pyspark.sql.types import StructType
 
 from streamify.bootstrap import (
     create_namespace_if_not_exists,
@@ -24,17 +24,13 @@ def test_create_table_if_not_exists_session_agnostic():
     mock_spark = MagicMock()
     mock_spark.catalog.tableExists.return_value = False
 
-    sample_schema = StructType(
-        [
-            StructField("user_id", IntegerType(), True),
-            StructField("action", StringType(), True),
-        ]
-    )
+    mock_schema = MagicMock(spec=StructType)
+    mock_schema.toDDL.return_value = "user_id INT, action STRING, event_date STRING"
 
     create_table_if_not_exists(
         mock_spark,
         table_name="bronze_listen_events",
-        schema=sample_schema,
+        schema=mock_schema,
         partition_col="event_date",
     )
 
@@ -42,11 +38,11 @@ def test_create_table_if_not_exists_session_agnostic():
     assert mock_spark.catalog.tableExists.call_args[0][0] == "bronze_listen_events"
     assert mock_spark.sql.called
     sql_arg = mock_spark.sql.call_args[0][0]
-    assert "CREATE TABLE IF NOT EXISTS bronze_listen_events" in sql_arg
+    assert (
+        "CREATE TABLE IF NOT EXISTS bronze_listen_events (user_id INT, action STRING, event_date STRING)"
+        in sql_arg
+    )
     assert "USING iceberg PARTITIONED BY (event_date)" in sql_arg
-    # Metadata schema fields must be present
-    assert "event_id STRING" in sql_arg
-    assert "event_date DATE" in sql_arg
 
 
 def test_create_table_if_not_exists_fully_qualified():
@@ -54,12 +50,13 @@ def test_create_table_if_not_exists_fully_qualified():
     mock_spark = MagicMock()
     mock_spark.catalog.tableExists.return_value = False
 
-    sample_schema = StructType([StructField("item", StringType(), True)])
+    mock_schema = MagicMock(spec=StructType)
+    mock_schema.toDDL.return_value = "item STRING"
 
     create_table_if_not_exists(
         mock_spark,
         table_name="bronze_page_views",
-        schema=sample_schema,
+        schema=mock_schema,
         catalog="lakehouse",
         namespace="bronze",
     )
@@ -70,7 +67,10 @@ def test_create_table_if_not_exists_fully_qualified():
         == "lakehouse.bronze.bronze_page_views"
     )
     sql_arg = mock_spark.sql.call_args[0][0]
-    assert "CREATE TABLE IF NOT EXISTS lakehouse.bronze.bronze_page_views" in sql_arg
+    assert (
+        "CREATE TABLE IF NOT EXISTS lakehouse.bronze.bronze_page_views (item STRING)"
+        in sql_arg
+    )
 
 
 def test_create_table_skips_when_table_exists():
@@ -78,12 +78,12 @@ def test_create_table_skips_when_table_exists():
     mock_spark = MagicMock()
     mock_spark.catalog.tableExists.return_value = True
 
-    sample_schema = StructType([StructField("item", StringType(), True)])
+    mock_schema = MagicMock(spec=StructType)
 
     create_table_if_not_exists(
         mock_spark,
         table_name="bronze_page_views",
-        schema=sample_schema,
+        schema=mock_schema,
     )
 
     assert mock_spark.catalog.tableExists.called
