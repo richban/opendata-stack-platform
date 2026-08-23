@@ -15,11 +15,9 @@ from confluent_kafka.serialization import MessageField, SerializationContext
 from pydantic import BaseModel, Field
 
 from streamify.defs.resources import get_streaming_config
-from streamify.log import configure_logging
+import streamify.logging
 
-# Configure structured logging
-configure_logging()
-logger = logging.getLogger("streamify.seed_redis")
+logger = logging.getLogger(__name__)
 
 BATCH_SIZE_LIMIT = 1000  # Size-based trigger
 BATCH_TIME_LIMIT = 1.0  # Timer-based trigger (1 second)
