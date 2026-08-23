@@ -12,10 +12,12 @@ import pyarrow.compute as pc
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import (
     broadcast,
+    coalesce,
     col,
     concat_ws,
     current_timestamp,
     from_json,
+    lit,
     pandas_udf,
     sha2,
     to_date,
@@ -23,7 +25,10 @@ from pyspark.sql.functions import (
 from pyspark.sql.streaming import StreamingQuery
 from pyspark.sql.types import StringType, StructType
 
-from streamify.bootstrap import create_table_if_not_exists, ensure_clickhouse_table_exists
+from streamify.bootstrap import (
+    create_table_if_not_exists,
+    ensure_clickhouse_table_exists,
+)
 from streamify.clients import (
     get_executor_clickhouse_client,
     get_executor_redis_client,
@@ -244,23 +249,64 @@ class StreamifyDeclarativePipeline:
     # ------------------------------------------------------------------
 
     def declare_transformations(
-        self, source_df: DataFrame, schema: StructType
-    ) -> DataFrame:
-        """Parse JSON payload, generate ``event_id``, and compute ``event_ts``."""
-        parsed_df = (
-            source_df.select(
-                from_json(col("value").cast("string"), schema).alias("data"),
-                col("partition").alias("_kafka_partition"),
-                col("offset").alias("_kafka_offset"),
-                col("timestamp").alias("_kafka_timestamp"),
-            )
+        self,
+        source_df: DataFrame,
+        schema: StructType,
+        topic: str = "listen_events",
+    ) -> tuple[DataFrame, DataFrame]:
+        """Parse JSON payload with PERMISSIVE mode, splitting into valid and DLQ DataFrames."""
+
+        parsed_raw = source_df.select(
+            col("value").cast("string").alias("_raw_payload"),
+            from_json(
+                col("value").cast("string"),
+                schema,
+                options={
+                    "mode": "PERMISSIVE",
+                    "columnNameOfCorruptRecord": "_corrupt_record",
+                },
+            ).alias("data"),
+            col("partition").alias("_kafka_partition"),
+            col("offset").alias("_kafka_offset"),
+            col("timestamp").alias("_kafka_timestamp"),
+        )
+
+        is_corrupt = (
+            col("data._corrupt_record").isNotNull()
+            | col("data").isNull()
+            | col("data.userId").isNull()
+            | col("data.ts").isNull()
+        )
+
+        # DLQ DF
+        dlq_df = (
+            parsed_raw.filter(is_corrupt)
             .select(
-                "data.*",
-                "_kafka_partition",
-                "_kafka_offset",
-                "_kafka_timestamp",
+                col("_raw_payload").alias("raw_payload"),
+                lit("ingestion").alias("error_stage"),
+                coalesce(
+                    col("data._corrupt_record"),
+                    lit("Missing required field(s): userId/ts or unparseable payload"),
+                ).alias("error_reason"),
+                lit(topic).alias("topic"),
+                col("_kafka_partition"),
+                col("_kafka_offset"),
+                col("_kafka_timestamp"),
+                current_timestamp().alias("_processing_time"),
             )
-            .withColumn(
+            .withColumn("_processing_date", to_date(col("_processing_time")))
+        )
+
+        # valid DF
+        valid_parsed = parsed_raw.filter(~is_corrupt).select(
+            "data.*",
+            "_kafka_partition",
+            "_kafka_offset",
+            "_kafka_timestamp",
+        )
+
+        valid_df = (
+            valid_parsed.withColumn(
                 "event_id",
                 sha2(
                     concat_ws(
@@ -280,11 +326,37 @@ class StreamifyDeclarativePipeline:
             .withColumn(
                 "artist", pandas_udf(StringType())(string_decode_vec)(col("artist"))
             )
+            .select(
+                "artist",
+                "song",
+                "duration",
+                "ts",
+                "auth",
+                "level",
+                "city",
+                "zip",
+                "state",
+                "userAgent",
+                "lon",
+                "lat",
+                "userId",
+                "lastName",
+                "firstName",
+                "gender",
+                "registration",
+                "sessionId",
+                "itemInSession",
+                "event_id",
+                "event_ts",
+                "event_date",
+                "_kafka_partition",
+                "_kafka_offset",
+                "_kafka_timestamp",
+                "_processing_time",
+            )
         )
 
-        metadata_cols = [f.name for f in META_SCHEMA]
-        data_cols = [f.name for f in schema.fields]
-        return parsed_df.select(*data_cols, *metadata_cols)
+        return valid_df, dlq_df
 
     def enrich_user_profiles(self, df: DataFrame) -> DataFrame:
         """Apply executor-side Redis lookup via ``mapInArrow``."""
@@ -482,29 +554,32 @@ class StreamifyDeclarativePipeline:
 
         schema = TOPIC_SCHEMAS[topic]
 
-        # 1. Boostrap pipeline
+        # 1. Bootstrap pipeline
         self.init_pipeline(topic)
 
         # 2. Source
         source_df = self.declare_kafka_source(topic)
 
-        # 3. Transformations
-        base_df = self.declare_transformations(source_df, schema)
+        # 3. Transformations (splitting into valid & DLQ)
+        base_df, dlq_df = self.declare_transformations(source_df, schema, topic)
 
         # 4. Enrichment (broadcast join first, then executor-side Redis lookup)
         content_enriched_df = self.enrich_content_metadata(base_df)
         enriched_df = self.enrich_user_profiles(content_enriched_df)
 
-        # 5. Dual sinks
-        #    - Iceberg receives the raw parsed base_df (bronze)
-        #    - ClickHouse receives the fully enriched_df (silver)
+        # 5. Triple sinks
+        #    - Iceberg receives raw parsed base_df (bronze)
+        #    - ClickHouse receives fully enriched_df (silver)
+        #    - Iceberg receives invalid/corrupt records (dlq)
         iceberg_q: StreamingQuery = self.declare_iceberg_sink(base_df, topic)  # type: ignore[assignment]
         clickhouse_q: StreamingQuery = self.declare_clickhouse_sink(enriched_df, topic)  # type: ignore[assignment]
+        dlq_q: StreamingQuery = self.declare_dlq_sink(dlq_df, topic)  # type: ignore[assignment]
 
         logger.info(
-            "✓ Streams started: Iceberg=%s, ClickHouse=%s.",
+            "✓ Streams started: Iceberg=%s, ClickHouse=%s, DLQ=%s.",
             iceberg_q.id,  # type: ignore[union-attr]
             clickhouse_q.id,  # type: ignore[union-attr]
+            dlq_q.id,  # type: ignore[union-attr]
         )
 
         # 6. Lifecycle management
@@ -517,6 +592,7 @@ class StreamifyDeclarativePipeline:
             logger.info("Stopping streaming queries...")
             iceberg_q.stop()  # type: ignore[union-attr]
             clickhouse_q.stop()  # type: ignore[union-attr]
+            dlq_q.stop()  # type: ignore[union-attr]
             logger.info("✓ Queries stopped cleanly.")
 
 
