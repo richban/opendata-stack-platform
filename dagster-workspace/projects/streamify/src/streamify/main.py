@@ -155,37 +155,46 @@ def make_clickhouse_sink(config: StreamingJobConfig):
     ch_db = config.clickhouse_db
 
     def write_batch(batch_df: DataFrame, batch_id: int) -> None:
-        out_df = batch_df.select(
-            col("event_id"),
-            col("userId").alias("user_id"),
-            col("artist"),
-            col("song"),
-            col("duration"),
-            col("event_ts"),
-            col("sessionId").cast("string").alias("session_id"),
-            col("city"),
-            col("state"),
-            col("enriched_first_name"),
-            col("enriched_last_name"),
-            col("enriched_gender"),
-            col("enriched_city"),
-            col("enriched_state"),
-            col("enriched_zip"),
-            col("song_year"),
-            col("artist_location"),
-            col("_processing_time"),
-        ).fillna(CLICKHOUSE_NULL_DEFAULTS)
+        try:
+            out_df = batch_df.select(
+                col("event_id"),
+                col("userId").alias("user_id"),
+                col("artist"),
+                col("song"),
+                col("duration"),
+                col("event_ts"),
+                col("sessionId").cast("string").alias("session_id"),
+                col("city"),
+                col("state"),
+                col("enriched_first_name"),
+                col("enriched_last_name"),
+                col("enriched_gender"),
+                col("enriched_city"),
+                col("enriched_state"),
+                col("enriched_zip"),
+                col("song_year"),
+                col("artist_location"),
+                col("_processing_time"),
+            ).fillna(CLICKHOUSE_NULL_DEFAULTS)
 
-        arrow_table = out_df.toArrow()
-        client = get_executor_clickhouse_client(
-            ch_host, ch_port, ch_user, ch_password, ch_db
-        )
-        client.insert_arrow("silver_playback_events", arrow_table)
-        logger.info(
-            "✓ Batch %d: wrote %d enriched rows to ClickHouse.",
-            batch_id,
-            arrow_table.num_rows,
-        )
+            arrow_table = out_df.toArrow()
+            client = get_executor_clickhouse_client(
+                ch_host, ch_port, ch_user, ch_password, ch_db
+            )
+            client.insert_arrow("silver_playback_events", arrow_table)
+            logger.info(
+                "✓ Batch %d: wrote %d enriched rows to ClickHouse.",
+                batch_id,
+                arrow_table.num_rows,
+            )
+        except Exception as exc:
+            logger.error(
+                "✗ Batch %d: failed to write to ClickHouse: %s",
+                batch_id,
+                exc,
+                exc_info=True,
+            )
+            raise
 
     return write_batch
 
