@@ -387,6 +387,31 @@ class StreamifyDeclarativePipeline:
             .toTable(table)
         )
 
+    def declare_dlq_sink(
+        self,
+        dlq_df: DataFrame,
+        topic: str,
+    ) -> StreamingQuery:
+        """Start a writeStream sink targeting the Iceberg DLQ table."""
+        table = "dlq_events_ingestion"
+        chkpt = f"{self.config.checkpoint_path}/{topic}_dlq"
+        trigger_interval = self.config.iceberg_trigger_interval
+
+        logger.info(
+            "Declaring DLQ sink → %s (trigger=%s)...",
+            table,
+            trigger_interval,
+        )
+        return (
+            dlq_df.writeStream.format("iceberg")
+            .outputMode("append")
+            .trigger(processingTime=trigger_interval)
+            .option("checkpointLocation", chkpt)
+            .option("fanout-enabled", "true")
+            .queryName(f"dlq_{topic}")
+            .toTable(table)
+        )
+
     def declare_clickhouse_sink(
         self,
         transformed_df: DataFrame,
@@ -415,7 +440,7 @@ class StreamifyDeclarativePipeline:
     # ------------------------------------------------------------------
 
     def init_pipeline(self, topic: str) -> None:
-        """Ensure the Iceberg namespace and bronze table exist before streaming."""
+        """Ensure the Iceberg namespace and bronze/DLQ tables exist before streaming."""
         logger.info(
             "Init pipeline: topic=%s, catalog=%s, namespace=%s",
             topic,
@@ -427,7 +452,6 @@ class StreamifyDeclarativePipeline:
             raise ValueError(f"Schema not registered for topic '{topic}'")
 
         schema = TOPIC_SCHEMAS[topic]
-
         table_name = f"bronze_{topic}"
 
         # Iceberg table: bronze_liste_events
@@ -452,7 +476,10 @@ class StreamifyDeclarativePipeline:
     # ------------------------------------------------------------------
 
     def run_topic_stream(self, topic: str = "listen_events") -> None:
-        """Launch the streaming pipeline for a topic."""
+        """Launch the streaming pipeline with dual sinks + DLQ sink."""
+        if topic not in TOPIC_SCHEMAS:
+            raise ValueError(f"Schema not registered for topic '{topic}'")
+
         schema = TOPIC_SCHEMAS[topic]
 
         # 1. Boostrap pipeline
