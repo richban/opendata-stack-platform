@@ -94,6 +94,8 @@ def enrich_profiles_partition(
       scale (300 M+ users) an unbounded executor-side cache creates severe
       memory pressure.  Redis is designed to serve millions of ops/sec; let it
       do its job.
+    * **Resilience** - Redis connection/transport errors are caught gracefully,
+      falling back to empty string profile defaults so the stream stays alive.
     """
     r_client = get_executor_redis_client(redis_host, redis_port)
     enriched_fields = ENRICHED_USER_PROFILE_SCHEMA.fieldNames()
@@ -109,11 +111,19 @@ def enrich_profiles_partition(
 
         profiles: list[tuple[str, ...]] = []
         if uid_list:
-            with r_client.pipeline(transaction=False) as pipe:
-                for uid in uid_list:
-                    pipe.hmget(f"user:{uid}", *PROFILE_FIELDS)
-                results = pipe.execute()
-            profiles = [tuple(v or "" for v in res) for res in results]
+            try:
+                with r_client.pipeline(transaction=False) as pipe:
+                    for uid in uid_list:
+                        pipe.hmget(f"user:{uid}", *PROFILE_FIELDS)
+                    results = pipe.execute()
+                profiles = [tuple(v or "" for v in res) for res in results]
+            except Exception as exc:
+                logger.warning(
+                    "Redis enrichment failed for %d user IDs (%s). Defaulting to empty profiles.",
+                    len(uid_list),
+                    exc,
+                )
+                profiles = [tuple("" for _ in PROFILE_FIELDS) for _ in uid_list]
 
         # One Arrow array per profile field, plus a trailing "" sentinel row
         # standing in for null user IDs. ``take`` then re-aligns every row in
