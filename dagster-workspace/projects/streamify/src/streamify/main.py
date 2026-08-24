@@ -39,7 +39,7 @@ from streamify.defs.resources import (
     create_spark_session,
     get_streaming_config,
 )
-import streamify.logging
+import streamify.logger
 from streamify.schemas import (
     CLICKHOUSE_COLUMNS,
     CLICKHOUSE_NULL_DEFAULTS,

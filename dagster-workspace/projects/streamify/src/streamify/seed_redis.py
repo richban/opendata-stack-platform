@@ -15,7 +15,7 @@ from confluent_kafka.serialization import MessageField, SerializationContext
 from pydantic import BaseModel, Field
 
 from streamify.defs.resources import get_streaming_config
-import streamify.logging
+import streamify.logger
 
 logger = logging.getLogger(__name__)
 
