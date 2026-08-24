@@ -68,6 +68,10 @@ flowchart TD
 
 ## Stream Topics
 
+> 📌 **Prerequisite**: `eventsim` requires `eventsim/target/eventsim-assembly-2.0.jar` to be built prior to running `docker compose up`. See [eventsim/README.md](./eventsim/README.md#building-eventsim-assembly-20jar-manually) for instructions.
+
+Eventsim generates the following streams:
+
 - **`listen_events`**: Primary high-throughput playback stream (tracks, users, device metadata).
 - **`page_view_events`**: User navigation events across the application.
 - **`auth_events`**: User authentication, registration, and status change events.
