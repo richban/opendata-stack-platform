@@ -112,3 +112,85 @@ python -m streamify.seed_redis
 python -m streamify.main
 ```
 
+### Infrastructure Architecture & Dependency Diagram
+
+```mermaid
+flowchart TD
+    subgraph Lakehouse_Tier ["Lakehouse & Catalog Tier"]
+        PG[("PostgreSQL (5432)")]
+        MINIO[("MinIO S3 (9000/9001)")]
+        MC["mc (Init Script)\nsetup-minio.sh"]
+        POLARIS["Apache Polaris (8181)\nREST Catalog"]
+        POL_BOOT["polaris-bootstrap\nAdmin Tool"]
+        POL_INIT["polaris-init\nsetup_polaris.py"]
+        POL_UI["Polaris Console (3002)\nWeb UI"]
+
+        MINIO -->|healthcheck| MC
+        PG -->|healthcheck| POL_BOOT
+        PG & MINIO -->|healthcheck| POLARIS
+        POLARIS & MC --> POL_INIT
+        POLARIS -->|healthcheck| POL_UI
+    end
+
+    subgraph Streaming_Tier ["Streaming & Message Bus Tier"]
+        ZK["Zookeeper (2181)"]
+        KAFKA["Apache Kafka (9092/9093)"]
+        SR["Schema Registry (8081)"]
+        KSQL["ksqlDB Server (8088)"]
+        KSQL_INIT["ksqldb-init\nksql-queries.sql"]
+        ES["EventSim Generator\nContinuous Events"]
+        KD["Kafdrop UI (9002)"]
+
+        ZK --> KAFKA
+        KAFKA -->|healthcheck| SR & ES & KD
+        KAFKA & SR --> KSQL
+        KSQL --> KSQL_INIT
+    end
+
+    subgraph Compute_Tier ["Distributed Compute & Storage Sinks"]
+        SP_M["Spark Master (8080/7077)"]
+        SP_W["Spark Worker\n12GB / 8 Cores"]
+        SP_C["Spark Connect (15002)\nIvy Cache & Iceberg/CH Runtime"]
+        REDIS[("Redis 7 (6379)\nUser Profile Cache")]
+        CH[("ClickHouse (8123)\nFast-Path Store")]
+
+        SP_M --> SP_W
+        SP_M --> SP_C
+    end
+
+    ES -.->|Generates Events| KAFKA
+    KSQL_INIT -.->|Registers Stream| KSQL
+    POL_INIT -.->|OAuth Credentials| POLARIS
+    SP_C -.->|Iceberg Catalog API| POLARIS
+    SP_C -.->|S3A Checkpoints & Data| MINIO
+    SP_C -.->|Executes Tasks| SP_W
+```
+
+
+### ⚙️ Deep Dive: Service Roles, Init Scripts & Side Effects
+
+#### Lakehouse & Metadata Governance Tier
+- **`postgres` (`polaris-postgres:5432`)**: Relational backend for Polaris storing realm metadata, principals, catalog permissions, and namespace hierarchies.
+- **`minio` (`:9000` API, `:9001` Console)**: S3-compatible object storage hosting Iceberg Parquet data files, metadata trees, and streaming checkpoints.
+- **`mc` (Init Script)**: Runs `setup-minio.sh` once MinIO is healthy to create S3 buckets (`lakehouse`, `datalake`, `checkpoints`) and provision `miniouser` credentials.
+- **`polaris-bootstrap` (Side Effect)**: Runs `apache/polaris-admin-tool` to bootstrap root realm credentials in PostgreSQL.
+- **`polaris` (`:8181` API, `:8182` Health)**: Quarkus-based Apache Polaris REST Catalog server for Iceberg table metadata and RBAC token dispensing.
+- **`polaris-init` (Init Script)**: Executes `setup_polaris.py` to provision the `lakehouse` catalog, create the `streamify` namespace, and generate OAuth credentials into `polaris-config/polaris_credentials.env`.
+- **`polaris-console` (`:3002`)**: Modern web interface to inspect Polaris catalogs, tables, schemas, and credentials.
+
+
+#### Event Ingestion & Streaming Tier
+- **`kafka` (`:9092` internal, `:9093` host) & `zookeeper` (`:2181`)**: Core distributed message log with partition key hashing.
+- **`schema-registry` (`:8081`)**: Centralized Confluent Schema Registry for validating Avro/JSON event payloads.
+- **`ksqldb-server` (`:8088`) & `ksqldb-init` (Init Script)**: `ksqldb-init` polls the ksqlDB server until ready, then executes `ksql-queries.sql` to derive the `user_profiles` Avro stream from `listen_events`.
+- **`eventsim` (Event Producer)**: Simulates real-time Spotify-like playback traffic (2,500 simulated users across web/mobile) publishing to `listen_events`, `page_view_events`, and `auth_events`.
+- **`kafdrop` (`:9002`)**: Web UI for monitoring Kafka topics, message contents, and consumer group lags.
+
+
+#### Distributed Compute, Cache & Analytical Sinks
+- **`spark-master` (`:8080`, `:7077`) & `spark-worker`**: Distributed Spark 4.0 cluster configured with 12 GB RAM and 8 cores, with pre-installed PyArrow, Redis, and ClickHouse drivers.
+- **`spark-connect` (`:15002` gRPC, `:4041` UI)**:
+  - **Ivy Cache Warm-up**: Pre-downloads runtime packages (`iceberg-spark-runtime-4.0`, `hadoop-aws`, `spark-sql-kafka`, `clickhouse-jdbc`, `dataflint`) during container startup.
+  - **Catalog Config**: Connects directly to Polaris REST catalog (`http://polaris:8181/api/catalog`) with automatic OAuth token refresh and MinIO S3A endpoints.
+- **`redis` (`:6379`)**: In-memory hash cache (`user:{userId}`) populated by `seed_redis.py` for micro-batch enrichment.
+- **`clickhouse` (`:8123` HTTP, `:9009` Native)**: Analytical column-store with `ReplacingMergeTree` for sub-second streaming analytics.
