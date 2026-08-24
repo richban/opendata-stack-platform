@@ -1,7 +1,6 @@
 """Streamify - Spark Structured Streaming pipeline."""
 
 import logging
-import sys
 
 from collections.abc import Iterable, Iterator
 
@@ -25,6 +24,8 @@ from pyspark.sql.functions import (
 from pyspark.sql.streaming import StreamingQuery
 from pyspark.sql.types import StringType, StructType
 
+import streamify.logger  # noqa: F401
+
 from streamify.bootstrap import (
     create_table_if_not_exists,
     ensure_clickhouse_table_exists,
@@ -35,21 +36,16 @@ from streamify.clients import (
 )
 from streamify.defs.resources import (
     StreamingJobConfig,
-    create_clickhouse_resource,
     create_spark_session,
     get_streaming_config,
 )
-import streamify.logger
 from streamify.schemas import (
-    CLICKHOUSE_COLUMNS,
+    BRONZE_SCHEMAS,
     CLICKHOUSE_NULL_DEFAULTS,
     DLQ_SCHEMA,
     ENRICHED_USER_PROFILE_SCHEMA,
-    META_SCHEMA,
     PROFILE_FIELDS,
-    RAW_LISTEN_EVENTS_SCHEMA,
     RAW_SCHEMAS,
-    SCHEMAS as TOPIC_SCHEMAS,
 )
 
 logger = logging.getLogger(__name__)
@@ -517,10 +513,10 @@ class StreamifyDeclarativePipeline:
             self.config.namespace,
         )
 
-        if topic not in TOPIC_SCHEMAS:
+        if topic not in BRONZE_SCHEMAS:
             raise ValueError(f"Schema not registered for topic '{topic}'")
 
-        schema = TOPIC_SCHEMAS[topic]
+        schema = BRONZE_SCHEMAS[topic]
         table_name = f"bronze_{topic}"
 
         # Iceberg table: bronze_listen_events
