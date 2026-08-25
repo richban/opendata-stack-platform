@@ -33,17 +33,33 @@ The platform manages the complete data lifecycle:
 - **`sqlmesh`** (`opendata_stack_platform_sqlmesh`): Production dimensional modeling, column-level lineage, and incremental models.
 - **`dbt`** *(Legacy)*: Legacy dimensional modeling (`opendata_stack_platform_dbt`).
 
-## Local Setup & Execution
+## Setup & Execution
 
-...
+Use `.env.example.local` for local DuckDB/MinIO runs, or `.env.example.prod` for Snowflake/AWS E2E runs (pre-provision via `infrastructure/`).
 
-### Launch Dagster UI
+### Option A: Local Dev (DuckDB + MinIO)
 
 ```bash
-# Run from dagster workspace directory
-cd dagster-workspace & dg dev
+# 1. Start storage
+docker compose up -d minio mc
+
+# 2. Configure env
+cp .env.example.local .env
+
+# 3. Launch Dagster UI (http://localhost:3000)
+cd dagster-workspace && dg dev
 ```
 
-Open `http://localhost:3000` to inspect assets, view lineage, and trigger monthly partition materializations.
+### Option B: Production (Snowflake + AWS) Running DG Server Locally
 
+```bash
+# 2. Configure env
+cd ../dagster-workspace/projects/data_platform
+cp .env.example.prod .env
 
+# 1. Provision AWS & Snowflake resources
+cd infrastructure && terraform init && terraform apply
+
+# 3. Launch Dagster UI (http://localhost:3000)
+cd ../.. && dg dev
+```
