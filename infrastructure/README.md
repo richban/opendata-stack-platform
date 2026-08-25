@@ -51,15 +51,21 @@ flowchart LR
 
 ## Setup & Deployment Instructions
 
-### Prerequisites
-1. **AWS CLI** configured (`aws configure` with Administrator or IAM permissions).
-2. **Terraform CLI** installed (`>= 1.0`).
-3. **Snowflake Account** with `ACCOUNTADMIN` credentials.
-
-> [!NOTE]
 > The module automatically creates the AWS S3 bucket, IAM role, Snowflake database, warehouse, RBAC role, user, storage integration, external stages, and updates the IAM assume-role trust policy via the local-exec provisioner.
 
+### Prerequisites
+1. **AWS CLI** configured (`aws configure` with Administrator or IAM permissions).
+2. **Terraform CLI** installed.
+3. **Snowflake Account** with `ACCOUNTADMIN` credentials.
+
+Terraform variables are mapped using `TF_VAR_*` environment variables. A template is provided in `.env.example`.
+
+The base credentials and environment variables are actually defined in the NYC `data_platform` project root (`dagster-workspace/projects/data_platform/`).
+
 ```bash
+# export variables & source variables 
+cp .env.example .env
+
 # Initialize Terraform providers
 terraform init
 
