@@ -1,168 +1,77 @@
-# Snowflake S3 Storage Integration Infrastructure
+# Snowflake & AWS S3 Infrastructure Provisioning (Terraform)
 
-This Terraform configuration automates the setup of AWS resources needed for Snowflake S3 storage integration.
+This Terraform module automates the end-to-end cloud infrastructure provisioning required by the **NYC TLC Data Platform** in production, setting up a secure, cross-account AWS S3 storage integration with Snowflake.
 
-## What This Creates
+## 🏗️ Architecture Overview
 
-### AWS Resources
-- **S3 Bucket**: Secure bucket with versioning and encryption for data storage
-- **IAM Role**: Role that Snowflake can assume to access S3
-- **IAM Policy**: Permissions for S3 access (ListBucket, GetObject, PutObject, etc.)
-- **Folder Structure**: Pre-created folders (raw/, dlt_stage/, state/, marts/)
+```mermaid
+flowchart LR
+    subgraph AWS_Cloud [AWS Cloud]
+        S3[("S3 Bucket\nraw/ · dlt_stage/ · marts/")]
+        IAM["IAM Role & Policy\nsts:AssumeRole"]
+        S3 --- IAM
+    end
 
-### Snowflake Integration
-- SQL commands to create storage integration
-- SQL commands to create stages (RAW_STAGE, DLT_S3_STAGE)
+    subgraph Snowflake_Cloud [Snowflake Cloud]
+        INT["Storage Integration\nSTORAGE_AWS_ROLE_ARN"]
+        STAGE["External Stages\nRAW_STAGE · DLT_S3_STAGE"]
+        DB[("Database & Schemas\nNYC_TAXI_DB · MAIN")]
+        WH["Compute Warehouse\nCOMPUTE_WH"]
+        RBAC["RBAC & Security\nDATA_ENGINEER_ROLE"]
 
-## Prerequisites
+        INT --> STAGE --> DB
+        WH --> DB
+        RBAC -.-> WH & DB & STAGE
+    end
 
-1. **AWS CLI configured** with appropriate permissions
-2. **Terraform installed** (>= 1.0)
-3. **Snowflake account** with ACCOUNTADMIN access
-
-## Setup Instructions
-
-### Step 1: Configure Terraform
-
-```bash
-# Navigate to infrastructure directory
-cd infrastructure
-
-# Copy example variables file
-cp terraform.tfvars.example terraform.tfvars
-
-# Edit terraform.tfvars with your values
-nano terraform.tfvars
+    IAM <==>|STS Trust Relationship| INT
 ```
 
-### Step 2: Initial Deployment (Bootstrap)
+## What This Module Creates
+
+### AWS Cloud Resources
+
+- **S3 Bucket (`s3.tf`)**: Secure bucket with AES-256 server-side encryption, versioning, and public access blocks.
+- **Folder Partitions**: Automatically initializes `raw/`, `dlt_stage/`, `state/`, and `marts/` folder prefixes.
+- **IAM Role & Policy (`iam.tf`)**: Fine-grained IAM policy granting Snowflake permission to perform `s3:GetObject`, `s3:PutObject`, `s3:ListBucket`, and `s3:DeleteObject` across allowed stage prefixes.
+- **STS Trust Policy**: Automatically associates Snowflake's `STORAGE_AWS_IAM_USER_ARN` and `STORAGE_AWS_EXTERNAL_ID` via STS AssumeRole.
+
+### Snowflake Cloud Resources
+
+- **Warehouse (`snowflake-database.tf`)**: `COMPUTE_WH` virtual warehouse configured with auto-suspend and auto-resume.
+- **Database & Schemas (`snowflake-database.tf`)**: Creates the target database (`NYC_TAXI_DB`) with 7-day time travel retention and `MAIN` schema.
+- **RBAC & Security (`snowflake-users-roles.tf`)**:
+  - `DATA_ENGINEER_ROLE`: Custom account role with least-privilege grants across database, schemas, warehouse, stages, and integrations.
+  - `DATA_ENGINEER`: Service user assigned to `DATA_ENGINEER_ROLE` and default warehouse.
+- **Storage Integration (`snowflake-storage-integration.tf`)**: Secure S3 storage integration (`opendata_stack_s3_integration`).
+- **External Stages (`snowflake-stages.tf`)**:
+  - `RAW_STAGE`: External stage mapped to `s3://<bucket>/raw/` for CSV raw trip files.
+  - `DLT_S3_STAGE`: External stage mapped to `s3://<bucket>/dlt_stage/` for dlt Parquet pipeline ingestion.
+
+
+## Setup & Deployment Instructions
+
+### Prerequisites
+1. **AWS CLI** configured (`aws configure` with Administrator or IAM permissions).
+2. **Terraform CLI** installed (`>= 1.0`).
+3. **Snowflake Account** with `ACCOUNTADMIN` credentials.
+
+> [!NOTE]
+> The module automatically creates the AWS S3 bucket, IAM role, Snowflake database, warehouse, RBAC role, user, storage integration, external stages, and updates the IAM assume-role trust policy via the local-exec provisioner.
 
 ```bash
-# Initialize Terraform
+# Initialize Terraform providers
 terraform init
 
-# Plan the deployment
+# Plan and preview changes
 terraform plan
 
-# Apply the changes
+# Apply infrastructure
 terraform apply
-```
 
-### Step 3: Configure Snowflake Integration
-
-After the initial deployment, you need to complete the Snowflake side:
-
-1. **Run the storage integration SQL** (from terraform output):
-   ```sql
-   -- Copy the SQL from: terraform output snowflake_storage_integration_sql
-   ```
-
-2. **Get the integration details**:
-   ```sql
-   DESC INTEGRATION opendata_stack_s3_integration;
-   ```
-
-3. **Update terraform.tfvars** with the values from step 2:
-   - `STORAGE_AWS_IAM_USER_ARN` → `snowflake_account_id` and `snowflake_iam_user`
-   - `STORAGE_AWS_EXTERNAL_ID` → `snowflake_external_id`
-
-4. **Update the trust policy**:
-   ```bash
-   # Update variables and re-apply
-   terraform apply
-   ```
-
-5. **Create Snowflake stages** (from terraform output):
-   ```sql
-   -- Copy the SQL from: terraform output snowflake_stage_sql
-   ```
-
-## Usage
-
-### View Outputs
-```bash
-# Show all outputs
+# Display output variables
 terraform output
 
-# Show specific output
-terraform output s3_bucket_name
-terraform output iam_role_arn
-```
-
-### Update Configuration
-```bash
-# After changing variables
-terraform plan
-terraform apply
-```
-
-### Cleanup
-```bash
-# Destroy all resources (WARNING: This deletes everything!)
+# Destroy all resources
 terraform destroy
-```
-
-## Important Notes
-
-### Security
-- The S3 bucket has public access blocked
-- IAM role uses least-privilege permissions
-- All resources are encrypted at rest
-
-### Cost Optimization
-- S3 bucket uses standard storage class
-- Consider lifecycle policies for older data
-- Monitor CloudWatch for usage patterns
-
-### Troubleshooting
-
-#### Common Issues
-
-1. **"Access Denied" in Snowflake**
-   - Verify IAM role trust policy is correct
-   - Check that external ID matches exactly
-
-2. **"Bucket already exists"**
-   - S3 bucket names must be globally unique
-   - Change the `project_name` variable
-
-3. **"Invalid account ID"**
-   - Ensure you're using the correct values from `DESC INTEGRATION`
-
-#### Debug Commands
-```bash
-# Check AWS caller identity
-aws sts get-caller-identity
-
-# Verify S3 bucket
-aws s3 ls s3://your-bucket-name
-
-# Test IAM role assumption
-aws sts assume-role --role-arn "arn:aws:iam::ACCOUNT:role/ROLE-NAME" --role-session-name "test"
-```
-
-## File Structure
-
-```
-infrastructure/
-├── main.tf                    # Main Terraform configuration
-├── variables.tf               # Input variables
-├── outputs.tf                 # Output values
-├── s3.tf                     # S3 bucket configuration
-├── iam.tf                    # IAM roles and policies
-├── terraform.tfvars.example  # Example variables
-└── README.md                 # This file
-```
-
-## Environment Variables
-
-Set these for automated deployments:
-
-```bash
-export AWS_REGION=eu-central-1
-export AWS_ACCESS_KEY_ID=your-access-key
-export AWS_SECRET_ACCESS_KEY=your-secret-key
-
-# Or use AWS profiles
-export AWS_PROFILE=your-profile-name
 ```
