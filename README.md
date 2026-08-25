@@ -24,27 +24,27 @@ flowchart TD
     INFRA --> P4
 ```
 
-### 📦 Workspace Projects
+### Workspace Projects
 
 | Project | Domain / Scope | Key Technologies | Description |
 | :--- | :--- | :--- | :--- |
 | [**`data_platform`**](./dagster-workspace/projects/data_platform) | NYC TLC Taxi Batch Analytics | `dlt`, `SQLMesh`, `dbt`, `DuckDB`, `Snowflake`, `Dagster` | Ingests, models, and transforms billions of NYC taxi records into dimensional data marts with monthly partition backfills. |
 | [**`streamify`**](./dagster-workspace/projects/streamify) | Real-Time Music Streaming Ingestion | `Kafka`, `ksqlDB`, `PySpark 4.0`, `Redis`, `ClickHouse`, `Iceberg` | Enterprise streaming pipeline (500K events/s) with schema validation, Iceberg DLQ table, executor-side Redis enrichment, and dual ClickHouse/Iceberg sinks. |
-| [**`ml_regression_model`**](./dagster-workspace/projects/ml_regression_model) | Machine Learning & Feature Engineering | `Python`, `Scikit-Learn`, `Polars`, `Dagster` | Predictive modeling pipelines for fare estimation and trip duration analysis. |
+| [**`ml_regression_model`**](./dagster-workspace/projects/ml_regression_model) | Machine Learning & Feature Engineering | `Bauplan` | Predictive modeling pipelines for fare estimation and trip duration analysis. |
 | [**`physical_risk_impact`**](./dagster-workspace/projects/physical_risk_impact) | Climate & Geospatial Risk Analysis | `Polars`, `Geospatial libraries`, `Dagster` | Assessment and vulnerability modeling of physical asset risk against climate data. |
 
 
-## 🛠️ Technology Stack & Tooling
+## Technology Stack & Tooling
 
 - **Orchestration**: **Dagster** (`dg` multi-project workspace, Software-Defined Assets, Sensors, Partitions).
-- **Transformations & Modeling**: **SQLMesh** *(Preferred — virtual environments, column-level lineage)* & **dbt** *(Legacy)*.
+- **Transformations & Modeling**: **SQLMesh** virtual environments, column-level lineage)* & **dbt***.
 - **Compute & Engines**: **PySpark 4.0 (Spark Connect)**, **Polars**, **DuckDB** (local OLAP), **ClickHouse** (real-time streaming OLAP), and **Snowflake** (production cloud warehouse).
 - **Lakehouse & Storage**: **Apache Iceberg** table format, **Apache Polaris** REST Catalog, and **MinIO** S3-compatible object storage.
 - **Streaming & Cache**: **Apache Kafka**, **Confluent Schema Registry**, **ksqlDB**, and **Redis 7**.
 - **Package Management**: **`uv`** for fast, deterministic Python virtual environment and dependency management.
 
 
-## 🐳 Shared Infrastructure (`docker-compose.yml`)
+## Shared Infrastructure (`docker-compose.yml`)
 
 The platform includes a root Docker Compose environment providing shared infrastructure services. Individual workspace projects consume only the services they require:
 
