@@ -1,7 +1,7 @@
 import datetime
 
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import NamedTuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -99,20 +99,21 @@ class FakeMessage:
 
 @contextmanager
 def mock_main_dependencies(mocks: MainMocks) -> Generator[MainMocks, None, None]:
-    """Wire the static mocks into seed_redis's module-level constructor calls."""
-    with (
-        patch.object(seed_redis, "get_streaming_config", return_value=mocks.cfg),
-        patch("streamify.seed_redis.aioredis.Redis", return_value=mocks.redis_client),
-        patch.object(
-            seed_redis, "AsyncSchemaRegistryClient", return_value=mocks.schema_client
-        ),
-        patch.object(
-            seed_redis,
-            "AsyncAvroDeserializer",
-            AsyncMock(return_value=mocks.deserializer),
-        ),
-        patch.object(seed_redis, "Consumer", return_value=mocks.consumer),
-    ):
+    """Wire the static mocks into lifespan_seed_redis."""
+
+    @asynccontextmanager
+    async def fake_lifespan(config=None):
+        try:
+            yield seed_redis.SeedRedisResources(
+                redis_client=mocks.redis_client,
+                consumer=mocks.consumer,
+                deserializer=mocks.deserializer,
+            )
+        finally:
+            mocks.consumer.close()
+            await mocks.redis_client.aclose()
+
+    with patch.object(seed_redis, "lifespan_seed_redis", side_effect=fake_lifespan):
         yield mocks
 
 
