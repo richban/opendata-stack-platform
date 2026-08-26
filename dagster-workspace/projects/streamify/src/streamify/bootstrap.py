@@ -1,15 +1,14 @@
 """Iceberg and Spark table management utilities."""
 
 import logging
+
+from collections.abc import Iterable
+
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType
 
-from streamify.defs.resources import (
-    StreamingJobConfig,
-    create_clickhouse_resource,
-    create_spark_session,
-    get_streaming_config,
-)
+from streamify.defs.resources import ClickHouseResource
+from streamify.schemas import BRONZE_SCHEMAS, DLQ_SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +25,11 @@ def create_namespace_if_not_exists(
         logger.debug("Namespace creation skipped or already exists: %s", e)
 
 
-def create_table_if_not_exists(
+def create_table_if_not_exists(  # noqa: PLR0913
     spark: SparkSession,
     table_name: str,
     schema: StructType,
+    *,
     catalog: str | None = None,
     namespace: str | None = None,
     partition_col: str = "event_date",
@@ -54,23 +54,20 @@ def create_table_if_not_exists(
 # ---------------------------------------------------------------------------
 
 
-def ensure_clickhouse_table_exists(config: StreamingJobConfig) -> None:
+def ensure_clickhouse_table_exists(clickhouse: ClickHouseResource) -> None:
     """Create ClickHouse database and ``ReplacingMergeTree`` table if absent."""
     logger.info(
-        "Ensuring ClickHouse table '%s.silver_playback_events' exists (host=%s:%d)...",
-        config.clickhouse_db,
-        config.clickhouse_host,
-        config.clickhouse_port,
+        "Ensuring ClickHouse table '%s.silver_playback_events' exists...",
+        clickhouse.database,
     )
-
-    client = create_clickhouse_resource(config)
+    client = clickhouse.get_client()
     try:
-        client.command(f"CREATE DATABASE IF NOT EXISTS {config.clickhouse_db}")
-        logger.info("✓ ClickHouse database '%s' ensured.", config.clickhouse_db)
+        client.command(f"CREATE DATABASE IF NOT EXISTS {clickhouse.database}")
+        logger.info("✓ ClickHouse database '%s' ensured.", clickhouse.database)
 
         client.command(f"""
             CREATE TABLE IF NOT EXISTS
-            {config.clickhouse_db}.silver_playback_events (
+            {clickhouse.database}.silver_playback_events (
                 event_id String,
                 user_id UInt64,
                 artist String,
@@ -96,3 +93,39 @@ def ensure_clickhouse_table_exists(config: StreamingJobConfig) -> None:
         logger.info("✓ ClickHouse table 'silver_playback_events' ensured.")
     finally:
         client.close()
+
+
+def bootstrap_storage(
+    spark: SparkSession,
+    clickhouse: ClickHouseResource,
+    topics: Iterable[str],
+    catalog: str,
+    namespace: str,
+) -> None:
+    """Idempotently bootstrap all Iceberg and ClickHouse tables and namespaces."""
+    # 1. ClickHouse DDL
+    ensure_clickhouse_table_exists(clickhouse)
+
+    # 2. Iceberg Bronze Tables
+    for topic in topics:
+        if topic not in BRONZE_SCHEMAS:
+            raise ValueError(f"Schema not registered for topic '{topic}'")
+        create_table_if_not_exists(
+            spark=spark,
+            table_name=f"bronze_{topic}",
+            schema=BRONZE_SCHEMAS[topic],
+            catalog=catalog,
+            namespace=namespace,
+            partition_col="event_date",
+        )
+
+    # 3. Iceberg DLQ Table
+    create_table_if_not_exists(
+        spark=spark,
+        table_name="dlq_events_ingestion",
+        schema=DLQ_SCHEMA,
+        catalog=catalog,
+        namespace=namespace,
+        partition_col="_processing_date",
+    )
+    logger.info("✓ All Iceberg and ClickHouse storage bootstrapped successfully.")
