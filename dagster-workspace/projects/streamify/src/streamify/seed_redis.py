@@ -59,23 +59,21 @@ class SeedRedisResources:
 
 @asynccontextmanager
 async def lifespan_seed_redis(
-    config: StreamingJobConfig | None = None,
+    config: StreamingJobConfig,
 ) -> AsyncIterator[SeedRedisResources]:
     """Assemble and manage lifecycles for Redis, Schema Registry, and Kafka clients."""
-    cfg = config or get_streaming_config()
-
     logger.info(
         "Initializing Redis resource -> Host: %s:%d",
-        cfg.redis_host,
-        cfg.redis_port,
+        config.redis_host,
+        config.redis_port,
     )
-    redis_res = RedisResource(host=cfg.redis_host, port=cfg.redis_port)
+    redis_res = RedisResource(host=config.redis_host, port=config.redis_port)
 
-    logger.info("Connecting to Schema Registry at %s...", cfg.schema_registry_url)
-    schema_res = SchemaRegistryResource(url=cfg.schema_registry_url)
+    logger.info("Connecting to Schema Registry at %s...", config.schema_registry_url)
+    schema_res = SchemaRegistryResource(url=config.schema_registry_url)
 
     kafka_res = KafkaConsumerResource(
-        bootstrap_servers=cfg.kafka_bootstrap_servers,
+        bootstrap_servers=config.kafka_bootstrap_servers,
         group_id="async-redis-updater-group",
         auto_offset_reset="earliest",
         enable_auto_commit=False,
@@ -197,7 +195,8 @@ async def run_seed_worker(resources: SeedRedisResources) -> None:
 
 async def main() -> None:
     try:
-        async with lifespan_seed_redis() as resources:
+        config = get_streaming_config()
+        async with lifespan_seed_redis(config) as resources:
             await run_seed_worker(resources)
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt received. Stopping async consumer...")
