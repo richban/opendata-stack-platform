@@ -63,3 +63,5 @@ cd infrastructure && terraform init && terraform apply
 # 3. Launch Dagster UI (http://localhost:3000)
 cd ../.. && dg dev
 ```
+
+![Global Asset Lineage](./docs/img/dg-workspace.png)
