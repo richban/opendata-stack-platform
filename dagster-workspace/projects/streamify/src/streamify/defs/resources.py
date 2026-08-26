@@ -1,20 +1,22 @@
 """Streamify resource definitions: config, Spark session, and service clients."""
 
+from collections.abc import AsyncIterator, Coroutine, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from functools import cache
+from typing import Any, cast
 
 import clickhouse_connect
 import dagster as dg
 import redis
+import redis.asyncio as aioredis
 
+from confluent_kafka import Consumer
+from confluent_kafka.schema_registry import AsyncSchemaRegistryClient
+from confluent_kafka.schema_registry.avro import AsyncAvroDeserializer
 from dagster_aws.s3 import S3Resource
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pyspark.sql import SparkSession
-
-from streamify.clients import (
-    get_executor_clickhouse_client,
-    get_executor_redis_client,
-)
 
 
 class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
@@ -256,3 +258,87 @@ def create_clickhouse_resource(
         username=config.clickhouse_user,
         password=config.clickhouse_password,
     )
+
+
+class RedisResource(dg.ConfigurableResource):
+    """Dagster resource for Redis connections (sync and async)."""
+
+    host: str = Field(default="localhost", description="Redis hostname or IP.")
+    port: int = Field(default=6379, description="Redis port.")
+
+    def get_sync_client(self) -> redis.Redis:
+        """Return a synchronous Redis client."""
+        return redis.Redis(host=self.host, port=self.port, decode_responses=True)
+
+    @asynccontextmanager
+    async def get_async_client(self) -> AsyncIterator[aioredis.Redis]:
+        """Context manager yielding an active async Redis client with cleanup."""
+        client = aioredis.Redis(
+            host=self.host,
+            port=self.port,
+            decode_responses=True,
+        )
+        await client.ping()
+        try:
+            yield client
+        finally:
+            await client.aclose()
+
+
+class SchemaRegistryResource(dg.ConfigurableResource):
+    """Dagster resource for Confluent Schema Registry."""
+
+    url: str = Field(default="http://localhost:8081", description="Schema Registry URL.")
+
+    def get_async_client(self) -> AsyncSchemaRegistryClient:
+        """Return an AsyncSchemaRegistryClient instance."""
+        return AsyncSchemaRegistryClient({"url": self.url})
+
+    async def get_avro_deserializer(
+        self,
+        from_dict_fn: Any | None = None,
+    ) -> AsyncAvroDeserializer:
+        """Create an AsyncAvroDeserializer using the configured schema client."""
+        client = self.get_async_client()
+        return await cast(
+            Coroutine[Any, Any, AsyncAvroDeserializer],
+            AsyncAvroDeserializer(client, from_dict=from_dict_fn),
+        )
+
+
+class KafkaConsumerResource(dg.ConfigurableResource):
+    """Dagster resource for Confluent Kafka Consumer."""
+
+    bootstrap_servers: str = Field(
+        default="localhost:9093",
+        description="Kafka bootstrap servers connection string.",
+    )
+    group_id: str = Field(
+        default="async-redis-updater-group",
+        description="Kafka consumer group ID.",
+    )
+    auto_offset_reset: str = Field(
+        default="earliest",
+        description="Kafka auto offset reset policy.",
+    )
+    enable_auto_commit: bool = Field(
+        default=False,
+        description="Whether to enable auto commit of offsets.",
+    )
+
+    @contextmanager
+    def get_consumer(self, topics: list[str]) -> Iterator[Consumer]:
+        """Context manager yielding a subscribed Kafka consumer with cleanup on exit."""
+        consumer = Consumer(
+            {
+                "bootstrap.servers": self.bootstrap_servers,
+                "group.id": self.group_id,
+                "auto.offset.reset": self.auto_offset_reset,
+                "enable.auto.commit": self.enable_auto_commit,
+            }
+        )
+        consumer.subscribe(topics)
+        try:
+            yield consumer
+        finally:
+            consumer.close()
