@@ -1,6 +1,7 @@
 # Environments
 .env
 .venv
+.direnv/
 env/
 venv/
 
