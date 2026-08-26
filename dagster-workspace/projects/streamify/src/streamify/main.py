@@ -30,14 +30,12 @@ from streamify.bootstrap import (
     create_table_if_not_exists,
     ensure_clickhouse_table_exists,
 )
-from streamify.clients import (
-    get_executor_clickhouse_client,
-    get_executor_redis_client,
-)
 from streamify.defs.resources import (
     StreamingJobConfig,
     create_spark_session,
     get_streaming_config,
+    get_executor_clickhouse_client,
+    get_executor_redis_client,
 )
 from streamify.schemas import (
     BRONZE_SCHEMAS,
