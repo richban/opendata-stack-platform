@@ -3,6 +3,7 @@
 import logging
 
 from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 
 import pandas as pd
 import pyarrow as pa
@@ -26,21 +27,20 @@ from pyspark.sql.types import StringType, StructType
 
 import streamify.logger  # noqa: F401
 
-from streamify.bootstrap import (
-    create_table_if_not_exists,
-    ensure_clickhouse_table_exists,
-)
+from streamify.bootstrap import bootstrap_storage
 from streamify.defs.resources import (
+    ClickHouseResource,
+    S3Resource,
     StreamingJobConfig,
+    create_clickhouse_resource,
+    create_s3_resource,
     create_spark_session,
-    get_streaming_config,
     get_executor_clickhouse_client,
     get_executor_redis_client,
+    get_streaming_config,
 )
 from streamify.schemas import (
-    BRONZE_SCHEMAS,
     CLICKHOUSE_NULL_DEFAULTS,
-    DLQ_SCHEMA,
     ENRICHED_USER_PROFILE_SCHEMA,
     PROFILE_FIELDS,
     RAW_SCHEMAS,
@@ -117,7 +117,7 @@ def enrich_profiles_partition(
                 profiles = [tuple(v or "" for v in res) for res in results]
             except Exception as exc:
                 logger.warning(
-                    "Redis enrichment failed for %d user IDs (%s). Defaulting to empty profiles.",
+                    "Redis enrichment failed for %d IDs (%s). Defaulting to empty.",
                     len(uid_list),
                     exc,
                 )
@@ -209,9 +209,17 @@ class StreamifyDeclarativePipeline:
     (silver / enriched).
     """
 
-    def __init__(self, spark: SparkSession, config: StreamingJobConfig) -> None:
+    def __init__(
+        self,
+        spark: SparkSession,
+        config: StreamingJobConfig,
+        clickhouse: ClickHouseResource,
+        s3: S3Resource,
+    ) -> None:
         self.spark = spark
         self.config = config
+        self.clickhouse = clickhouse
+        self.s3 = s3
         # Lazy-loaded catalog DataFrame - materialised once per session.
         self._catalog_df: DataFrame | None = None
 
@@ -247,7 +255,7 @@ class StreamifyDeclarativePipeline:
         schema: StructType,
         topic: str = "listen_events",
     ) -> tuple[DataFrame, DataFrame]:
-        """Parse JSON payload with PERMISSIVE mode, splitting into valid and DLQ DataFrames."""
+        """Parse JSON payload with PERMISSIVE mode, splitting into valid & DLQ DFs."""
         parsed_raw = source_df.select(
             col("value").cast("string").alias("_raw_payload"),
             from_json(
@@ -398,9 +406,9 @@ class StreamifyDeclarativePipeline:
         catalog_pdf = pd.read_csv(
             path,
             storage_options={
-                "key": self.config.aws_access_key_id,
-                "secret": self.config.aws_secret_access_key,
-                "client_kwargs": {"endpoint_url": self.config.aws_endpoint_url},
+                "key": self.s3.aws_access_key_id,
+                "secret": self.s3.aws_secret_access_key,
+                "client_kwargs": {"endpoint_url": self.s3.endpoint_url},
             },
         )
         catalog_df = self.spark.createDataFrame(catalog_pdf)
@@ -503,36 +511,19 @@ class StreamifyDeclarativePipeline:
     # ------------------------------------------------------------------
 
     def init_pipeline(self, topic: str) -> None:
-        """Ensure the Iceberg namespace and bronze/DLQ tables exist before streaming."""
+        """Ensure Iceberg namespaces and bronze/DLQ/ClickHouse tables exist."""
         logger.info(
             "Init pipeline: topic=%s, catalog=%s, namespace=%s",
             topic,
             self.config.catalog,
             self.config.namespace,
         )
-
-        if topic not in BRONZE_SCHEMAS:
-            raise ValueError(f"Schema not registered for topic '{topic}'")
-
-        schema = BRONZE_SCHEMAS[topic]
-        table_name = f"bronze_{topic}"
-
-        # Iceberg table: bronze_listen_events
-        create_table_if_not_exists(
-            self.spark,
-            table_name,
-            schema,
-        )
-
-        # ClickHouse table: silver_playback_events
-        ensure_clickhouse_table_exists(self.config)
-
-        # Iceberg table: dlq_events_ingestion
-        create_table_if_not_exists(
-            self.spark,
-            "dlq_events_ingestion",
-            DLQ_SCHEMA,
-            partition_col="_processing_date",
+        bootstrap_storage(
+            spark=self.spark,
+            clickhouse=self.clickhouse,
+            topics=[topic],
+            catalog=self.config.catalog,
+            namespace=self.config.namespace,
         )
 
     # ------------------------------------------------------------------
@@ -574,18 +565,36 @@ class StreamifyDeclarativePipeline:
             dlq_q.id,  # type: ignore[union-attr]
         )
 
-        # 6. Lifecycle management
-        try:
-            logger.info("Awaiting termination... Ctrl+C to stop.")
-            self.spark.streams.awaitAnyTermination()
-        except KeyboardInterrupt:
-            logger.info("KeyboardInterrupt received.")
-        finally:
-            logger.info("Stopping streaming queries...")
-            iceberg_q.stop()  # type: ignore[union-attr]
-            clickhouse_q.stop()  # type: ignore[union-attr]
-            dlq_q.stop()  # type: ignore[union-attr]
-            logger.info("✓ Queries stopped cleanly.")
+        # 6. Lifecycle management via supervisor
+        with supervise_streaming_queries([iceberg_q, clickhouse_q, dlq_q]):
+            try:
+                logger.info("Awaiting termination... Ctrl+C to stop.")
+                self.spark.streams.awaitAnyTermination()
+            except KeyboardInterrupt:
+                logger.info("KeyboardInterrupt received.")
+
+
+@contextmanager
+def supervise_streaming_queries(
+    queries: Iterable[StreamingQuery],
+) -> Iterator[list[StreamingQuery]]:
+    """Context manager ensuring all streaming queries are stopped on termination."""
+    active_queries = list(queries)
+    try:
+        yield active_queries
+    finally:
+        logger.info("Stopping streaming queries...")
+        for q in active_queries:
+            try:
+                if q.isActive:
+                    q.stop()
+            except Exception as exc:
+                logger.warning(
+                    "Error stopping query %s: %s",
+                    getattr(q, "id", "unknown"),
+                    exc,
+                )
+        logger.info("✓ Queries stopped cleanly.")
 
 
 # ---------------------------------------------------------------------------
@@ -596,8 +605,10 @@ class StreamifyDeclarativePipeline:
 def main() -> None:
     """Main entrypoint for the Streamify pipeline."""
     logger.info("Initializing Spark session and config...")
-    spark = create_spark_session()
     cfg = get_streaming_config()
+    spark = create_spark_session(cfg)
+    s3 = create_s3_resource(cfg)
+    clickhouse = create_clickhouse_resource(cfg)
 
     logger.info(
         "Kafka=%s | Catalog=%s.%s | CH=%s:%d | Redis=%s:%d",
@@ -610,7 +621,12 @@ def main() -> None:
         cfg.redis_port,
     )
 
-    pipeline = StreamifyDeclarativePipeline(spark, cfg)
+    pipeline = StreamifyDeclarativePipeline(
+        spark=spark,
+        config=cfg,
+        clickhouse=clickhouse,
+        s3=s3,
+    )
     pipeline.run_topic_stream("listen_events")
 
 
