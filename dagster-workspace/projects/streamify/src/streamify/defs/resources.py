@@ -220,9 +220,12 @@ def create_spark_session(
     return session
 
 
-@dg.resource
-def spark_resource(streaming_config: StreamingJobConfig) -> SparkSession:
+@dg.resource(required_resource_keys={"streaming_config"})
+def spark_resource(context: dg.InitResourceContext) -> SparkSession:
     """Lazy Dagster resource factory for SparkSession."""
+    streaming_config: StreamingJobConfig = (
+        getattr(context.resources, "streaming_config", None) or get_streaming_config()
+    )
     return create_spark_session(streaming_config)
 
 
@@ -266,7 +269,6 @@ def create_clickhouse_resource(
         password=config.clickhouse_password,
         database=config.clickhouse_db,
     )
-
 
 
 class RedisResource(dg.ConfigurableResource):
@@ -381,7 +383,6 @@ def create_kafka_consumer_resource(
         auto_offset_reset="earliest",
         enable_auto_commit=False,
     )
-
 
 
 @cache
