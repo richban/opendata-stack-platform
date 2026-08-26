@@ -39,6 +39,8 @@ bronze_compaction_schedule = dg.ScheduleDefinition(
     description="Daily compaction of Bronze Iceberg tables at 2 AM UTC",
 )
 
+streaming_config = get_streaming_config()
+
 defs = dg.Definitions(
     assets=dg.load_assets_from_modules(
         [bronze_assets, gold_assets, maintenance_assets, silver_assets]
@@ -49,8 +51,8 @@ defs = dg.Definitions(
     jobs=[silver_batch_job, gold_batch_job],
     resources={
         "spark": spark_resource,
-        "s3": create_s3_resource(),
-        "streaming_config": get_streaming_config(),
+        "s3": create_s3_resource(streaming_config),
+        "streaming_config": streaming_config,
         "dq_store": DQResultStore(),
     },
 )
