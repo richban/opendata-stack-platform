@@ -5,8 +5,6 @@ from contextlib import asynccontextmanager, contextmanager
 from functools import cache
 from typing import Any, cast
 
-from functools import cache
-
 import clickhouse_connect
 import dagster as dg
 import redis
@@ -173,13 +171,10 @@ def get_streaming_config() -> StreamingJobConfig:
 
 
 def create_spark_session(
+    config: StreamingJobConfig,
     app_name: str = "StreamifyDagsterJob",
-    config: StreamingJobConfig | None = None,
 ) -> SparkSession:
     """Create a SparkSession for Iceberg (Polaris REST catalog) via Spark Connect."""
-    if config is None:
-        config = get_streaming_config()
-
     polaris_uri = config.polaris_uri
     catalog = config.catalog
 
@@ -226,16 +221,13 @@ def create_spark_session(
 
 
 @dg.resource
-def spark_resource() -> SparkSession:
+def spark_resource(streaming_config: StreamingJobConfig) -> SparkSession:
     """Lazy Dagster resource factory for SparkSession."""
-    return create_spark_session()
+    return create_spark_session(streaming_config)
 
 
-def create_s3_resource(config: StreamingJobConfig | None = None) -> S3Resource:
+def create_s3_resource(config: StreamingJobConfig) -> S3Resource:
     """Create an S3Resource from Pydantic settings."""
-    if config is None:
-        config = get_streaming_config()
-
     return S3Resource(
         aws_access_key_id=config.aws_access_key_id,
         aws_secret_access_key=config.aws_secret_access_key,
@@ -243,23 +235,38 @@ def create_s3_resource(config: StreamingJobConfig | None = None) -> S3Resource:
     )
 
 
+class ClickHouseResource(dg.ConfigurableResource):
+    """Dagster resource for ClickHouse driver-side operations."""
+
+    host: str = Field(default="localhost", description="ClickHouse hostname or IP.")
+    port: int = Field(default=8123, description="ClickHouse HTTP port.")
+    username: str = Field(default="default", description="ClickHouse username.")
+    password: str = Field(default="clickhouse", description="ClickHouse password.")
+    database: str = Field(default="streamify", description="ClickHouse database name.")
+
+    def get_client(self) -> clickhouse_connect.driver.Client:
+        """Return a new clickhouse-connect Client for driver-side DDL/DML."""
+        return clickhouse_connect.get_client(
+            host=self.host,
+            port=self.port,
+            username=self.username,
+            password=self.password,
+            database=self.database,
+        )
+
+
 def create_clickhouse_resource(
-    config: StreamingJobConfig | None = None,
-) -> clickhouse_connect.driver.Client:
-    """Create a *new* ``clickhouse-connect`` client from Pydantic settings.
-
-    This is intentionally uncached: it is used by the driver for short-lived
-    DDL operations.
-    """
-    if config is None:
-        config = get_streaming_config()
-
-    return clickhouse_connect.get_client(
+    config: StreamingJobConfig,
+) -> ClickHouseResource:
+    """Create a ClickHouseResource from Pydantic settings."""
+    return ClickHouseResource(
         host=config.clickhouse_host,
         port=config.clickhouse_port,
         username=config.clickhouse_user,
         password=config.clickhouse_password,
+        database=config.clickhouse_db,
     )
+
 
 
 class RedisResource(dg.ConfigurableResource):
@@ -344,6 +351,37 @@ class KafkaConsumerResource(dg.ConfigurableResource):
             yield consumer
         finally:
             consumer.close()
+
+
+def create_redis_resource(config: StreamingJobConfig) -> RedisResource:
+    """Create a RedisResource from config."""
+    return RedisResource(
+        host=config.redis_host,
+        port=config.redis_port,
+    )
+
+
+def create_schema_registry_resource(
+    config: StreamingJobConfig,
+) -> SchemaRegistryResource:
+    """Create a SchemaRegistryResource from config."""
+    return SchemaRegistryResource(
+        url=config.schema_registry_url,
+    )
+
+
+def create_kafka_consumer_resource(
+    config: StreamingJobConfig,
+    group_id: str = "async-redis-updater-group",
+) -> KafkaConsumerResource:
+    """Create a KafkaConsumerResource from config."""
+    return KafkaConsumerResource(
+        bootstrap_servers=config.kafka_bootstrap_servers,
+        group_id=group_id,
+        auto_offset_reset="earliest",
+        enable_auto_commit=False,
+    )
+
 
 
 @cache
