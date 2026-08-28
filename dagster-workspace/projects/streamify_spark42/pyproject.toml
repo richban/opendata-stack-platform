@@ -3,7 +3,8 @@ name = "streamify-spark42"
 version = "0.1.0"
 requires-python = ">=3.10,<3.14"
 dependencies = [
-    "pyspark==4.2.0",
+    "pyspark[pipelines]==4.2.0",
+    "delta-spark",
     "streamify",
 ]
 

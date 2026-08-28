@@ -3382,13 +3382,15 @@ name = "streamify-spark42"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "delta-spark" },
     { name = "pyspark" },
     { name = "streamify" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "pyspark", specifier = "==4.2.0" },
+    { name = "delta-spark" },
+    { name = "pyspark", extras = ["pipelines"], specifier = "==4.2.0" },
     { name = "streamify", editable = "../streamify" },
 ]
 
