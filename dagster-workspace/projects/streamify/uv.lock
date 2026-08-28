@@ -3556,7 +3556,7 @@ requires-dist = [
     { name = "pyarrow", specifier = ">=10.0.0" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "pyiceberg", extras = ["pyarrow"], specifier = "==0.8.1" },
-    { name = "pyspark", specifier = "==4.0.2" },
+    { name = "pyspark", specifier = ">=4.0.2" },
     { name = "python-lsp-server", specifier = ">=1.14.0" },
     { name = "redis", specifier = ">=8.0.1" },
     { name = "s3fs", specifier = ">=2026.7.0" },

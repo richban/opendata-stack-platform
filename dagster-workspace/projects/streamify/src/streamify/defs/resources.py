@@ -1,5 +1,6 @@
 """Streamify resource definitions: config, Spark session, and service clients."""
 
+import warnings
 from collections.abc import AsyncIterator, Coroutine, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from functools import cache
@@ -14,9 +15,11 @@ from confluent_kafka import Consumer
 from confluent_kafka.schema_registry import AsyncSchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AsyncAvroDeserializer
 from dagster_aws.s3 import S3Resource
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pyspark.sql import SparkSession
+
+warnings.filterwarnings("ignore", category=FutureWarning, module="pyspark")
 
 
 class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
@@ -129,8 +132,8 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
     )
 
     # ------------------------------------------------------------------ Spark / AWS
-    spark_remote: str = Field(
-        default="sc://localhost:15002",
+    spark_remote: str | None = Field(
+        default=None,
         validation_alias="SPARK_REMOTE",
     )
     aws_access_key_id: str = Field(
@@ -163,6 +166,11 @@ class StreamingJobConfig(BaseSettings, dg.ConfigurableResource):
         """Formatted ``client_id:client_secret`` string for Polaris auth."""
         return f"{self.polaris_client_id}:{self.polaris_client_secret}"
 
+    @field_validator("spark_remote", mode="before")
+    @classmethod
+    def empty_to_none(cls, v: str | None) -> str | None:
+        return None if v == "" else v
+
 
 @cache
 def get_streaming_config() -> StreamingJobConfig:
@@ -174,50 +182,52 @@ def create_spark_session(
     config: StreamingJobConfig,
     app_name: str = "StreamifyDagsterJob",
 ) -> SparkSession:
-    """Create a SparkSession for Iceberg (Polaris REST catalog) via Spark Connect."""
-    polaris_uri = config.polaris_uri
-    catalog = config.catalog
-
+    """Create a SparkSession (Spark Connect if remote, or local embedded)."""
     builder = SparkSession.builder.appName(app_name)
 
     if config.spark_remote:
-        builder = builder.remote(config.spark_remote)
+        polaris_uri = config.polaris_uri
+        catalog = config.catalog
 
-    session = (
-        builder.config(
-            f"spark.sql.catalog.{catalog}",
-            "org.apache.iceberg.spark.SparkCatalog",
+        session = (
+            builder.remote(config.spark_remote)
+            .config(
+                f"spark.sql.catalog.{catalog}",
+                "org.apache.iceberg.spark.SparkCatalog",
+            )
+            .config(f"spark.sql.catalog.{catalog}.type", "rest")
+            .config(f"spark.sql.catalog.{catalog}.uri", polaris_uri)
+            .config(
+                f"spark.sql.catalog.{catalog}.oauth2-server-uri",
+                f"{polaris_uri}/v1/oauth/tokens",
+            )
+            .config(f"spark.sql.catalog.{catalog}.warehouse", catalog)
+            .config(f"spark.sql.catalog.{catalog}.credential", config.polaris_credential)
+            .config(f"spark.sql.catalog.{catalog}.scope", "PRINCIPAL_ROLE:ALL")
+            .config(f"spark.sql.catalog.{catalog}.s3.endpoint", "http://minio:9000")
+            .config(
+                f"spark.sql.catalog.{catalog}.s3.access-key-id",
+                config.aws_access_key_id,
+            )
+            .config(
+                f"spark.sql.catalog.{catalog}.s3.secret-access-key",
+                config.aws_secret_access_key,
+            )
+            .config(f"spark.sql.catalog.{catalog}.s3.path-style-access", "true")
+            .config(f"spark.sql.catalog.{catalog}.token-refresh-enabled", "true")
+            .config("spark.sql.defaultCatalog", catalog)
+            .config("spark.executorEnv.PYTHONPATH", "/opt/streamify/src")
+            .getOrCreate()
         )
-        .config(f"spark.sql.catalog.{catalog}.type", "rest")
-        .config(f"spark.sql.catalog.{catalog}.uri", polaris_uri)
-        .config(
-            f"spark.sql.catalog.{catalog}.oauth2-server-uri",
-            f"{polaris_uri}/v1/oauth/tokens",
-        )
-        .config(f"spark.sql.catalog.{catalog}.warehouse", catalog)
-        .config(f"spark.sql.catalog.{catalog}.credential", config.polaris_credential)
-        .config(f"spark.sql.catalog.{catalog}.scope", "PRINCIPAL_ROLE:ALL")
-        .config(f"spark.sql.catalog.{catalog}.s3.endpoint", "http://minio:9000")
-        .config(
-            f"spark.sql.catalog.{catalog}.s3.access-key-id",
-            config.aws_access_key_id,
-        )
-        .config(
-            f"spark.sql.catalog.{catalog}.s3.secret-access-key",
-            config.aws_secret_access_key,
-        )
-        .config(f"spark.sql.catalog.{catalog}.s3.path-style-access", "true")
-        .config(f"spark.sql.catalog.{catalog}.token-refresh-enabled", "true")
-        .config("spark.sql.defaultCatalog", catalog)
-        .config("spark.executorEnv.PYTHONPATH", "/opt/streamify/src")
-        .getOrCreate()
-    )
 
-    # Ensure active catalog + namespace context
-    session.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.{config.namespace}")
-    session.sql(f"USE {catalog}.{config.namespace}")
+        # Ensure active catalog + namespace context
+        session.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.{config.namespace}")
+        session.sql(f"USE {catalog}.{config.namespace}")
 
-    return session
+        return session
+
+    builder.master("local[*]").config("spark.log.level", "ERROR")
+    return builder.getOrCreate()
 
 
 @dg.resource(required_resource_keys={"streaming_config"})
