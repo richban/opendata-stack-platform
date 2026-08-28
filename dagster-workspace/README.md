@@ -88,6 +88,11 @@ uv run --project projects/data_platform pytest
 
 ## Environment Bootstrapping (`uv`)
 
+> [!WARNING]
+> **Virtual environments are NOT installed or synced automatically by `dg`!**
+>
+> You might expect `dg dev` or workspace commands to automatically provision child project environments, but `dg` does not create them by default. You **must manually create and sync the virtual environment** (`.venv`) in `deployments/local` and in every project directory under `projects/` using `uv sync`. If you do not manually initialize the environments for each project, Dagster code locations will fail to load and you will encounter execution errors.
+
 Every project and deployment has its own `uv.lock` and `.venv`. Always use `uv` for package management. Never install packages globally.
 
 Initial Setup / Full Workspace Synchronization. Run from `dagster-workspace/`:
