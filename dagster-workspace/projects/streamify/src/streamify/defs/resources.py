@@ -226,7 +226,26 @@ def create_spark_session(
 
         return session
 
-    builder.master("local[*]").config("spark.log.level", "ERROR")
+    builder = (
+        builder.master("local[*]")
+        .config("spark.log.level", "ERROR")
+        .config("spark.ui.showConsoleProgress", "false")
+        # Hadoop S3A / AWS MinIO configuration
+        .config("spark.hadoop.fs.s3a.endpoint", config.aws_endpoint_url)
+        .config("spark.hadoop.fs.s3a.access.key", config.aws_access_key_id)
+        .config("spark.hadoop.fs.s3a.secret.key", config.aws_secret_access_key)
+        .config("spark.hadoop.fs.s3a.path.style.access", "true")
+        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
+        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+        .config(
+            "spark.hadoop.fs.s3a.aws.credentials.provider",
+            "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+        )
+        .config(
+            "spark.jars.packages",
+            "org.apache.hadoop:hadoop-aws:3.4.1,com.amazonaws:aws-java-sdk-bundle:1.12.262",
+        )
+    )
     return builder.getOrCreate()
 
 
