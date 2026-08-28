@@ -1,6 +1,4 @@
-CREATE MATERIALIZED VIEW transformed_yellow_taxi
-USING delta
-AS
+CREATE MATERIALIZED VIEW transformed_yellow_taxi AS
 SELECT
     VendorID AS vendor_id,
     tpep_pickup_datetime,

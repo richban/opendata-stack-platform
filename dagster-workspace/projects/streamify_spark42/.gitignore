@@ -1,0 +1,29 @@
+# Virtual environments & dependencies
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Environment configurations
+.env
+.env.*
+!.env.example
+
+# Local Spark & Metastore data
+spark-warehouse/
+metastore_db/
+derby.log
+*.log
+
+# Caches & Testing
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
