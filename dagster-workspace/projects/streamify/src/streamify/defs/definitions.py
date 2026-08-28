@@ -11,48 +11,25 @@ import dagster as dg
 
 from streamify.defs import (
     bronze_assets,
-    dq_checks,
-    gold_assets,
-    maintenance_assets,
     sensors,
-    silver_assets,
 )
-from streamify.defs.dq_store import DQResultStore
 from streamify.defs.resources import (
     create_s3_resource,
     get_streaming_config,
     spark_resource,
-)
-from streamify.defs.schedules import (
-    gold_batch_job,
-    gold_daily_schedule,
-    silver_batch_job,
-    silver_daily_schedule,
-)
-
-# Schedule for daily Bronze table compaction at 2 AM
-bronze_compaction_schedule = dg.ScheduleDefinition(
-    name="bronze_compaction_schedule",
-    target=dg.AssetSelection.assets("bronze_compaction"),
-    cron_schedule="0 2 * * *",
-    execution_timezone="UTC",
-    description="Daily compaction of Bronze Iceberg tables at 2 AM UTC",
 )
 
 streaming_config = get_streaming_config()
 
 defs = dg.Definitions(
     assets=dg.load_assets_from_modules(
-        [bronze_assets, gold_assets, maintenance_assets, silver_assets]
+        [bronze_assets]
     ),
-    asset_checks=dg.load_asset_checks_from_modules([dq_checks]),
-    sensors=[sensors.bronze_restart_sensor, sensors.kafka_lag_sensor],
-    schedules=[bronze_compaction_schedule, silver_daily_schedule, gold_daily_schedule],
-    jobs=[silver_batch_job, gold_batch_job],
+    sensors=[sensors.bronze_restart_sensor],
+    jobs=[],
     resources={
         "spark": spark_resource,
         "s3": create_s3_resource(streaming_config),
         "streaming_config": streaming_config,
-        "dq_store": DQResultStore(),
     },
 )
