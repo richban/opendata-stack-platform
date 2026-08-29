@@ -69,7 +69,6 @@ def _(catalog):
         print("✓ Created namespace: iceberg_study")
     else:
         print("✓ Namespace already exists: iceberg_study")
-    return
 
 
 @app.cell
@@ -87,7 +86,6 @@ def _(create_spark_session):
 @app.cell
 def _(get_s3_store):
     store = get_s3_store()
-    return
 
 
 @app.cell(hide_code=True)
@@ -108,7 +106,6 @@ def _(mo):
     5. **Operation types** - AppendFiles, OverwriteFiles, RowDelta, RewriteFiles
     6. **Isolation levels** - Snapshot Isolation vs Serializable
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -132,7 +129,6 @@ def _(mo):
 
     **Key Insight**: While an operation is in the reading and writing phase (step 2), another operation could commit a new snapshot. The operation will load this new snapshot in step 3 and perform conflict detection.
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -162,7 +158,6 @@ def _(mo):
     5. Writer 2 writes metadata based on snapshot-2
     6. Writer 2 commits successfully (CAS metadata-2 for metadata-3)
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -193,7 +188,6 @@ def _(mo):
 
     **Key Point:** Writers can retry commits as long as there are no data conflicts!
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -223,7 +217,6 @@ def _(mo):
 
     **Why this works:** The writer must base its new metadata on the CURRENT metadata. If another writer committed in between, the commit is rejected because the writer's base was stale.
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -255,7 +248,6 @@ def _(mo):
     Disjoint sets → No conflict    Overlapping → CONFLICT!
     ```
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -298,7 +290,6 @@ def _(mo):
                                    └────────────────────┘
     ```
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -308,13 +299,12 @@ def _(mo):
 
     Let's create a partitioned table to demonstrate conflict filtering:
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         DROP TABLE IF EXISTS lakehouse.iceberg_study.inventory;
 
         CREATE TABLE lakehouse.iceberg_study.inventory (
@@ -332,7 +322,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -340,26 +329,24 @@ def _(mo):
     mo.md("""
     Let's examine the table structure and partitions:
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT *
         FROM lakehouse.iceberg_study.inventory
         ORDER BY color, id
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT
             *
         FROM iceberg_snapshots('lakehouse.iceberg_study.inventory')
@@ -367,7 +354,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -377,7 +363,6 @@ def _(mo):
 
     Let's create a properly partitioned table using the Iceberg catalog API and demonstrate concurrent writes:
     """)
-    return
 
 
 @app.cell
@@ -420,26 +405,24 @@ def _(mo, spark):
     - Partitions: red, blue, green
     - Using Spark with Iceberg REST catalog
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT *
         FROM lakehouse.iceberg_study.partitioned_inventory
         ORDER BY color, id
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT
             sequence_number,
             snapshot_id,
@@ -450,7 +433,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -484,7 +466,6 @@ def _(mo):
 
     Let's execute Writer A first:
     """)
-    return
 
 
 @app.cell
@@ -497,13 +478,12 @@ def _(mo, spark):
         WHERE color = 'red'
     """)
     mo.md("✓ Writer A: Updated red items (quantity + 10)")
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT
             sequence_number,
             snapshot_id,
@@ -514,24 +494,22 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from read_avro("s3://lakehouse/iceberg_study/partitioned_inventory/metadata/snap-1803696753865083741-1-87ec7ebf-36a0-4b18-b149-b2a43f64d745.avro")
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         select 
             CASE
                 WHEN status = 0 THEN 'EXISTING'
@@ -542,7 +520,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -556,7 +533,6 @@ def _(mo):
 
     Now let's execute Writer B (updating blue items):
     """)
-    return
 
 
 @app.cell
@@ -569,13 +545,12 @@ def _(mo, spark):
         WHERE color = 'blue'
     """)
     mo.md("✓ Writer B: Updated blue items (quantity + 20)")
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT
             sequence_number,
             snapshot_id,
@@ -586,20 +561,18 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT *
         FROM lakehouse.iceberg_study.partitioned_inventory
         ORDER BY color, id
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -630,7 +603,6 @@ def _(mo):
     - Writer B would see new data files added → **CONFLICT!**
     - Writer B would need to retry or abort
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -651,7 +623,6 @@ def _(mo):
 
     Let's explore the four key operations in detail.
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -675,7 +646,6 @@ def _(mo):
     operation.commit()  # No validation, just commit
     ```
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -683,13 +653,12 @@ def _(mo):
     mo.md("""
     **Demonstration: AppendFiles Operation**
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         DROP TABLE IF EXISTS lakehouse.iceberg_study.append_demo;
 
         CREATE TABLE lakehouse.iceberg_study.append_demo (
@@ -704,26 +673,24 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         INSERT INTO lakehouse.iceberg_study.append_demo VALUES
             (3, 'Charlie', 300),
             (4, 'Diana', 400);
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT
             sequence_number,
             snapshot_id,
@@ -734,7 +701,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -749,7 +715,6 @@ def _(mo):
 
     Notice: No conflict checks were performed - appends always succeed!
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -780,7 +745,6 @@ def _(mo):
        - Checks for data files added after scan snapshot
        - Used for Serializable isolation
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -788,13 +752,12 @@ def _(mo):
     mo.md("""
     **Demonstration: OverwriteFiles (COW) Update**
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         DROP TABLE IF EXISTS lakehouse.iceberg_study.cow_overwrite_demo;
 
         CREATE TABLE lakehouse.iceberg_study.cow_overwrite_demo (
@@ -813,24 +776,22 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT * FROM lakehouse.iceberg_study.cow_overwrite_demo ORDER BY id
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT
             sequence_number,
             snapshot_id,
@@ -841,7 +802,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
@@ -855,37 +815,34 @@ def _(mo):
     3. Rewrite the affected data files with new values
     4. Mark old files as DELETED, new files as ADDED
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         UPDATE lakehouse.iceberg_study.cow_overwrite_demo
         SET age = 26
         WHERE name = 'Jack';
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT * FROM lakehouse.iceberg_study.cow_overwrite_demo ORDER BY id
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT
             sequence_number,
             snapshot_id,
@@ -896,7 +853,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -917,7 +873,6 @@ def _(mo):
 
     This prevents the conflict where both file-Y and file-Z would exist with different versions of row 1!
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -948,7 +903,6 @@ def _(mo):
        - Same as OverwriteFiles - checks for added data files
        - Used for Serializable isolation
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -956,13 +910,12 @@ def _(mo):
     mo.md("""
     **Demonstration: RowDelta (MOR) Update**
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         DROP TABLE IF EXISTS lakehouse.iceberg_study.mor_demo;
 
         CREATE TABLE lakehouse.iceberg_study.mor_demo (
@@ -981,26 +934,24 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         UPDATE lakehouse.iceberg_study.mor_demo
         SET age = 26
         WHERE name = 'Jack';
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT
             sequence_number,
             snapshot_id,
@@ -1011,7 +962,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -1031,7 +981,6 @@ def _(mo):
 
     This prevents orphan delete files pointing to non-existent data!
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -1060,7 +1009,6 @@ def _(mo):
 
     **Note:** Unlike other operations, compaction doesn't have optional validations. Both checks are always enabled because compaction inherently replaces existing files.
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -1090,7 +1038,6 @@ def _(mo):
 
     **Why this matters:** Serializable prevents the "phantom read" anomaly where a query might see different results if re-executed after a concurrent commit.
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -1102,13 +1049,12 @@ def _(mo):
 
     Let's demonstrate a realistic multi-writer scenario with conflict detection:
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         DROP TABLE IF EXISTS lakehouse.iceberg_study.concurrent_test;
 
         CREATE TABLE lakehouse.iceberg_study.concurrent_test (
@@ -1125,18 +1071,16 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT * FROM lakehouse.iceberg_study.concurrent_test ORDER BY id
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
@@ -1161,50 +1105,46 @@ def _(mo):
 
     This demonstrates why **partitioning strategy matters** for multi-writer performance!
     """)
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         UPDATE lakehouse.iceberg_study.concurrent_test
         SET value = value + 10
         WHERE category = 'A';
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         UPDATE lakehouse.iceberg_study.concurrent_test
         SET value = value + 20
         WHERE category = 'B';
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT * FROM lakehouse.iceberg_study.concurrent_test ORDER BY id
         """,
         engine=con,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT
             sequence_number,
             snapshot_id,
@@ -1215,7 +1155,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -1269,7 +1208,6 @@ def _(mo):
     - Explore how different query engines configure these validations
     - Benchmark your workload's conflict patterns
     """)
-    return
 
 
 if __name__ == "__main__":

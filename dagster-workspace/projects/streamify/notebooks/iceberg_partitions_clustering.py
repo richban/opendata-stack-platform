@@ -24,14 +24,21 @@ app = marimo.App(
 
 @app.cell
 def _():
+    import datetime
     import logging
     import sys
-    import datetime
+
     from pathlib import Path
-    import ibis
+
     import marimo as mo
 
     sys.path.insert(0, str(Path(__file__).parent))
+
+    import random
+
+
+    # Now insert more data - it will use the new partition spec
+    from datetime import datetime, timedelta
 
     from config import (
         create_duckdb_connection,
@@ -41,10 +48,6 @@ def _():
         get_polaris_config,
         get_s3_store,
     )
-
-    # Now insert more data - it will use the new partition spec
-    from datetime import datetime, timedelta
-    import random
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -79,7 +82,6 @@ def _(catalog):
         print("✓ Created namespace: iceberg_study")
     else:
         print("✓ Namespace already exists: iceberg_study")
-    return
 
 
 @app.cell
@@ -97,7 +99,6 @@ def _(create_spark_session):
 @app.cell
 def _(get_s3_store):
     store = get_s3_store()
-    return
 
 
 @app.cell(hide_code=True)
@@ -119,7 +120,6 @@ def _(mo):
     6. **Performance Trade-offs** - When partitioning helps and when it hurts
     7. **Limitations and Best Practices** - What works and what doesn't
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -204,7 +204,6 @@ def _(mo):
 
     **The directories are still there - you just don't have to think about them!**
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -214,7 +213,6 @@ def _(mo):
 
     Let's create a table with hidden partitioning to see how it works:
     """)
-    return
 
 
 @app.cell
@@ -264,20 +262,18 @@ def _(datetime, mo, random, spark, timedelta):
     - Partition columns are **HIDDEN** - not in the table schema!
     """
     )
-    return
 
 
 @app.cell
 def _(mo, spark_conn):
     _df = mo.sql(
-        f"""
+        """
         SELECT *
         FROM lakehouse.iceberg_study.events_partitioned
         LIMIT 10
         """,
         engine=spark_conn,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -287,13 +283,12 @@ def _(mo):
 
     Let's look at the partition information in the metadata:
     """)
-    return
 
 
 @app.cell
 def _(mo, spark_conn):
     _df = mo.sql(
-        f"""
+        """
         SELECT 
             partition,
             record_count,
@@ -303,13 +298,12 @@ def _(mo, spark_conn):
         """,
         engine=spark_conn,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         SELECT 
             manifest_path,
             added_files_count,
@@ -319,18 +313,16 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
 def _(con, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from read_avro("s3://lakehouse/iceberg_study/events_partitioned/metadata/9877a105-4c71-4794-863d-556cf7780323-m0.avro")
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -376,7 +368,6 @@ def _(mo):
     - Parallelism control (exactly N buckets)
     ```
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -406,7 +397,6 @@ def _(mo):
 
     This allows efficient range comparisons and evolution between time granularities!
     """)
-    return
 
 
 @app.cell
@@ -476,7 +466,6 @@ def _(datetime, mo, spark):
     """
     )
     _df
-    return
 
 
 @app.cell
@@ -486,7 +475,6 @@ def _(mo, spark):
         "SELECT * FROM iceberg_study.transform_demo.partitions ORDER BY partition"
     ).toPandas()
     mo.output.replace(_df)
-    return
 
 
 @app.cell(hide_code=True)
@@ -501,7 +489,6 @@ def _(mo):
 
     This is **hidden partitioning** - partition values are derived, not stored in the data!
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -549,7 +536,6 @@ def _(mo):
 
     **Key insight:** Iceberg maintains partition spec history. Each snapshot references the spec used to write it!
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -559,7 +545,6 @@ def _(mo):
 
     Let's evolve the partitioning scheme of our events table:
     """)
-    return
 
 
 @app.cell
@@ -569,7 +554,6 @@ def _(mo, spark):
         "SELECT * FROM iceberg_study.events_partitioned.partitions LIMIT 5"
     ).toPandas()
     mo.output.replace(_df)
-    return
 
 
 @app.cell
@@ -586,7 +570,6 @@ def _(catalog, mo):
             partition_field_name="event_type",
         )
     mo.md("Partition field 'event_type' added successfully via PyIceberg API")
-    return
 
 
 @app.cell
@@ -616,18 +599,16 @@ def _(datetime, mo, random, spark, timedelta):
     - New data uses the new 3-field partitioning
     """
     )
-    return
 
 
 @app.cell
 def _(mo, spark_conn):
     _df = mo.sql(
-        f"""
+        """
         SELECT * FROM lakehouse.iceberg_study.events_partitioned.partitions
         """,
         engine=spark_conn,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -652,7 +633,6 @@ def _(mo):
     - Query planning overhead increases with spec history
     - Old data won't benefit from new partitions
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -695,7 +675,6 @@ def _(mo):
     Result: Only files from Manifest B are read → Massive I/O reduction!
     ```
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -705,7 +684,6 @@ def _(mo):
 
     Let's compare query performance with and without partition pruning:
     """)
-    return
 
 
 @app.cell
@@ -787,7 +765,6 @@ def _(datetime, mo, random, spark, timedelta):
     Both tables contain identical data, but different physical organization.
     """
     )
-    return
 
 
 @app.cell
@@ -795,7 +772,7 @@ def _(mo, spark_conn):
     # Query with specific user_id and date range
     # This should benefit from partition pruning
     _df = mo.sql(
-        f"""
+        """
         SELECT 
             COUNT(*) as row_count,
             AVG(amount) as avg_amount
@@ -806,14 +783,13 @@ def _(mo, spark_conn):
         """,
         engine=spark_conn,
     )
-    return
 
 
 @app.cell
 def _(con, mo):
     # Same query on unpartitioned table
     _df = mo.sql(
-        f"""
+        """
         SELECT 
             COUNT(*) as row_count,
             AVG(amount) as avg_amount
@@ -824,7 +800,6 @@ def _(con, mo):
         """,
         engine=con,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -834,14 +809,13 @@ def _(mo):
 
     Let's examine how many files were scanned in each case:
     """)
-    return
 
 
 @app.cell
 def _(mo, spark_conn):
     # Get file counts for partitioned table (should be much fewer due to pruning)
     _df = mo.sql(
-        f"""
+        """
         SELECT 
             COUNT(*) as file_count,
             SUM(record_count) as total_records
@@ -849,14 +823,13 @@ def _(mo, spark_conn):
         """,
         engine=spark_conn,
     )
-    return
 
 
 @app.cell
 def _(mo, spark_conn):
     # Show partition distribution
     _df = mo.sql(
-        f"""
+        """
         SELECT 
             partition,
             COUNT(*) as file_count,
@@ -868,7 +841,6 @@ def _(mo, spark_conn):
         """,
         engine=spark_conn,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -903,7 +875,6 @@ def _(mo):
     - Wildcards: `user_id LIKE '42%'`
     - Not all transforms support all predicate types
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -952,7 +923,6 @@ def _(mo):
     (user_id, event_time) pairs with similar Z-values are stored together
     ```
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -978,7 +948,6 @@ def _(mo):
 
     **Best practice:** Use BOTH! Partition to skip files, cluster to optimize within files.
     """)
-    return
 
 
 @app.cell
@@ -1025,14 +994,13 @@ def _(datetime, mo, random, spark, timedelta):
     - Total: ~30 small files with random ordering
     """
     )
-    return
 
 
 @app.cell
 def _(mo, spark_conn):
     # Check file count before clustering
     _df = mo.sql(
-        f"""
+        """
         SELECT 
             COUNT(*) as file_count,
             AVG(record_count) as avg_rows_per_file,
@@ -1042,7 +1010,6 @@ def _(mo, spark_conn):
         """,
         engine=spark_conn,
     )
-    return
 
 
 @app.cell
@@ -1071,14 +1038,13 @@ def _(mo, spark):
     - Improved data locality
     """
     )
-    return
 
 
 @app.cell
 def _(mo, spark_conn):
     # Check file count after clustering
     _df = mo.sql(
-        f"""
+        """
         SELECT 
             COUNT(*) as file_count,
             AVG(record_count) as avg_rows_per_file,
@@ -1088,7 +1054,6 @@ def _(mo, spark_conn):
         """,
         engine=spark_conn,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -1114,14 +1079,13 @@ def _(mo):
 
     This is called **min/max pruning** or **statistics-based pruning**.
     """)
-    return
 
 
 @app.cell
 def _(mo, spark_conn):
     # Examine the column statistics in file metadata
     _df = mo.sql(
-        f"""
+        """
         SELECT 
             file_path,
             record_count,
@@ -1132,7 +1096,6 @@ def _(mo, spark_conn):
         """,
         engine=spark_conn,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -1162,7 +1125,6 @@ def _(mo):
     4. **Ignore data distribution** - Skewed partitions (hot spots) limit parallelism
     5. **Use partitions for small tables** - Overhead not worth it for < 1GB tables
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -1200,7 +1162,6 @@ def _(mo):
     | Status/State | `status` (identity) | Order lifecycle |
     | High-cardinality | `bucket(64, user_id)` | User events |
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -1249,7 +1210,6 @@ def _(mo):
 
     **Solution:** Use bucketing or coarser granularity
     """)
-    return
 
 
 @app.cell
@@ -1287,13 +1247,12 @@ def _(datetime, mo, spark, timedelta):
     - Results in many tiny partitions
     """
     )
-    return
 
 
 @app.cell
 def _(mo, spark_conn):
     _df = mo.sql(
-        f"""
+        """
         SELECT 
             COUNT(*) as partition_count,
             AVG(record_count) as avg_rows_per_partition,
@@ -1303,7 +1262,6 @@ def _(mo, spark_conn):
         """,
         engine=spark_conn,
     )
-    return
 
 
 @app.cell(hide_code=True)
@@ -1318,7 +1276,6 @@ def _(mo):
     - **Or use just `days(event_time)`** - Fewer partitions
     - **Add partitioning as data grows** via partition evolution
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -1382,7 +1339,6 @@ def _(mo):
     - Monitor partition sizes and file counts
     - Regular compaction to maintain clustering
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -1428,18 +1384,16 @@ def _(mo):
     | `$snapshots` | Table snapshot history |
     | `$manifests` | Manifest file list |
     """)
-    return
 
 
 @app.cell
 def _(mo, spark_conn):
     _df = mo.sql(
-        f"""
+        """
         SELECT * FROM lakehouse.iceberg_study.events_partitioned
         """,
         engine=spark_conn,
     )
-    return
 
 
 @app.cell
