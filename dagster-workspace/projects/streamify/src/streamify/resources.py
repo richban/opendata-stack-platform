@@ -4,7 +4,6 @@ from collections.abc import Iterable
 from typing import Protocol
 
 import clickhouse_connect
-import pandas as pd
 import pyarrow as pa
 
 from pyspark.sql import DataFrame, SparkSession
@@ -12,7 +11,7 @@ from pyspark.sql.functions import broadcast, col
 from pyspark.sql.streaming import StreamingQuery
 from pyspark.sql.types import StructType
 
-from streamify.defs.resources import ClickHouseResource, RedisResource, S3Resource
+from streamify.defs.resources import ClickHouseResource, RedisResource
 from streamify.schemas import ENRICHED_USER_PROFILE_SCHEMA
 from streamify.transformations import (
     enrich_profiles_partition,
@@ -71,28 +70,19 @@ class SongsMetadataEnricher:
 
     def __init__(
         self,
-        s3: S3Resource,
-        catalog_path: str,
         spark: SparkSession,
+        catalog_path: str,
     ) -> None:
-        self.s3 = s3
-        self.catalog_path = catalog_path
         self.spark = spark
+        self.catalog_path = catalog_path
         self._catalog_df: DataFrame | None = None
 
     def _load_catalog(self) -> DataFrame:
-        logger.info("Loading songs catalog from '%s'...", self.catalog_path)
-        catalog_pdf = pd.read_csv(
-            self.catalog_path,
-            storage_options={
-                "key": self.s3.aws_access_key_id,
-                "secret": self.s3.aws_secret_access_key,
-                "client_kwargs": {"endpoint_url": self.s3.endpoint_url},
-            },
-        )
-        catalog_df = self.spark.createDataFrame(catalog_pdf)
+        logger.info("Loading songs catalog from '%s' via Spark...", self.catalog_path)
         dim_df = (
-            catalog_df.select(
+            self.spark.read.option("header", "true")
+            .csv(self.catalog_path)
+            .select(
                 col("artist_name"),
                 col("title"),
                 col("year").cast("string").alias("song_year"),
@@ -102,7 +92,7 @@ class SongsMetadataEnricher:
             .cache()
         )
         num_rows = dim_df.count()
-        logger.info("✓ Songs catalog loaded (%d rows after dedup).", num_rows)
+        logger.info("✓ Songs catalog loaded and cached (%d rows after dedup).", num_rows)
         return dim_df
 
     def transform(self, df: DataFrame) -> DataFrame:
@@ -216,7 +206,7 @@ class ClickHouseSink:
 
 
 class IcebergSink:
-    """Streaming sink strategy for writing to Iceberg tables."""
+    """Sink for writing to Iceberg tables."""
 
     def __init__(
         self,

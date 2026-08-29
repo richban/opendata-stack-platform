@@ -15,7 +15,6 @@ from streamify.defs.resources import (
     ClickHouseResource,
     StreamingJobConfig,
     create_clickhouse_resource,
-    create_s3_resource,
     create_spark_session,
     get_streaming_config,
 )
@@ -152,7 +151,6 @@ def main() -> None:
     logger.info("Initializing Spark session and config...")
     cfg = get_streaming_config()
     spark = create_spark_session(cfg)
-    s3 = create_s3_resource(cfg)
     clickhouse = create_clickhouse_resource(cfg)
 
     logger.info(
@@ -175,18 +173,17 @@ def main() -> None:
         max_offsets=cfg.max_offsets_per_trigger,
     )
 
-    # 2. Transformer Strategies (Enrichers)
+    # 2. Transformers (Enrichers)
     songs_enricher = SongsMetadataEnricher(
-        s3=s3,
-        catalog_path=cfg.songs_catalog_path,
         spark=spark,
+        catalog_path=cfg.songs_catalog_path,
     )
     redis_enricher = RedisProfileEnricher(
         host=cfg.executor_redis_host,
         port=cfg.redis_port,
     )
 
-    # 3. Sink Strategies
+    # 3. Sinks
     bronze_sink = IcebergSink(
         chkpt=f"{cfg.checkpoint_path}/{topic}",
         query_name=f"bronze_{topic}",
