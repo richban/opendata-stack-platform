@@ -1,11 +1,11 @@
-from collections.abc import Iterable, Iterator
-from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.streaming import StreamingQuery
-from pyspark.sql.types import StringType, StructType
 import logging
 
-from pyspark.sql.functions import col
+from collections.abc import Iterable, Iterator
 
+import pyarrow as pa
+import pyarrow.compute as pc
+
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import (
     coalesce,
     col,
@@ -17,30 +17,17 @@ from pyspark.sql.functions import (
     to_date,
     udf,
 )
-import pandas as pd
-import pyarrow as pa
-import pyarrow.compute as pc
+from pyspark.sql.streaming import StreamingQuery
+from pyspark.sql.types import StringType, StructType
 
+from streamify.defs.resources import get_executor_redis_client
 from streamify.schemas import (
     CLICKHOUSE_NULL_DEFAULTS,
     ENRICHED_USER_PROFILE_SCHEMA,
     PROFILE_FIELDS,
-    RAW_SCHEMAS,
 )
 
 logger = logging.getLogger(__name__)
-
-from streamify.defs.resources import (
-    ClickHouseResource,
-    S3Resource,
-    StreamingJobConfig,
-    create_clickhouse_resource,
-    create_s3_resource,
-    create_spark_session,
-    get_executor_clickhouse_client,
-    get_executor_redis_client,
-    get_streaming_config,
-)
 
 
 @udf(returnType=StringType())
@@ -128,7 +115,8 @@ def enrich_profiles_partition(
                 profiles = [tuple(v or "" for v in res) for res in results]
             except Exception as exc:
                 logger.warning(
-                    "Redis enrichment failed for %d IDs on worker (%s). Falling back to empty defaults.",
+                    "Redis enrichment failed for %d IDs on worker (%s). "
+                    "Defaulting to empty.",
                     len(uid_list),
                     exc,
                 )
@@ -143,6 +131,7 @@ def enrich_profiles_partition(
 
 
 def project_playback_events_for_clickhouse(df: DataFrame) -> DataFrame:
+    """Project and sanitize DataFrame schema for ClickHouse silver table."""
     return df.select(
         col("event_id"),
         col("userId").alias("user_id"),
@@ -172,6 +161,7 @@ def read_kafka_stream(
     max_offsets: int = 10_000,
     starting_offsets: str = "earliest",
 ) -> DataFrame:
+    """Create a streaming DataFrame connected to Kafka."""
     return (
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", bootstrap_servers)
@@ -291,6 +281,7 @@ def write_iceberg_stream(
     table_name: str,
     trigger_interval: str = "30 seconds",
 ) -> StreamingQuery:
+    """Start writeStream targeting an Iceberg table."""
     return (
         df.writeStream.format("iceberg")
         .outputMode("append")
