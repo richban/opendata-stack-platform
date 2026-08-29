@@ -76,8 +76,6 @@ def test_create_table_if_not_exists_fully_qualified():
     )
 
 
-
-
 def test_ensure_clickhouse_table_exists():
     """Verify ClickHouse database and table creation via ClickHouseResource."""
     mock_resource = MagicMock(spec=ClickHouseResource)
