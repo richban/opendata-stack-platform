@@ -4,7 +4,7 @@ import logging
 
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from typing import Protocol
+from typing import Protocol, List
 
 import pandas as pd
 import pyarrow as pa
@@ -47,66 +47,11 @@ from streamify.schemas import (
     RAW_SCHEMAS,
 )
 
-from streamify.transformations import (
-    string_decode_fn,
-    string_decode_vec,
-    enrich_profiles_partition,
-)
+from streamify.resources import StreamingSink, StreamingSource, RedisProfileEnricher
+
+from streamify.transformations import enrich_profiles_partition, parse_raw_events_with_dlq
 
 logger = logging.getLogger(__name__)
-
-
-def make_clickhouse_sink(config: StreamingJobConfig):
-    """Return a ``foreachBatch`` handler that writes enriched rows to ClickHouse."""
-    ch_host = config.executor_clickhouse_host
-    ch_port = config.clickhouse_port
-    ch_user = config.clickhouse_user
-    ch_password = config.clickhouse_password
-    ch_db = config.clickhouse_db
-
-    def write_batch(batch_df: DataFrame, batch_id: int) -> None:
-        try:
-            out_df = batch_df.select(
-                col("event_id"),
-                col("userId").alias("user_id"),
-                col("artist"),
-                col("song"),
-                col("duration"),
-                col("event_ts"),
-                col("sessionId").cast("string").alias("session_id"),
-                col("city"),
-                col("state"),
-                col("enriched_first_name"),
-                col("enriched_last_name"),
-                col("enriched_gender"),
-                col("enriched_city"),
-                col("enriched_state"),
-                col("enriched_zip"),
-                col("song_year"),
-                col("artist_location"),
-                col("_processing_time"),
-            ).fillna(CLICKHOUSE_NULL_DEFAULTS)
-
-            arrow_table = out_df.toArrow()
-            client = get_executor_clickhouse_client(
-                ch_host, ch_port, ch_user, ch_password, ch_db
-            )
-            client.insert_arrow("silver_playback_events", arrow_table)
-            logger.info(
-                "✓ Batch %d: wrote %d enriched rows to ClickHouse.",
-                batch_id,
-                arrow_table.num_rows,
-            )
-        except Exception as exc:
-            logger.error(
-                "✗ Batch %d: failed to write to ClickHouse: %s",
-                batch_id,
-                exc,
-                exc_info=True,
-            )
-            raise
-
-    return write_batch
 
 
 class StreamifyDeclarativePipeline:
@@ -120,163 +65,25 @@ class StreamifyDeclarativePipeline:
         self,
         spark: SparkSession,
         config: StreamingJobConfig,
+        source: StreamingSource,
         clickhouse: ClickHouseResource,
+        redis_enricher: RedisProfileEnricher,
         s3: S3Resource,
+        clickhouse_sink: StreamingSink,
+        iceberg_sink: StreamingSink,
+        dlq_sink: StreStreamingSink,
     ) -> None:
         self.spark = spark
         self.config = config
+        self.source = source
         self.clickhouse = clickhouse
+        self.redis_enricher = redis_enricher
         self.s3 = s3
+        self.clickhouse_sink = clickhouse_sink
+        self.iceberg_sink = iceberg_sink
+        self.dlq_sink = dlq_sink
         # Lazy-loaded catalog DataFrame - materialised once per session.
         self._catalog_df: DataFrame | None = None
-
-    # ------------------------------------------------------------------
-    # Source
-    # ------------------------------------------------------------------
-
-    def declare_kafka_source(self, topic: str) -> DataFrame:
-        """Return a streaming ``DataFrame`` reading from the given Kafka topic."""
-        bootstrap = self.config.executor_kafka_bootstrap_servers
-        logger.info(
-            "Declaring Kafka source for '%s' (bootstrap=%s)...",
-            topic,
-            bootstrap,
-        )
-        return (
-            self.spark.readStream.format("kafka")
-            .option("kafka.bootstrap.servers", bootstrap)
-            .option("subscribe", topic)
-            .option("startingOffsets", "earliest")
-            .option("failOnDataLoss", "false")
-            .option("maxOffsetsPerTrigger", self.config.max_offsets_per_trigger)
-            .load()
-        )
-
-    # ------------------------------------------------------------------
-    # Transformations
-    # ------------------------------------------------------------------
-
-    def declare_transformations(
-        self,
-        source_df: DataFrame,
-        schema: StructType,
-        topic: str = "listen_events",
-    ) -> tuple[DataFrame, DataFrame]:
-        """Parse JSON payload with PERMISSIVE mode, splitting into valid & DLQ DFs."""
-        parsed_raw = source_df.select(
-            col("value").cast("string").alias("_raw_payload"),
-            from_json(
-                col("value").cast("string"),
-                schema,
-                options={
-                    "mode": "PERMISSIVE",
-                    "columnNameOfCorruptRecord": "_corrupt_record",
-                },
-            ).alias("data"),
-            col("partition").alias("_kafka_partition"),
-            col("offset").alias("_kafka_offset"),
-            col("timestamp").alias("_kafka_timestamp"),
-        )
-
-        is_corrupt = (
-            col("data._corrupt_record").isNotNull()
-            | col("data").isNull()
-            | col("data.userId").isNull()
-            | col("data.ts").isNull()
-        )
-
-        # DLQ DF
-        dlq_df = (
-            parsed_raw.filter(is_corrupt)
-            .select(
-                col("_raw_payload").alias("raw_payload"),
-                lit("ingestion").alias("error_stage"),
-                coalesce(
-                    col("data._corrupt_record"),
-                    lit("Missing required field(s): userId/ts or unparseable payload"),
-                ).alias("error_reason"),
-                lit(topic).alias("topic"),
-                col("_kafka_partition"),
-                col("_kafka_offset"),
-                col("_kafka_timestamp"),
-                current_timestamp().alias("_processing_time"),
-            )
-            .withColumn("_processing_date", to_date(col("_processing_time")))
-        )
-
-        # valid DF
-        valid_parsed = parsed_raw.filter(~is_corrupt).select(
-            "data.*",
-            "_kafka_partition",
-            "_kafka_offset",
-            "_kafka_timestamp",
-        )
-
-        valid_df = (
-            valid_parsed.withColumn(
-                "event_id",
-                sha2(
-                    concat_ws(
-                        "_",
-                        col("userId").cast("string"),
-                        col("sessionId").cast("string"),
-                        col("ts").cast("string"),
-                    ),
-                    256,
-                ),
-            )
-            .withColumn("event_ts", (col("ts") / 1000).cast("timestamp"))
-            .withColumn("event_date", to_date(col("event_ts")))
-            .withColumn("_processing_time", current_timestamp())
-            .withColumn("song", pandas_udf(StringType())(string_decode_vec)(col("song")))
-            .withColumn(
-                "artist", pandas_udf(StringType())(string_decode_vec)(col("artist"))
-            )
-            .select(
-                "artist",
-                "song",
-                "duration",
-                "ts",
-                "auth",
-                "level",
-                "city",
-                "zip",
-                "state",
-                "userAgent",
-                "lon",
-                "lat",
-                "userId",
-                "lastName",
-                "firstName",
-                "gender",
-                "registration",
-                "sessionId",
-                "itemInSession",
-                "event_id",
-                "event_ts",
-                "event_date",
-                "_kafka_partition",
-                "_kafka_offset",
-                "_kafka_timestamp",
-                "_processing_time",
-            )
-        )
-
-        return valid_df, dlq_df
-
-    def enrich_user_profiles(self, df: DataFrame) -> DataFrame:
-        """Apply executor-side Redis lookup via ``mapInArrow``."""
-        out_schema = StructType(list(df.schema) + list(ENRICHED_USER_PROFILE_SCHEMA))
-
-        redis_host = self.config.executor_redis_host
-        redis_port = self.config.redis_port
-
-        def _arrow_func(
-            batches: Iterable[pa.RecordBatch],
-        ) -> Iterable[pa.RecordBatch]:
-            yield from enrich_profiles_partition(batches, redis_host, redis_port)
-
-        return df.mapInArrow(_arrow_func, schema=out_schema)
 
     def enrich_content_metadata(self, df: DataFrame) -> DataFrame:
         """Broadcast-join the event stream against the static songs catalog.
@@ -336,95 +143,14 @@ class StreamifyDeclarativePipeline:
         logger.info("✓ Songs catalog loaded (%d rows after dedup).", num_rows)
         return dim_df
 
-    # ------------------------------------------------------------------
-    # Sinks
-    # ------------------------------------------------------------------
+    def run_stream(self, topic: str = "listen_events") -> None:
+        """Launch the streaming pipeline with dual sinks + DLQ sink."""
+        if topic not in RAW_SCHEMAS:
+            raise ValueError(f"Schema not registered for topic '{topic}'")
 
-    def declare_iceberg_sink(
-        self,
-        transformed_df: DataFrame,
-        topic: str,
-    ) -> StreamingQuery:
-        """Start a writeStream sink targeting the Iceberg lakehouse (bronze layer)."""
-        table = f"bronze_{topic}"
-        chkpt = f"{self.config.checkpoint_path}/{topic}"
-        trigger_interval = self.config.iceberg_trigger_interval
+        raw_schema = RAW_SCHEMAS[topic]
 
-        logger.info(
-            "Declaring Iceberg sink → %s (trigger=%s)...",
-            table,
-            trigger_interval,
-        )
-        return (
-            transformed_df.writeStream.format("iceberg")
-            .outputMode("append")
-            .trigger(processingTime=trigger_interval)
-            .option("checkpointLocation", chkpt)
-            .option("fanout-enabled", "true")
-            .queryName(f"bronze_{topic}")
-            .toTable(table)
-        )
-
-    def declare_dlq_sink(
-        self,
-        dlq_df: DataFrame,
-        topic: str,
-    ) -> StreamingQuery:
-        """Start a writeStream sink targeting the Iceberg DLQ table."""
-        table = "dlq_events_ingestion"
-        chkpt = f"{self.config.checkpoint_path}/{topic}_dlq"
-        trigger_interval = self.config.iceberg_trigger_interval
-
-        logger.info(
-            "Declaring DLQ sink → %s (trigger=%s)...",
-            table,
-            trigger_interval,
-        )
-        return (
-            dlq_df.writeStream.format("iceberg")
-            .outputMode("append")
-            .trigger(processingTime=trigger_interval)
-            .option("checkpointLocation", chkpt)
-            .option("fanout-enabled", "true")
-            .queryName(f"dlq_{topic}")
-            .toTable(table)
-        )
-
-    def declare_clickhouse_sink(
-        self,
-        transformed_df: DataFrame,
-        topic: str,
-    ) -> StreamingQuery:
-        """Start a writeStream sink targeting ClickHouse (silver layer)."""
-        chkpt = f"{self.config.checkpoint_path}/{topic}_clickhouse"
-        sink_fn = make_clickhouse_sink(self.config)
-        trigger_interval = self.config.clickhouse_trigger_interval
-
-        logger.info(
-            "Declaring ClickHouse sink → %s (trigger=%s)...",
-            self.config.clickhouse_db,
-            trigger_interval,
-        )
-        return (
-            transformed_df.writeStream.trigger(processingTime=trigger_interval)
-            .option("checkpointLocation", chkpt)
-            .queryName(f"clickhouse_{topic}")
-            .foreachBatch(sink_fn)
-            .start()
-        )
-
-    # ------------------------------------------------------------------
-    # Schema bootstrapping
-    # ------------------------------------------------------------------
-
-    def init_pipeline(self, topic: str) -> None:
-        """Ensure Iceberg namespaces and bronze/DLQ/ClickHouse tables exist."""
-        logger.info(
-            "Init pipeline: topic=%s, catalog=%s, namespace=%s",
-            topic,
-            self.config.catalog,
-            self.config.namespace,
-        )
+        # 1. Bootstrap pipeline
         bootstrap_storage(
             spark=self.spark,
             clickhouse=self.clickhouse,
@@ -433,35 +159,18 @@ class StreamifyDeclarativePipeline:
             namespace=self.config.namespace,
         )
 
-    # ------------------------------------------------------------------
-    # Pipeline orchestration
-    # ------------------------------------------------------------------
+        # 2. Ingest from  Source
+        source_df = self.source.read(self.spark)
 
-    def run_topic_stream(self, topic: str = "listen_events") -> None:
-        """Launch the streaming pipeline with dual sinks + DLQ sink."""
-        if topic not in RAW_SCHEMAS:
-            raise ValueError(f"Schema not registered for topic '{topic}'")
+        # 3. Parse & Split DLQ
+        base_df, dlq_df = parse_raw_events_with_dlq(source_df, raw_schema, topic)
 
-        raw_schema = RAW_SCHEMAS[topic]
-
-        # 1. Bootstrap pipeline
-        self.init_pipeline(topic)
-
-        # 2. Source
-        source_df = self.declare_kafka_source(topic)
-
-        # 3. Transformations (splitting into valid & DLQ)
-        base_df, dlq_df = self.declare_transformations(source_df, raw_schema, topic)
-
-        # 4. Enrichment (broadcast join first, then executor-side Redis lookup)
+        # 4. Enrichments (S3 broadcast + Redis Strategy)
         content_enriched_df = self.enrich_content_metadata(base_df)
-        enriched_df = self.enrich_user_profiles(content_enriched_df)
+        enriched_df = self.redis_enricher.transform(content_enriched_df)
 
         # 5. Triple sinks
-        #    - Iceberg receives raw parsed base_df (bronze)
-        #    - ClickHouse receives fully enriched_df (silver)
-        #    - Iceberg receives invalid/corrupt records (dlq)
-        iceberg_q: StreamingQuery = self.declare_iceberg_sink(base_df, topic)  # type: ignore[assignment]
+        iceberg_q: StreamingQuery = self.iceberg_sink.write(base_df)
         clickhouse_q: StreamingQuery = self.declare_clickhouse_sink(enriched_df, topic)  # type: ignore[assignment]
         dlq_q: StreamingQuery = self.declare_dlq_sink(dlq_df, topic)  # type: ignore[assignment]
 
