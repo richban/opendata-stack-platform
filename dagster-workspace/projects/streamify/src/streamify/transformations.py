@@ -146,3 +146,21 @@ def project_playback_events_for_clickhouse(df: DataFrame) -> DataFrame:
         col("artist_location"),
         col("_processing_time"),
     ).fillna(CLICKHOUSE_NULL_DEFAULTS)
+
+
+def read_kafka_stream(
+    spark: SparkSession,
+    bootstrap_servers: str,
+    topic: str,
+    max_offsets: int = 10_000,
+    starting_offsets: str = "earliest",
+) -> DataFrame:
+    return (
+        spark.readStream.format("kafka")
+        .option("kafka.bootstrap.servers", bootstrap_servers)
+        .option("subscribe", topic)
+        .option("maxOffsetsPerTrigger", max_offsets)
+        .option("startingOffsets", starting_offsets)
+        .option("failOnDataLoss", "false")
+        .load()
+    )
