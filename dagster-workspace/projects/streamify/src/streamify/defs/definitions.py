@@ -22,9 +22,7 @@ from streamify.defs.resources import (
 streaming_config = get_streaming_config()
 
 defs = dg.Definitions(
-    assets=dg.load_assets_from_modules(
-        [bronze_assets]
-    ),
+    assets=dg.load_assets_from_modules([bronze_assets]),
     sensors=[sensors.bronze_restart_sensor],
     jobs=[],
     resources={

@@ -65,4 +65,3 @@ def bronze_restart_sensor(
             "failure_run_id": context.dagster_run.run_id,
         },
     )
-
