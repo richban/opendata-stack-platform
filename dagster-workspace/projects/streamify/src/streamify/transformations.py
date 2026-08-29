@@ -1,5 +1,6 @@
 from collections.abc import Iterable, Iterator
 from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql.streaming import StreamingQuery
 from pyspark.sql.types import StringType, StructType
 import logging
 
@@ -91,6 +92,11 @@ def align_batch_with_redis_profiles(
         pc.index_in(uid_col, unique_ids, skip_nulls=True),
         sentinel_idx,
     )
+    aligned_columns = [col.take(positions) for col in profile_columns]
+    new_arrays = [*batch.columns, *aligned_columns]
+    new_names = [*batch.schema.names, *enriched_fields]
+
+    return pa.RecordBatch.from_arrays(new_arrays, names=new_names)
 
 
 def enrich_profiles_partition(
@@ -276,3 +282,21 @@ def parse_raw_events_with_dlq(
         )
     )
     return valid_df, dlq_df
+
+
+def write_iceberg_stream(
+    df: DataFrame,
+    chkpt: str,
+    query_name: str,
+    table_name: str,
+    trigger_interval: str = "30 seconds",
+) -> StreamingQuery:
+    return (
+        df.writeStream.format("iceberg")
+        .outputMode("append")
+        .trigger(processingTime=trigger_interval)
+        .option("checkpointLocation", chkpt)
+        .option("fanout-enabled", "true")
+        .queryName(f"{query_name}")
+        .toTable(f"{table_name}")
+    )
