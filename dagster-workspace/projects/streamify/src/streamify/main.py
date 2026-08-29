@@ -56,16 +56,6 @@ from streamify.transformations import (
 logger = logging.getLogger(__name__)
 
 
-class TClickhouseResource(Protocol):
-    def write_batch(self, df: DataFrame) -> None: ...
-
-
-class ClickhouseResource:
-    def __init__(self) -> None: ...
-
-    def write_batch(self) -> None: ...
-
-
 def make_clickhouse_sink(config: StreamingJobConfig):
     """Return a ``foreachBatch`` handler that writes enriched rows to ClickHouse."""
     ch_host = config.executor_clickhouse_host
