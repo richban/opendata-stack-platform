@@ -1,5 +1,8 @@
 from collections.abc import Iterable, Iterator
+from pyspark.sql import DataFrame, SparkSession
 import logging
+
+from pyspark.sql.functions import col
 
 import pandas as pd
 import pyarrow as pa
@@ -120,3 +123,26 @@ def enrich_profiles_partition(
         new_arrays = [*batch.columns, *aligned_arrays]
         new_names = [*batch.schema.names, *enriched_fields]
         yield pa.RecordBatch.from_arrays(new_arrays, names=new_names)
+
+
+def project_playback_events_for_clickhouse(df: DataFrame) -> DataFrame:
+    return df.select(
+        col("event_id"),
+        col("userId").alias("user_id"),
+        col("artist"),
+        col("song"),
+        col("duration"),
+        col("event_ts"),
+        col("sessionId").cast("string").alias("session_id"),
+        col("city"),
+        col("state"),
+        col("enriched_first_name"),
+        col("enriched_last_name"),
+        col("enriched_gender"),
+        col("enriched_city"),
+        col("enriched_state"),
+        col("enriched_zip"),
+        col("song_year"),
+        col("artist_location"),
+        col("_processing_time"),
+    ).fillna(CLICKHOUSE_NULL_DEFAULTS)
