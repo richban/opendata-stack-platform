@@ -2,8 +2,6 @@
 
 import time
 
-from typing import Any
-
 import dagster as dg
 
 from dagster import EnvVar

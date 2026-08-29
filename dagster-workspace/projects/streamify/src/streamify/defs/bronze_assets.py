@@ -27,11 +27,7 @@ from pyspark.sql.functions import (
 from pyspark.sql.types import StructType
 
 from streamify.defs.resources import StreamingJobConfig
-from streamify.schemas import SCHEMAS as TOPIC_SCHEMAS, META_SCHEMA
-from streamify.bootstrap import (
-    create_namespace_if_not_exists,
-    create_table_if_not_exists,
-)
+from streamify.schemas import META_SCHEMA, SCHEMAS as TOPIC_SCHEMAS
 
 
 def process_stream(

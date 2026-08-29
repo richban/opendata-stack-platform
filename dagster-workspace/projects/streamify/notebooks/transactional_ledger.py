@@ -53,7 +53,6 @@ def _(
     append_bronze_estimates(batch_1)
     append_bronze_ledger(ledger_batch_1)
     append_bronze_ledger(ledger_batch_2)
-    return
 
 
 @app.cell
@@ -209,7 +208,6 @@ def _(init_silver_control, init_silver_estimates, init_silver_ledger):
     init_silver_estimates()
     init_silver_ledger()
     init_silver_control()
-    return
 
 
 @app.cell
@@ -226,7 +224,6 @@ def _(append_bronze_estimates, dt, make_estimate_batch):
     )
 
     append_bronze_estimates(monthly_batch)
-    return
 
 
 @app.cell
@@ -269,24 +266,21 @@ def poll_bronze_via_cdf(
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_estimates
         """,
         engine=conn,
     )
-    return
 
 
 @app.cell
 def _(est_query):
     dir(est_query)
-    return
 
 
 @app.cell
 def _(est_query):
     est_query.lastProgress
-    return
 
 
 @app.cell
@@ -294,62 +288,56 @@ def _(append_control_event, dt):
     # Seed initial holdback dates for our test accounts
     append_control_event(str(1).zfill(4), 2026, dt.date(2026, 3, 31))
     append_control_event(str(2).zfill(4), 2026, dt.date(2026, 3, 31))
-    return
 
 
 @app.cell
 def _(conn, mo, silver_control):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_control
         """,
         engine=conn,
     )
-    return
 
 
 @app.cell
 def _(bronze_estimates, conn, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from bronze_estimates where account_id = '0002' order by _inserted_at desc
         """,
         engine=conn,
     )
-    return
 
 
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_estimates where account_id = '0002' order by _updated_at desc
         """,
         engine=conn,
     )
-    return
 
 
 @app.cell
 def _(conn, gold_transactional_ledger, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from gold_transactional_ledger where account_id = '0002' order by underwriting_month, _inserted_at DESC
         """,
         engine=conn,
     )
-    return
 
 
 @app.cell
 def _(conn, mo, silver_control):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_control
         """,
         engine=conn,
     )
-    return
 
 
 @app.cell
@@ -474,7 +462,6 @@ def _(delta_calculation_engine, spark):
     # Compute deltas
     deltas = delta_calculation_engine(estimates_df, hbd_df, ledger_df)
     deltas
-    return
 
 
 @app.cell
@@ -575,7 +562,6 @@ def _(process_silver_estimates_batch, silver_estimate_path, spark):
     )
 
     est_stream.awaitTermination()
-    return
 
 
 @app.cell
@@ -638,7 +624,6 @@ def _(process_silver_cedent_batch, silver_ledger_path, spark):
     )
 
     cedent_query.awaitTermination()
-    return
 
 
 @app.cell
@@ -704,40 +689,36 @@ def _(process_silver_control_batch, silver_control_path, spark):
     )
 
     hbd_stream_query.awaitTermination()
-    return
 
 
 @app.cell
 def _(conn, mo, silver_control):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_control
         """,
         engine=conn,
     )
-    return
 
 
 @app.cell
 def _(conn, gold_transactional_ledger, mo):
     _df = mo.sql(
-        f"""
+        """
         select * from gold_transactional_ledger where account_id = '0002' order by underwriting_month, _inserted_at DESC
         """,
         engine=conn,
     )
-    return
 
 
 @app.cell
 def _(conn, mo, silver_estimates):
     _df = mo.sql(
-        f"""
+        """
         select * from silver_estimates where account_id = '0002' order by month, _updated_at DESC
         """,
         engine=conn,
     )
-    return
 
 
 @app.cell
@@ -1117,13 +1098,11 @@ def _(create_delta_spark_session, get_s3_store):
 @app.cell
 def _(conn):
     conn.list_databases()
-    return
 
 
 @app.cell
 def _(conn):
     conn.list_tables()
-    return
 
 
 @app.cell
@@ -1148,7 +1127,6 @@ def _(append_bronze_estimates, make_estimate_batch):
     )
 
     append_bronze_estimates(batch_a)
-    return
 
 
 @app.cell
@@ -1168,7 +1146,6 @@ def _(append_bronze_estimates, dt, make_estimate_batch):
     )
 
     append_bronze_estimates(y_batch)
-    return
 
 
 @app.cell
@@ -1180,13 +1157,11 @@ def _(append_bronze_estimates, dt, make_estimate_batch):
     )
 
     append_bronze_estimates(m_batch_2)
-    return
 
 
 @app.cell
 def _(read_all_cdf, silver_control_path):
     read_all_cdf(silver_control_path)
-    return
 
 
 @app.cell

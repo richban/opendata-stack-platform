@@ -121,7 +121,6 @@ def _(mo):
 
     Using the same schemas from `streamify.schemas`
     """)
-    return
 
 
 @app.cell
@@ -170,7 +169,6 @@ def _(mo):
 
     Read a streaming DataFrame from Kafka to verify connectivity.
     """)
-    return
 
 
 @app.cell
@@ -197,7 +195,6 @@ def _(mo):
 
     Transform the Kafka stream following the exact pattern from `process_stream()`.
     """)
-    return
 
 
 @app.cell
@@ -255,7 +252,6 @@ def _(mo):
 
     Create the bronze table using the Spark Catalog API.
     """)
-    return
 
 
 @app.cell
@@ -323,7 +319,6 @@ def _(mo):
     Write the stream to console first to verify the data pipeline works.
     This will run for 30 seconds and then stop.
     """)
-    return
 
 
 @app.cell
@@ -350,7 +345,6 @@ def _(parsed_df, test_console):
         time.sleep(30)
         console_query.stop()
         print("✓ Console stream stopped")
-    return
 
 
 @app.cell
@@ -362,7 +356,6 @@ def _(mo):
 
     ⚠️ **Warning:** This will run indefinitely until you stop it manually.
     """)
-    return
 
 
 @app.cell
@@ -393,7 +386,6 @@ def _(parsed_df, table_name, test_iceberg):
         print("\n⚠️ Stream is running. Go to Spark UI to monitor:")
         print("  http://localhost:8080")
         print("\nTo stop: Restart this cell or stop the notebook")
-    return
 
 
 @app.cell
@@ -403,7 +395,6 @@ def _(mo):
 
     After running the stream for a bit, query the table to verify data is being written.
     """)
-    return
 
 
 @app.cell
@@ -424,7 +415,6 @@ def _(query_button, spark, table_name):
             "count"
         ]
         print(f"\nTotal rows: {count:,}")
-    return
 
 
 @app.cell
@@ -434,7 +424,6 @@ def _(mo):
 
     Drop the test table if needed.
     """)
-    return
 
 
 @app.cell
@@ -449,7 +438,6 @@ def _(cleanup_button, spark, table_name):
     if cleanup_button.value:
         spark.sql(f"DROP TABLE IF EXISTS {table_name}")
         print(f"✓ Dropped table {table_name}")
-    return
 
 
 if __name__ == "__main__":

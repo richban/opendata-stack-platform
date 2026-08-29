@@ -1,6 +1,7 @@
 """Streamify resource definitions: config, Spark session, and service clients."""
 
 import warnings
+
 from collections.abc import AsyncIterator, Coroutine, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from functools import cache

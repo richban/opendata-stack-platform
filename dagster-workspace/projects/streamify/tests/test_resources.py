@@ -1,10 +1,11 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
 
-from unittest.mock import MagicMock, patch
 from streamify.defs.resources import (
-    get_streaming_config,
     StreamingJobConfig,
     create_spark_session,
+    get_streaming_config,
 )
 
 
