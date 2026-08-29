@@ -1,9 +1,21 @@
 from collections.abc import Iterable, Iterator
 from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql.types import StringType, StructType
 import logging
 
 from pyspark.sql.functions import col
 
+from pyspark.sql.functions import (
+    coalesce,
+    col,
+    concat_ws,
+    current_timestamp,
+    from_json,
+    lit,
+    sha2,
+    to_date,
+    udf,
+)
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -30,25 +42,21 @@ from streamify.defs.resources import (
 )
 
 
-def string_decode_fn(s: str, encoding: str = "utf-8") -> str:
-    """Decode unicode/octal-escaped strings (e.g. artist/song names from eventsim)."""
-    if s:
-        try:
-            return (
-                s.encode("latin1")
-                .decode("unicode-escape")
-                .encode("latin1")
-                .decode(encoding)
-                .strip('"')
-            )
-        except Exception:
-            return s
-    return s
-
-
-def string_decode_vec(series: pd.Series) -> pd.Series:  # type: ignore[type-arg]
-    """Vectorised wrapper around ``_string_decode_fn``."""
-    return series.apply(string_decode_fn)  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
+@udf(returnType=StringType())
+def decode_escaped_string(s: str | None) -> str | None:
+    """Decode unicode/octal-escaped strings (e.g. artist/song names)."""
+    if not s:
+        return s
+    try:
+        return (
+            s.encode("latin1")
+            .decode("unicode-escape")
+            .encode("latin1")
+            .decode("utf-8")
+            .strip('"')
+        )
+    except Exception:
+        return s
 
 
 def enrich_profiles_partition(
@@ -164,3 +172,104 @@ def read_kafka_stream(
         .option("failOnDataLoss", "false")
         .load()
     )
+
+
+def parse_raw_events_with_dlq(
+    df: DataFrame,
+    schema: StructType,
+    topic: str = "listen_events",
+) -> tuple[DataFrame, DataFrame]:
+    """Parse JSON payload with PERMISSIVE mode, splitting into valid & DLQ DataFrames."""
+    parsed_raw = df.select(
+        col("value").cast("string").alias("_raw_payload"),
+        from_json(
+            col("value").cast("string"),
+            schema,
+            options={
+                "mode": "PERMISSIVE",
+                "columnNameOfCorruptRecord": "_corrupt_record",
+            },
+        ).alias("data"),
+        col("partition").alias("_kafka_partition"),
+        col("offset").alias("_kafka_offset"),
+        col("timestamp").alias("_kafka_timestamp"),
+    )
+    is_corrupt = (
+        col("data._corrupt_record").isNotNull()
+        | col("data").isNull()
+        | col("data.userId").isNull()
+        | col("data.ts").isNull()
+    )
+    # DLQ DataFrame
+    dlq_df = (
+        parsed_raw.filter(is_corrupt)
+        .select(
+            col("_raw_payload").alias("raw_payload"),
+            lit("ingestion").alias("error_stage"),
+            coalesce(
+                col("data._corrupt_record"),
+                lit("Missing required field(s): userId/ts or unparseable payload"),
+            ).alias("error_reason"),
+            lit(topic).alias("topic"),
+            col("_kafka_partition"),
+            col("_kafka_offset"),
+            col("_kafka_timestamp"),
+            current_timestamp().alias("_processing_time"),
+        )
+        .withColumn("_processing_date", to_date(col("_processing_time")))
+    )
+    # filter valid DataFrame
+    valid_parsed = parsed_raw.filter(~is_corrupt).select(
+        "data.*",
+        "_kafka_partition",
+        "_kafka_offset",
+        "_kafka_timestamp",
+    )
+    valid_df = (
+        valid_parsed.withColumn(
+            "event_id",
+            sha2(
+                concat_ws(
+                    "_",
+                    col("userId").cast("string"),
+                    col("sessionId").cast("string"),
+                    col("ts").cast("string"),
+                ),
+                256,
+            ),
+        )
+        .withColumn("event_ts", (col("ts") / 1000).cast("timestamp"))
+        .withColumn("event_date", to_date(col("event_ts")))
+        .withColumn("_processing_time", current_timestamp())
+        .withColumn("song", decode_escaped_string(col("song")))
+        .withColumn("artist", decode_escaped_string(col("artist")))
+        .select(
+            "artist",
+            "song",
+            "duration",
+            "ts",
+            "auth",
+            "level",
+            "city",
+            "zip",
+            "state",
+            "userAgent",
+            "lon",
+            "lat",
+            "userId",
+            "lastName",
+            "firstName",
+            "gender",
+            "registration",
+            "sessionId",
+            "itemInSession",
+            "event_id",
+            "event_ts",
+            "event_date",
+            "_kafka_partition",
+            "_kafka_offset",
+            "_kafka_timestamp",
+            "_processing_time",
+        )
+    )
+    return valid_df, dlq_df
