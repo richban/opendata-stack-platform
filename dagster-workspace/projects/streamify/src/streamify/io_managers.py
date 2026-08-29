@@ -2,20 +2,33 @@ import logging
 from typing import Protocol
 
 import clickhouse_connect
-from pyspark.sql import DataFrame
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.streaming import StreamingQuery
 
 from streamify.defs.resources import ClickHouseResource
-from streamify.transformations import project_playback_events_for_clickhouse
+from streamify.transformations import (
+    project_playback_events_for_clickhouse,
+    read_kafka_stream,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class StreamingIOManager(Protocol):
+class StreamingSource(Protocol):
+    def read(self, spark: SparkSession) -> DataFrame: ...
+
+
+class StreamingSink(Protocol):
     def write(self, df: DataFrame, topic: str) -> StreamingQuery: ...
 
 
-class ClickHouseIOManager:
+class StreamingIOManager(StreamingSource, StreamingSink, Protocol):
+    """If a storage engine can do both source/sink."""
+
+    pass
+
+
+class ClickHouseSink:
     def __init__(
         self,
         resource: ClickHouseResource,
@@ -77,4 +90,16 @@ class ClickHouseIOManager:
             .queryName(f"clickhouse_{topic}")
             .foreachBatch(self.write_batch)
             .start()
+        )
+
+
+class KafkaSource:
+    def __init__(self, bootstrap_servers: str, topic: str, max_offsets: int):
+        self.bootstrap_servers = bootstrap_servers
+        self.topic = topic
+        self.max_offsets = max_offsets
+
+    def read(self, spark: SparkSession) -> DataFrame:
+        return read_kafka_stream(
+            spark, self.bootstrap_servers, self.topic, self.max_offsets
         )
