@@ -59,43 +59,59 @@ def decode_escaped_string(s: str | None) -> str | None:
         return s
 
 
+def align_batch_with_redis_profiles(
+    batch: pa.RecordBatch,
+    profiles: list[tuple[str, ...]],
+    unique_ids: pa.Array,
+    enriched_fields: list[str],
+) -> pa.RecordBatch:
+    """Pure Arrow-native alignment of Redis profile tuples to original batch row order.
+    Parameters
+    ----------
+    batch : pa.RecordBatch
+        The incoming micro-batch of raw events.
+    profiles : list[tuple[str, ...]]
+        The profile field values returned from Redis, in order of unique_ids.
+    unique_ids : pa.Array
+        The distinct non-null user IDs extracted from the batch.
+    enriched_fields : list[str]
+        The output column names (e.g. enriched_first_name, etc.).
+    """
+    uid_col = batch.column("userId")
+    # 1. Build an Arrow column for each field, adding a trailing "" sentinel row
+    #    at index `len(profiles)` for null / unmatched user IDs.
+    sentinel_idx = pa.scalar(len(profiles), type=pa.int32())
+    profile_columns = [
+        pa.array([row[i] for row in profiles] + [""], type=pa.string())
+        for i in range(len(PROFILE_FIELDS))
+    ]
+    # 2. Find the index in `unique_ids` for every row in the original batch.
+    #    Any null or unmapped userId falls back to the sentinel_idx ("").
+    positions = pc.fill_null(
+        pc.index_in(uid_col, unique_ids, skip_nulls=True),
+        sentinel_idx,
+    )
+
+
 def enrich_profiles_partition(
     batches: Iterable[pa.RecordBatch],
     redis_host: str,
     redis_port: int,
 ) -> Iterator[pa.RecordBatch]:
-    """PyArrow partition iterator for executor-side Redis lookups.
-
-    Design
-    ------
-    * **Executor-side** - Redis I/O happens on distributed worker nodes, not
-      the driver JVM.
-    * **Arrow-native alignment** - dedup, re-ordering, and column assembly all
-      happen inside ``pyarrow.compute``.  The only data that round-trips through
-      Python is the *set of distinct user IDs* needed to build Redis keys; the
-      fetched profiles are re-aligned to the original row order with
-      ``index_in``/``take`` instead of a per-row Python dict loop.
-    * **Per-batch dedup + pipeline** - unique user IDs within each Arrow batch
-      are collected, then fetched in a *single* pipelined Redis round-trip.
-      There is intentionally no cross-batch in-memory cache: at Spotify/Netflix
-      scale (300 M+ users) an unbounded executor-side cache creates severe
-      memory pressure.  Redis is designed to serve millions of ops/sec; let it
-      do its job.
-    * **Resilience** - Redis connection/transport errors are caught gracefully,
-      falling back to empty string profile defaults so the stream stays alive.
-    """
+    """PyArrow partition iterator for executor-side Redis lookups."""
+    # Worker-local cached connection pool (no driver socket serialization issues)
     r_client = get_executor_redis_client(redis_host, redis_port)
     enriched_fields = ENRICHED_USER_PROFILE_SCHEMA.fieldNames()
-
     for batch in batches:
+        # Skip empty micro-batches
         if batch.num_rows == 0:
             yield batch
             continue
-
+        # 1. Extract unique non-null user IDs
         uid_col = batch.column("userId")
-        unique_ids = pc.drop_null(pc.unique(uid_col))  # ty: ignore[unresolved-attribute]
+        unique_ids = pc.drop_null(pc.unique(uid_col))
         uid_list = unique_ids.to_pylist()
-
+        # 2. Fetch profiles via Redis Pipeline (single round-trip for whole batch)
         profiles: list[tuple[str, ...]] = []
         if uid_list:
             try:
@@ -106,31 +122,18 @@ def enrich_profiles_partition(
                 profiles = [tuple(v or "" for v in res) for res in results]
             except Exception as exc:
                 logger.warning(
-                    "Redis enrichment failed for %d IDs (%s). Defaulting to empty.",
+                    "Redis enrichment failed for %d IDs on worker (%s). Falling back to empty defaults.",
                     len(uid_list),
                     exc,
                 )
                 profiles = [tuple("" for _ in PROFILE_FIELDS) for _ in uid_list]
-
-        # One Arrow array per profile field, plus a trailing "" sentinel row
-        # standing in for null user IDs. ``take`` then re-aligns every row in
-        # the batch back to its original order.
-        sentinel_idx = pa.scalar(len(profiles), type=pa.int32())
-        profile_arrays = [
-            pa.array([row[i] for row in profiles] + [""], type=pa.string())
-            for i in range(len(PROFILE_FIELDS))
-        ]
-        positions = pc.fill_null(
-            pc.index_in(  # ty: ignore[unresolved-attribute]
-                uid_col, unique_ids, skip_nulls=True
-            ),
-            sentinel_idx,
+        # 3. Align and yield enriched batch
+        yield align_batch_with_redis_profiles(
+            batch=batch,
+            profiles=profiles,
+            unique_ids=unique_ids,
+            enriched_fields=enriched_fields,
         )
-        aligned_arrays = [col.take(positions) for col in profile_arrays]
-
-        new_arrays = [*batch.columns, *aligned_arrays]
-        new_names = [*batch.schema.names, *enriched_fields]
-        yield pa.RecordBatch.from_arrays(new_arrays, names=new_names)
 
 
 def project_playback_events_for_clickhouse(df: DataFrame) -> DataFrame:
