@@ -2,8 +2,8 @@
 line-length = 90
 indent-width = 4
 
-# Assume Python 3.9
-target-version = "py39"
+# Assume Python 3.10+
+target-version = "py310"
 
 [lint]
 # Enable Pyflakes (`F`), pycodestyle (`E`), `B` flake8-bugbear
@@ -25,7 +25,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 max-complexity = 10
 
 [lint.isort]
-known-first-party = ["opendata_stack_platform"]
+known-first-party = ["opendata_stack_platform", "data_platform", "streamify", "ml_regression_model", "physical_risk_impact"]
 known-third-party = ["dagster", "dagster_dbt", "dbt"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 split-on-trailing-comma = true
