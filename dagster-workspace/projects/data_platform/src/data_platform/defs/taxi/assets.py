@@ -42,9 +42,7 @@ def taxi_zone_lookup_raw(
 
     num_rows = len(pl.read_csv(BytesIO(raw_taxi_zones.content)))
 
-    return MaterializeResult(
-        metadata={"Number of records": MetadataValue.int(num_rows)}
-    )
+    return MaterializeResult(metadata={"Number of records": MetadataValue.int(num_rows)})
 
 
 @asset(partitions_def=monthly_partition, group_name="raw_files", kinds={"parquet"})

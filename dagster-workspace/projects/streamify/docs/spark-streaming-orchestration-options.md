@@ -98,19 +98,17 @@ graph TD
 ```python
 builder = SparkSession.builder.appName(app_name)
 if spark_remote:
-    builder = builder.remote(spark_remote)   # sc://spark-master:15002
+    builder = builder.remote(spark_remote)  # sc://spark-master:15002
 return builder.config(...).getOrCreate()
 ```
 
 **`assets.py`** — writes stream directly from the Dagster asset:
 ```python
-df_stream.writeStream \
-    .format("iceberg") \
-    .outputMode("append") \
-    .trigger(processingTime="30 seconds") \
-    .option("checkpointLocation", checkpoint_location) \
-    .option("fanout-enabled", "true") \
-    .toTable(table_name)
+df_stream.writeStream.format("iceberg").outputMode("append").trigger(
+    processingTime="30 seconds"
+).option("checkpointLocation", checkpoint_location).option(
+    "fanout-enabled", "true"
+).toTable(table_name)
 
 session.streams.awaitAnyTermination()  # blocks the Dagster run
 ```
@@ -218,6 +216,7 @@ The external script would need a `PipesContext` wrapper:
 # spark_scripts/stream_to_iceberg.py  (hypothetical)
 from dagster_pipes import open_dagster_pipes
 
+
 def main():
     with open_dagster_pipes() as pipes:
         spark = SparkSession.builder.appName("StreamToIceberg").getOrCreate()
@@ -231,14 +230,14 @@ def main():
             )
 
         query = (
-            parsed_df.writeStream
-            .format("iceberg")
+            parsed_df.writeStream.format("iceberg")
             .trigger(processingTime="30 seconds")
             .foreachBatch(on_batch_complete)
             .start()
         )
 
         query.awaitTermination()
+
 
 if __name__ == "__main__":
     main()
@@ -253,14 +252,18 @@ def bronze_streaming_job(context, s3: S3Resource):
     script_path = upload_script_to_s3(s3, "spark_scripts/stream_to_iceberg.py")
 
     with open_pipes_session(context, ...) as session:
-        subprocess.Popen([
-            "spark-submit",
-            "--master", "spark://spark-master:7077",
-            "--conf", f"spark.sql.catalog.{catalog}=org.apache.iceberg.spark.SparkCatalog",
-            # ... many more --conf flags ...
-            script_path,
-            *session.get_bootstrap_params_as_env_vars()
-        ])
+        subprocess.Popen(
+            [
+                "spark-submit",
+                "--master",
+                "spark://spark-master:7077",
+                "--conf",
+                f"spark.sql.catalog.{catalog}=org.apache.iceberg.spark.SparkCatalog",
+                # ... many more --conf flags ...
+                script_path,
+                *session.get_bootstrap_params_as_env_vars(),
+            ]
+        )
         # Dagster asset waits for Pipes completion message
         yield from session.get_results()
 ```

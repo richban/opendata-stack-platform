@@ -250,7 +250,11 @@ def setup_roles_and_grants(headers: dict) -> None:
         print(f"[OK] Assigned '{catalog_role}' to '{principal_role}'")
 
     # Grant CATALOG_MANAGE_ACCESS, CATALOG_MANAGE_CONTENT, CATALOG_MANAGE_METADATA
-    for priv in ["CATALOG_MANAGE_ACCESS", "CATALOG_MANAGE_CONTENT", "CATALOG_MANAGE_METADATA"]:
+    for priv in [
+        "CATALOG_MANAGE_ACCESS",
+        "CATALOG_MANAGE_CONTENT",
+        "CATALOG_MANAGE_METADATA",
+    ]:
         grant_body = {"grant": {"type": "catalog", "privilege": priv}}
         response = requests.put(
             f"{POLARIS_MANAGEMENT}/catalogs/{CATALOG_NAME}/catalog-roles/{catalog_role}/grants",
@@ -260,7 +264,6 @@ def setup_roles_and_grants(headers: dict) -> None:
         )
         if response.status_code in [200, 201, 204]:
             print(f"[OK] Granted {priv} on '{CATALOG_NAME}'")
-
 
 
 def print_spark_config(credentials: dict) -> None:

@@ -13,7 +13,7 @@ payload = {
     "grant_type": "client_credentials",
     "client_id": CLIENT_ID,
     "client_secret": CLIENT_SECRET,
-    "scope": "PRINCIPAL_ROLE:ALL"
+    "scope": "PRINCIPAL_ROLE:ALL",
 }
 
 try:

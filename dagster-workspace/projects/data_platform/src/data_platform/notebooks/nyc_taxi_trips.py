@@ -75,7 +75,9 @@ def _(Path, requests, tqdm):
                         f.write(chunk)
                         pbar.update(len(chunk))
 
-    file_url = "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2010-01.parquet"
+    file_url = (
+        "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2010-01.parquet"
+    )
     output_path = Path(__file__).parents[6] / "data" / "yellow_tripdata_2010-01.parquet"
 
     if not output_path.exists():
@@ -275,9 +277,7 @@ def _(Map, arc_layer, mo, pickup_layer, set_bbox):
     brushing_toggle = mo.ui.switch(
         label="Enable [**`BrushingExtension`**](https://developmentseed.org/lonboard/latest/api/layer-extensions/brushing-extension/) (with this enabled, hover over the map)"
     )
-    arc_opacity = mo.ui.slider(
-        start=0, stop=1, step=0.01, label="Arc opacity", value=0.1
-    )
+    arc_opacity = mo.ui.slider(start=0, stop=1, step=0.01, label="Arc opacity", value=0.1)
     brushing_radius = mo.ui.slider(
         start=100, stop=1000, label="Brushing radius (in meters)", value=300
     )

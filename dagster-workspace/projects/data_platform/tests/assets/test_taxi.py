@@ -102,9 +102,9 @@ def test_taxi_zone_lookup_raw(s3_resource: boto3.client, sample_csv_content):
             assert "Contents" in response, (
                 f"File {constants.TAXI_ZONES_FILE_PATH} not found in bucket {constants.BUCKET}"  # noqa: E501
             )
-            assert (
-                len(response["Contents"]) == 1
-            ), f"Expected exactly one file with prefix {constants.TAXI_ZONES_FILE_PATH}"
+            assert len(response["Contents"]) == 1, (
+                f"Expected exactly one file with prefix {constants.TAXI_ZONES_FILE_PATH}"
+            )
             assert response["Contents"][0]["Key"] == constants.TAXI_ZONES_FILE_PATH
 
 

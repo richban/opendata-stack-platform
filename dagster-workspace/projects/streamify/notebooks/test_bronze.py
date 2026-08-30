@@ -59,7 +59,7 @@ def _(mo, postgres_engine):
         """
         SELECT * FROM polaris_schema.principal_authentication_data
         """,
-        engine=postgres_engine
+        engine=postgres_engine,
     )
 
 
@@ -75,7 +75,7 @@ def _(mo, sqlite_engine):
         """
         select * from main.dq_results
         """,
-        engine=sqlite_engine
+        engine=sqlite_engine,
     )
 
 
@@ -87,7 +87,7 @@ def _(con, mo):
         FROM lakehouse.streamify.bronze_listen_events
         LIMIT 10
         """,
-        engine=con
+        engine=con,
     )
 
 
@@ -115,7 +115,7 @@ def _(con, mo):
         """
         SELECT * FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events');
         """,
-        engine=con
+        engine=con,
     )
 
 
@@ -125,7 +125,7 @@ def _(con, mo):
         """
         select * from lakehouse.streamify.bronze_auth_events
         """,
-        engine=con
+        engine=con,
     )
 
 
@@ -135,7 +135,7 @@ def _(con, mo):
         """
         SELECT * FROM lakehouse.streamify.bronze_listen_events
         """,
-        engine=con
+        engine=con,
     )
 
 
@@ -145,7 +145,7 @@ def _(con, mo):
         """
         SELECT * FROM lakehouse.streamify.bronze_page_view_events
         """,
-        engine=con
+        engine=con,
     )
 
 
@@ -155,7 +155,7 @@ def _(con, mo):
         """
         SELECT * FROM lakehouse.streamify.silver_auth_events
         """,
-        engine=con
+        engine=con,
     )
 
 

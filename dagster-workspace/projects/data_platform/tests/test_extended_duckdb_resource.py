@@ -11,10 +11,7 @@ class TestExtendedDuckDBResource:
     def test_initialize_extensions_success(self):
         """Test successful extension initialization."""
         # Create resource instance
-        resource = ExtendedDuckDBResource(
-            database=":memory:",
-            connection_config={}
-        )
+        resource = ExtendedDuckDBResource(database=":memory:", connection_config={})
 
         # Test that we can get a connection and extensions are loaded
         with resource.get_connection() as conn:
@@ -26,7 +23,9 @@ class TestExtendedDuckDBResource:
             try:
                 # This will work if httpfs is loaded
                 conn.execute("SELECT * FROM read_csv_auto('non_existent_file.csv')")
-                assert False, "Should have failed with file not found, not extension error"
+                assert False, (
+                    "Should have failed with file not found, not extension error"
+                )
             except Exception as e:
                 # Should fail with file error, not extension error
                 error_msg = str(e).lower()
@@ -35,10 +34,7 @@ class TestExtendedDuckDBResource:
 
     def test_get_connection_integration(self):
         """Integration test using a real in-memory database."""
-        resource = ExtendedDuckDBResource(
-            database=":memory:",
-            connection_config={}
-        )
+        resource = ExtendedDuckDBResource(database=":memory:", connection_config={})
 
         # Test that we can actually get a connection and it works
         with resource.get_connection() as conn:
@@ -51,7 +47,7 @@ class TestExtendedDuckDBResource:
             conn.execute("INSERT INTO test_table VALUES (1, 'test')")
             result = conn.execute("SELECT * FROM test_table").fetchone()
             assert result[0] == 1
-            assert result[1] == 'test'
+            assert result[1] == "test"
 
     def test_get_connection_with_s3_config(self):
         """Test connection with S3 configuration."""
@@ -64,7 +60,7 @@ class TestExtendedDuckDBResource:
                 "s3_region": "us-east-1",
                 "s3_use_ssl": False,
                 "s3_url_style": "path",
-            }
+            },
         )
 
         with resource.get_connection() as conn:
@@ -74,19 +70,17 @@ class TestExtendedDuckDBResource:
 
             # Verify S3 settings were applied (if httpfs/aws extensions loaded)
             try:
-                s3_endpoint = conn.execute("SELECT current_setting('s3_endpoint')").fetchone()[0]
+                s3_endpoint = conn.execute(
+                    "SELECT current_setting('s3_endpoint')"
+                ).fetchone()[0]
                 assert s3_endpoint == "localhost:9000"
             except Exception:
                 # Settings might not be available if extensions don't load
                 pytest.skip("S3 settings not available - extensions may not be loaded")
 
-
     def test_multiple_connections(self):
         """Test that multiple connections can be created and work independently."""
-        resource = ExtendedDuckDBResource(
-            database=":memory:",
-            connection_config={}
-        )
+        resource = ExtendedDuckDBResource(database=":memory:", connection_config={})
 
         # Test multiple sequential connections
         with resource.get_connection() as conn1:
@@ -103,10 +97,7 @@ class TestExtendedDuckDBResource:
 
     def test_extension_loading_with_real_database(self):
         """Test that extensions are actually loaded by trying to use them."""
-        resource = ExtendedDuckDBResource(
-            database=":memory:",
-            connection_config={}
-        )
+        resource = ExtendedDuckDBResource(database=":memory:", connection_config={})
 
         with resource.get_connection() as conn:
             # Test basic functionality
@@ -126,10 +117,14 @@ class TestExtendedDuckDBResource:
                 # Check that at least some common extensions are loaded
                 # Note: Not all extensions may be available in all environments
                 expected_extensions = ["httpfs", "aws", "ducklake", "spatial"]
-                loaded_count = sum(1 for ext in expected_extensions if ext in loaded_extensions)
+                loaded_count = sum(
+                    1 for ext in expected_extensions if ext in loaded_extensions
+                )
 
                 # We expect at least one extension to be loaded successfully
-                assert loaded_count > 0, f"No expected extensions loaded. Available: {loaded_extensions}"
+                assert loaded_count > 0, (
+                    f"No expected extensions loaded. Available: {loaded_extensions}"
+                )
 
             except Exception as e:
                 # If we can't query extensions, just ensure basic functionality works

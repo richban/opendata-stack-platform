@@ -36,7 +36,6 @@ def _():
 
     import random
 
-
     # Now insert more data - it will use the new partition spec
     from datetime import datetime, timedelta
 
