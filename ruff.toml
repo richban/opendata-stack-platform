@@ -5,6 +5,11 @@ indent-width = 4
 # Assume Python 3.10+
 target-version = "py310"
 
+# Exclude git submodules and external components
+extend-exclude = [
+    "polaris-console",
+]
+
 [lint]
 # Enable Pyflakes (`F`), pycodestyle (`E`), `B` flake8-bugbear
 select = ["E", "F", "B", "I", "UP", "RUF", "PL", "N", "A", "C4", "DTZ", "T20", "PT", "ERA"]
