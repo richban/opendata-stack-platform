@@ -5,7 +5,7 @@ from collections.abc import Iterable, Iterator
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql.functions import (
     coalesce,
     col,
@@ -20,7 +20,6 @@ from pyspark.sql.functions import (
 from pyspark.sql.streaming import StreamingQuery
 from pyspark.sql.types import StringType, StructType
 
-from streamify.defs.resources import get_executor_redis_client
 from streamify.schemas import (
     CLICKHOUSE_NULL_DEFAULTS,
     ENRICHED_USER_PROFILE_SCHEMA,
@@ -30,8 +29,8 @@ from streamify.schemas import (
 logger = logging.getLogger(__name__)
 
 
-@udf(returnType=StringType())
-def decode_escaped_string(s: str | None) -> str | None:
+
+def _decode_escaped_string_py(s: str | None) -> str | None:
     """Decode unicode/octal-escaped strings (e.g. artist/song names)."""
     if not s:
         return s
@@ -45,6 +44,17 @@ def decode_escaped_string(s: str | None) -> str | None:
         )
     except Exception:
         return s
+
+
+def decode_escaped_string(col_or_name: Column | str) -> Column:
+    """Spark UDF wrapper to decode unicode/octal-escaped string columns.
+
+    Evaluated lazily so it binds to the active Spark session (Connect or Classic).
+    """
+    return udf(_decode_escaped_string_py, returnType=StringType())(col_or_name)
+
+
+decode_escaped_string.func = _decode_escaped_string_py
 
 
 def align_batch_with_redis_profiles(

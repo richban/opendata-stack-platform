@@ -20,9 +20,11 @@ from streamify.defs.resources import (
 )
 from streamify.resources import (
     ClickHouseSink,
+    ClickHouseStreamingResource,
     IcebergSink,
     KafkaSource,
     RedisProfileEnricher,
+    RedisStreamingResource,
     SongsMetadataEnricher,
     StreamingSink,
     StreamingSource,
@@ -178,10 +180,11 @@ def main() -> None:
         spark=spark,
         catalog_path=cfg.songs_catalog_path,
     )
-    redis_enricher = RedisProfileEnricher(
+    redis_resource = RedisStreamingResource(
         host=cfg.executor_redis_host,
         port=cfg.redis_port,
     )
+    redis_enricher = RedisProfileEnricher(resource=redis_resource)
 
     # 3. Sinks
     bronze_sink = IcebergSink(
@@ -190,8 +193,15 @@ def main() -> None:
         table_name=f"bronze_{topic}",
         trigger_interval=cfg.iceberg_trigger_interval,
     )
+    clickhouse_resource = ClickHouseStreamingResource(
+        host=cfg.executor_clickhouse_host,
+        port=cfg.clickhouse_port,
+        username=cfg.clickhouse_user,
+        password=cfg.clickhouse_password,
+        database=cfg.clickhouse_db,
+    )
     clickhouse_sink = ClickHouseSink(
-        resource=clickhouse,
+        resource=clickhouse_resource,
         table_name="silver_playback_events",
         checkpoint_path=cfg.checkpoint_path,
         topic=topic,
