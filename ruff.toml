@@ -2,8 +2,8 @@
 line-length = 90
 indent-width = 4
 
-# Assume Python 3.10+
-target-version = "py310"
+# Assume Python 3.11+
+target-version = "py311"
 
 # Exclude git submodules and external components
 extend-exclude = [
