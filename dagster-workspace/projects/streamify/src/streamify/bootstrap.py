@@ -7,8 +7,18 @@ from collections.abc import Iterable
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType
 
+from streamify.constants import (
+    CLICKHOUSE_PLAYBACK_EVENTS_TABLE,
+    DLQ_TABLE,
+    QUARANTINE_TABLE,
+)
 from streamify.defs.resources import ClickHouseResource
-from streamify.schemas import BRONZE_SCHEMAS, DLQ_SCHEMA
+from streamify.schemas import (
+    BRONZE_SCHEMA,
+    DLQ_SCHEMA,
+    QUARANTINE_SCHEMA,
+    SILVER_SCHEMAS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +35,10 @@ def create_namespace_if_not_exists(
         logger.debug("Namespace creation skipped or already exists: %s", e)
 
 
+def qualify_table(table_name: str, catalog: str | None, namespace: str | None) -> str:
+    return f"{catalog}.{namespace}.{table_name}" if catalog and namespace else table_name
+
+
 def create_table_if_not_exists(  # noqa: PLR0913
     spark: SparkSession,
     table_name: str,
@@ -38,9 +52,7 @@ def create_table_if_not_exists(  # noqa: PLR0913
 
     Supports both session-agnostic table names and fully qualified 3-part names.
     """
-    target_table = (
-        f"{catalog}.{namespace}.{table_name}" if catalog and namespace else table_name
-    )
+    target_table = qualify_table(table_name, catalog, namespace)
 
     spark.sql(
         f"CREATE TABLE IF NOT EXISTS {target_table} ({schema.toDDL()}) "
@@ -56,9 +68,11 @@ def create_table_if_not_exists(  # noqa: PLR0913
 
 def ensure_clickhouse_table_exists(clickhouse: ClickHouseResource) -> None:
     """Create ClickHouse database and ``ReplacingMergeTree`` table if absent."""
+    table_name = CLICKHOUSE_PLAYBACK_EVENTS_TABLE
     logger.info(
-        "Ensuring ClickHouse table '%s.silver_playback_events' exists...",
+        "Ensuring ClickHouse table '%s.%s' exists...",
         clickhouse.database,
+        table_name,
     )
     client = clickhouse.get_client()
     try:
@@ -67,7 +81,7 @@ def ensure_clickhouse_table_exists(clickhouse: ClickHouseResource) -> None:
 
         client.command(f"""
             CREATE TABLE IF NOT EXISTS
-            {clickhouse.database}.silver_playback_events (
+            {clickhouse.database}.{table_name} (
                 event_id String,
                 user_id UInt64,
                 artist String,
@@ -90,7 +104,7 @@ def ensure_clickhouse_table_exists(clickhouse: ClickHouseResource) -> None:
             ORDER BY (state, toYYYYMMDD(event_ts), event_id)
             SETTINGS index_granularity = 8192
         """)
-        logger.info("✓ ClickHouse table 'silver_playback_events' ensured.")
+        logger.info("✓ ClickHouse table '%s' ensured.", table_name)
     finally:
         client.close()
 
@@ -106,14 +120,22 @@ def bootstrap_storage(
     # 1. ClickHouse DDL
     ensure_clickhouse_table_exists(clickhouse)
 
-    # 2. Iceberg Bronze Tables
+    # 2. Iceberg Bronze (raw, schema-on-read) + Silver Tables
     for topic in topics:
-        if topic not in BRONZE_SCHEMAS:
+        if topic not in SILVER_SCHEMAS:
             raise ValueError(f"Schema not registered for topic '{topic}'")
         create_table_if_not_exists(
             spark=spark,
             table_name=f"bronze_{topic}",
-            schema=BRONZE_SCHEMAS[topic],
+            schema=BRONZE_SCHEMA,
+            catalog=catalog,
+            namespace=namespace,
+            partition_col="_ingest_date",
+        )
+        create_table_if_not_exists(
+            spark=spark,
+            table_name=f"silver_{topic}",
+            schema=SILVER_SCHEMAS[topic],
             catalog=catalog,
             namespace=namespace,
             partition_col="event_date",
@@ -122,8 +144,18 @@ def bootstrap_storage(
     # 3. Iceberg DLQ Table
     create_table_if_not_exists(
         spark=spark,
-        table_name="dlq_events_ingestion",
+        table_name=DLQ_TABLE,
         schema=DLQ_SCHEMA,
+        catalog=catalog,
+        namespace=namespace,
+        partition_col="_processing_date",
+    )
+
+    # 4. Iceberg schema-drift quarantine (retryable, unlike the DLQ)
+    create_table_if_not_exists(
+        spark=spark,
+        table_name=QUARANTINE_TABLE,
+        schema=QUARANTINE_SCHEMA,
         catalog=catalog,
         namespace=namespace,
         partition_col="_processing_date",
