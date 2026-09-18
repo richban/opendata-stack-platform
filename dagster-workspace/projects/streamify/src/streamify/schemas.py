@@ -1,4 +1,5 @@
 from pyspark.sql.types import (
+    BinaryType,
     DateType,
     DoubleType,
     IntegerType,
@@ -110,16 +111,16 @@ ENRICHED_USER_PROFILE_SCHEMA = StructType(
     ]
 )
 
-BRONZE_LISTEN_EVENTS_SCHEMA = StructType(LISTEN_EVENTS_SCHEMA.fields + META_SCHEMA)
+SILVER_LISTEN_EVENTS_SCHEMA = StructType(LISTEN_EVENTS_SCHEMA.fields + META_SCHEMA)
 
-BRONZE_PAGE_VIEW_EVENTS_SCHEMA = StructType(PAGE_VIEW_EVENTS_SCHEMA.fields + META_SCHEMA)
+SILVER_PAGE_VIEW_EVENTS_SCHEMA = StructType(PAGE_VIEW_EVENTS_SCHEMA.fields + META_SCHEMA)
 
-BRONZE_AUTH_EVENTS_SCHEMA = StructType(AUTH_EVENTS_SCHEMA.fields + META_SCHEMA)
+SILVER_AUTH_EVENTS_SCHEMA = StructType(AUTH_EVENTS_SCHEMA.fields + META_SCHEMA)
 
-BRONZE_SCHEMAS = {
-    "listen_events": BRONZE_LISTEN_EVENTS_SCHEMA,
-    "page_view_events": BRONZE_PAGE_VIEW_EVENTS_SCHEMA,
-    "auth_events": BRONZE_AUTH_EVENTS_SCHEMA,
+SILVER_SCHEMAS = {
+    "listen_events": SILVER_LISTEN_EVENTS_SCHEMA,
+    "page_view_events": SILVER_PAGE_VIEW_EVENTS_SCHEMA,
+    "auth_events": SILVER_AUTH_EVENTS_SCHEMA,
 }
 
 SCHEMAS = {
@@ -133,6 +134,7 @@ RAW_SCHEMAS = {
     "page_view_events": RAW_PAGE_VIEW_EVENTS_SCHEMA,
     "auth_events": RAW_AUTH_EVENTS_SCHEMA,
 }
+
 
 DLQ_SCHEMA = StructType(
     [
@@ -148,59 +150,39 @@ DLQ_SCHEMA = StructType(
     ]
 )
 
-# ---------------------------------------------------------------------------
-# ClickHouse null defaults (single source of truth)
-# ---------------------------------------------------------------------------
 
-CLICKHOUSE_NULL_DEFAULTS: dict[str, int | float | str] = {
-    "event_id": "",
-    "user_id": 0,
-    "artist": "",
-    "song": "",
-    "duration": 0.0,
-    "session_id": "",
-    "city": "",
-    "state": "",
-    "enriched_first_name": "",
-    "enriched_last_name": "",
-    "enriched_gender": "",
-    "enriched_city": "",
-    "enriched_state": "",
-    "enriched_zip": "",
-    "song_year": "",
-    "artist_location": "",
-}
+# Bronze (raw, schema-on-read) + it stores the
+# untouched Kafka bytes plus the resolved wire metadata.
 
-# Ordered list of columns written to ClickHouse
-CLICKHOUSE_COLUMNS: list[str] = [
-    "event_id",
-    "user_id",
-    "artist",
-    "song",
-    "duration",
-    "event_ts",
-    "session_id",
-    "city",
-    "state",
-    "enriched_first_name",
-    "enriched_last_name",
-    "enriched_gender",
-    "enriched_city",
-    "enriched_state",
-    "enriched_zip",
-    "song_year",
-    "artist_location",
-    "_processing_time",
-]
+BRONZE_SCHEMA = StructType(
+    [
+        StructField("raw_value", BinaryType(), True),
+        StructField("wire_format", StringType(), True),
+        StructField("schema_id", IntegerType(), True),
+        StructField("_kafka_partition", IntegerType(), True),
+        StructField("_kafka_offset", LongType(), True),
+        StructField("_kafka_timestamp", TimestampType(), True),
+        StructField("_ingest_time", TimestampType(), True),
+        StructField("_ingest_date", DateType(), True),
+    ]
+)
 
-
-# Field names fetched from each ``user:<id>`` Redis hash, ordered to match
-# ``ENRICHED_USER_PROFILE_SCHEMA``.
-PROFILE_FIELDS: tuple[str, ...] = (
-    "first_name",
-    "last_name",
-    "gender",
-    "city",
-    "state",
-    "zip_code",
+# Records the consumer cannot yet understand (unregistered or newer schema id,
+# or JSON keys outside the contract). Retryable: replay once the consumer's
+# pinned contract is updated.
+QUARANTINE_SCHEMA = StructType(
+    [
+        StructField("raw_value", BinaryType(), True),
+        StructField("observed_schema_id", IntegerType(), True),
+        StructField("observed_fingerprint", StringType(), True),
+        StructField("expected_fingerprint", StringType(), True),
+        StructField("error_stage", StringType(), True),
+        StructField("error_reason", StringType(), True),
+        StructField("topic", StringType(), True),
+        StructField("_kafka_partition", IntegerType(), True),
+        StructField("_kafka_offset", LongType(), True),
+        StructField("_kafka_timestamp", TimestampType(), True),
+        StructField("_processing_time", TimestampType(), True),
+        StructField("_processing_date", DateType(), True),
+    ]
 )
