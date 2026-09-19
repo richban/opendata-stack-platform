@@ -1,10 +1,13 @@
 """Dagster definitions for Streamify.
 
-Architecture:
-- Streaming assets: Use Dagster Pipes with spark-submit for long-running jobs
-- Batch assets: Use Spark Connect for direct PySpark API access
+Ownership:
+- Streaming (speed layer): ``streamify.main`` — Kafka -> bronze -> ClickHouse.
+  It is the standalone streaming pipeline, not a Dagster asset.
+- Batch (slow layer): Dagster assets in ``streamify.defs.silver_assets`` —
+  bronze -> silver + quarantine + DLQ, plus bronze replay.
 
-All configuration is managed via ConfigurableResources loaded from environment variables.
+All configuration is managed via ConfigurableResources loaded from environment
+variables.
 """
 
 import dagster as dg
