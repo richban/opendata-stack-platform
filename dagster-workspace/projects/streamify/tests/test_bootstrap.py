@@ -4,12 +4,14 @@ from unittest.mock import MagicMock, patch
 
 from dagster_aws.s3 import S3Resource
 from pyspark.sql.types import StructType
+
 from streamify.bootstrap import (
     bootstrap_storage,
     create_namespace_if_not_exists,
     create_table_if_not_exists,
     ensure_clickhouse_table_exists,
 )
+from streamify.constants import CLICKHOUSE_PLAYBACK_EVENTS_TABLE
 from streamify.defs.resources import (
     ClickHouseResource,
     StreamingJobConfig,
@@ -17,6 +19,7 @@ from streamify.defs.resources import (
 )
 
 EXPECTED_DDL_CALLS = 2
+EXPECTED_TABLE_CREATES = 4
 
 
 def test_create_namespace_if_not_exists():
@@ -89,7 +92,7 @@ def test_ensure_clickhouse_table_exists():
     create_db_call = mock_client.command.call_args_list[0][0][0]
     assert "CREATE DATABASE IF NOT EXISTS test_db" in create_db_call
     create_table_call = mock_client.command.call_args_list[1][0][0]
-    assert "silver_playback_events" in create_table_call
+    assert CLICKHOUSE_PLAYBACK_EVENTS_TABLE in create_table_call
     mock_client.close.assert_called_once()
 
 
@@ -112,8 +115,9 @@ def test_bootstrap_storage():
 
         # ClickHouse DDL calls
         assert mock_client.command.call_count == EXPECTED_DDL_CALLS
-        # Spark table creation calls (1 bronze + 1 DLQ)
-        assert mock_create_table.call_count == EXPECTED_DDL_CALLS
+        # Spark table creation calls
+        # (bronze + silver per topic, DLQ, schema-drift quarantine)
+        assert mock_create_table.call_count == EXPECTED_TABLE_CREATES
 
 
 def test_create_s3_resource():

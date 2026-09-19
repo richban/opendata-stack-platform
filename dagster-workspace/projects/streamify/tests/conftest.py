@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from pyspark.sql import SparkSession
+
 from streamify.defs.resources import StreamingJobConfig
 
 

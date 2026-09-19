@@ -7,6 +7,9 @@ from streamify.defs.resources import (
     create_spark_session,
     get_streaming_config,
 )
+from streamify.main import StreamifyDeclarativePipeline
+from streamify.schema_registry import StreamSchemaConfig
+from streamify.wire import WireFormat
 
 
 class TestGetStreamingConfig:
@@ -41,6 +44,31 @@ class TestGetStreamingConfig:
         monkeypatch.setenv("SPARK_REMOTE", "")
         cfg = get_streaming_config()
         assert cfg.spark_remote is None
+
+
+class TestWireFormatRouting:
+    def test_wire_format_lookup(self):
+        pipeline = StreamifyDeclarativePipeline(
+            spark=MagicMock(),
+            config=StreamingJobConfig(),
+            source=MagicMock(),
+            songs_enricher=MagicMock(),
+            redis_enricher=MagicMock(),
+            bronze_sink=MagicMock(),
+            clickhouse_sink=MagicMock(),
+            dlq_sink=MagicMock(),
+            clickhouse=MagicMock(),
+            schema_config=StreamSchemaConfig(
+                wire_format_by_topic={
+                    "listen_events": WireFormat.JSON,
+                    "user_profiles": WireFormat.AVRO,
+                },
+            ),
+        )
+
+        assert pipeline.wire_format_for("listen_events") is WireFormat.JSON
+        assert pipeline.wire_format_for("user_profiles") is WireFormat.AVRO
+        assert pipeline.wire_format_for("unknown") is WireFormat.JSON
 
 
 class TestCreateSparkSession:

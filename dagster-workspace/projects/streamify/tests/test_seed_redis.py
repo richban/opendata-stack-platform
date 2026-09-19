@@ -11,7 +11,7 @@ from streamify import seed_redis
 from streamify.seed_redis import UserProfile, flush_batch_to_redis, should_flush
 
 USER_ID = 42
-EVENT_TS = datetime.datetime(2025, 12, 31, 12, 0, 0, tzinfo=datetime.timezone.utc)
+EVENT_TS = datetime.datetime(2025, 12, 31, 12, 0, 0, tzinfo=datetime.UTC)
 
 
 @pytest.fixture
