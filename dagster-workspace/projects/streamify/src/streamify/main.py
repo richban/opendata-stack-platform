@@ -6,11 +6,13 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
 from pyspark.sql.streaming import StreamingQuery
 
 import streamify.logger  # noqa: F401
 
 from streamify.bootstrap import bootstrap_storage
+from streamify.constants import CLICKHOUSE_PLAYBACK_EVENTS_TABLE, DLQ_TABLE
 from streamify.defs.resources import (
     ClickHouseResource,
     StreamingJobConfig,
@@ -30,10 +32,25 @@ from streamify.resources import (
     StreamingSource,
     StreamTransformer,
 )
+from streamify.schema_registry import StreamSchemaConfig
 from streamify.schemas import RAW_SCHEMAS
-from streamify.transformations import parse_raw_events_with_dlq
+from streamify.transformations.events import (
+    add_event_metadata,
+    decode_raw_events,
+    project_bronze_events,
+    route_corrupt_records,
+)
+from streamify.wire import WireFormat
 
 logger = logging.getLogger(__name__)
+
+
+SCHEMA_CONFIG = StreamSchemaConfig(
+    wire_format_by_topic={
+        "listen_events": WireFormat.JSON,
+        "user_profiles": WireFormat.AVRO,
+    },
+)
 
 
 @contextmanager
@@ -60,10 +77,11 @@ def supervise_streaming_queries(
 
 
 class StreamifyDeclarativePipeline:
-    """Declarative Spark Structured Streaming pipeline for Streamify.
+    """Streaming (speed) layer: Kafka -> bronze (raw) + ClickHouse + DLQ.
 
-    Manages dual sinks: Iceberg lakehouse (bronze) + ClickHouse fast-path
-    (silver / enriched) + Iceberg DLQ table.
+    The batch layer owns silver and quarantine (see
+    ``streamify.defs.silver_assets``). Unparseable payloads are dead-lettered
+    here, at the point of decode.
     """
 
     def __init__(  # noqa: PLR0913, PLR0917
@@ -77,6 +95,7 @@ class StreamifyDeclarativePipeline:
         clickhouse_sink: StreamingSink,
         dlq_sink: StreamingSink,
         clickhouse: ClickHouseResource,
+        schema_config: StreamSchemaConfig | None = None,
     ) -> None:
         self.spark = spark
         self.config = config
@@ -87,6 +106,10 @@ class StreamifyDeclarativePipeline:
         self.clickhouse_sink = clickhouse_sink
         self.dlq_sink = dlq_sink
         self.clickhouse = clickhouse
+        self.schema_config = schema_config or StreamSchemaConfig()
+
+    def wire_format_for(self, topic: str) -> WireFormat:
+        return self.schema_config.wire_format_for(topic)
 
     def init_pipeline(self, topic: str) -> None:
         """Ensure Iceberg namespaces and bronze/DLQ/ClickHouse tables exist."""
@@ -105,11 +128,11 @@ class StreamifyDeclarativePipeline:
         )
 
     def run_topic_stream(self, topic: str = "listen_events") -> None:
-        """Launch the streaming pipeline with dual sinks + DLQ sink."""
+        """Launch the speed layer: bronze (raw) + ClickHouse + DLQ."""
         if topic not in RAW_SCHEMAS:
             raise ValueError(f"Schema not registered for topic '{topic}'")
 
-        raw_schema = RAW_SCHEMAS[topic]
+        wire_format = self.wire_format_for(topic)
 
         # 1. Bootstrap storage/catalog
         self.init_pipeline(topic)
@@ -117,30 +140,39 @@ class StreamifyDeclarativePipeline:
         # 2. Ingest from Source Strategy
         source_df = self.source.read(self.spark)
 
-        # 3. Transformations (splitting into valid & DLQ)
-        base_df, dlq_df = parse_raw_events_with_dlq(source_df, raw_schema, topic)
+        # 3. Bronze: every record, untouched, with its resolved schema id
+        bronze_df = project_bronze_events(source_df, wire_format)
 
-        # 4. Enrichments (broadcast join first, then executor-side Redis lookup)
-        content_enriched_df = self.songs_enricher.transform(base_df)
-        enriched_df = self.redis_enricher.transform(content_enriched_df)
+        queries: list[StreamingQuery] = [self.bronze_sink.write(bronze_df, topic)]
 
-        # 5. Triple sinks
-        #    - Iceberg receives raw parsed base_df (bronze)
-        #    - ClickHouse receives fully enriched_df (silver)
-        #    - Iceberg receives invalid/corrupt records (dlq)
-        iceberg_q: StreamingQuery = self.bronze_sink.write(base_df, topic)
-        clickhouse_q: StreamingQuery = self.clickhouse_sink.write(enriched_df, topic)
-        dlq_q: StreamingQuery = self.dlq_sink.write(dlq_df, topic)
+        if wire_format is WireFormat.JSON:
+            # Decode PERMISSIVE: unparseable payloads land in ``_corrupt_record``
+            # and are dead-lettered; the rest are enriched for the fast path.
+            decoded_df = decode_raw_events(bronze_df, RAW_SCHEMAS[topic])
+            clean_df, corrupt_dlq_df = route_corrupt_records(decoded_df, topic)
+
+            typed_df = add_event_metadata(clean_df).filter(
+                col("userId").isNotNull() & col("ts").isNotNull()
+            )
+            content_enriched_df = self.songs_enricher.transform(typed_df)
+            enriched_df = self.redis_enricher.transform(content_enriched_df)
+
+            queries.extend(
+                [
+                    self.clickhouse_sink.write(enriched_df, topic),
+                    self.dlq_sink.write(corrupt_dlq_df, topic),
+                ]
+            )
 
         logger.info(
-            "✓ Streams started: Iceberg=%s, ClickHouse=%s, DLQ=%s.",
-            iceberg_q.id,
-            clickhouse_q.id,
-            dlq_q.id,
+            "✓ Streams started: sinks=%d, topic=%s, wire_format=%s.",
+            len(queries),
+            topic,
+            wire_format,
         )
 
-        # 6. Lifecycle management via supervisor
-        with supervise_streaming_queries([iceberg_q, clickhouse_q, dlq_q]):
+        # 5. Lifecycle management via supervisor
+        with supervise_streaming_queries(queries):
             try:
                 logger.info("Awaiting termination... Ctrl+C to stop.")
                 self.spark.streams.awaitAnyTermination()
@@ -186,11 +218,17 @@ def main() -> None:
     )
     redis_enricher = RedisProfileEnricher(resource=redis_resource)
 
-    # 3. Sinks
+    # 3. Sinks (speed layer: bronze + ClickHouse + DLQ)
     bronze_sink = IcebergSink(
-        chkpt=f"{cfg.checkpoint_path}/{topic}",
+        chkpt=f"{cfg.checkpoint_path}/{topic}_bronze",
         query_name=f"bronze_{topic}",
         table_name=f"bronze_{topic}",
+        trigger_interval=cfg.iceberg_trigger_interval,
+    )
+    dlq_sink = IcebergSink(
+        chkpt=f"{cfg.checkpoint_path}/{topic}_dlq",
+        query_name=f"dlq_{topic}",
+        table_name=DLQ_TABLE,
         trigger_interval=cfg.iceberg_trigger_interval,
     )
     clickhouse_resource = ClickHouseStreamingResource(
@@ -202,16 +240,10 @@ def main() -> None:
     )
     clickhouse_sink = ClickHouseSink(
         resource=clickhouse_resource,
-        table_name="silver_playback_events",
+        table_name=CLICKHOUSE_PLAYBACK_EVENTS_TABLE,
         checkpoint_path=cfg.checkpoint_path,
         topic=topic,
         trigger_interval=cfg.clickhouse_trigger_interval,
-    )
-    dlq_sink = IcebergSink(
-        chkpt=f"{cfg.checkpoint_path}/{topic}_dlq",
-        query_name=f"dlq_{topic}",
-        table_name="dlq_events_ingestion",
-        trigger_interval=cfg.iceberg_trigger_interval,
     )
 
     # 4. Assemble and run orchestrator
@@ -225,6 +257,7 @@ def main() -> None:
         clickhouse_sink=clickhouse_sink,
         dlq_sink=dlq_sink,
         clickhouse=clickhouse,
+        schema_config=SCHEMA_CONFIG,
     )
     pipeline.run_topic_stream(topic)
 
