@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 
 from collections.abc import Iterable, Iterator
@@ -6,8 +8,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from pyspark.sql import Column, DataFrame, SparkSession
+from pyspark.sql.avro.functions import from_avro
 from pyspark.sql.functions import (
-    coalesce,
     col,
     concat_ws,
     current_timestamp,
@@ -18,16 +20,17 @@ from pyspark.sql.functions import (
     udf,
 )
 from pyspark.sql.streaming import StreamingQuery
-from pyspark.sql.types import StringType, StructType
-
-from streamify.schemas import (
-    CLICKHOUSE_NULL_DEFAULTS,
-    ENRICHED_USER_PROFILE_SCHEMA,
-    PROFILE_FIELDS,
+from pyspark.sql.types import (
+    IntegerType,
+    StringType,
+    StructType,
 )
 
-logger = logging.getLogger(__name__)
+from streamify.constants import CLICKHOUSE_NULL_DEFAULTS, PROFILE_FIELDS
+from streamify.schemas import ENRICHED_USER_PROFILE_SCHEMA
+from streamify.wire import WireFormat, payload_column, schema_id_column
 
+logger = logging.getLogger(__name__)
 
 
 def _decode_escaped_string_py(s: str | None) -> str | None:
@@ -52,9 +55,6 @@ def decode_escaped_string(col_or_name: Column | str) -> Column:
     Evaluated lazily so it binds to the active Spark session (Connect or Classic).
     """
     return udf(_decode_escaped_string_py, returnType=StringType())(col_or_name)
-
-
-decode_escaped_string.func = _decode_escaped_string_py
 
 
 def align_batch_with_redis_profiles(
@@ -183,59 +183,14 @@ def read_kafka_stream(
     )
 
 
-def parse_raw_events_with_dlq(
-    df: DataFrame,
-    schema: StructType,
-    topic: str = "listen_events",
-) -> tuple[DataFrame, DataFrame]:
-    """Parse JSON payload with PERMISSIVE mode, splitting into valid & DLQ DataFrames."""
-    parsed_raw = df.select(
-        col("value").cast("string").alias("_raw_payload"),
-        from_json(
-            col("value").cast("string"),
-            schema,
-            options={
-                "mode": "PERMISSIVE",
-                "columnNameOfCorruptRecord": "_corrupt_record",
-            },
-        ).alias("data"),
-        col("partition").alias("_kafka_partition"),
-        col("offset").alias("_kafka_offset"),
-        col("timestamp").alias("_kafka_timestamp"),
-    )
-    is_corrupt = (
-        col("data._corrupt_record").isNotNull()
-        | col("data").isNull()
-        | col("data.userId").isNull()
-        | col("data.ts").isNull()
-    )
-    # DLQ DataFrame
-    dlq_df = (
-        parsed_raw.filter(is_corrupt)
-        .select(
-            col("_raw_payload").alias("raw_payload"),
-            lit("ingestion").alias("error_stage"),
-            coalesce(
-                col("data._corrupt_record"),
-                lit("Missing required field(s): userId/ts or unparseable payload"),
-            ).alias("error_reason"),
-            lit(topic).alias("topic"),
-            col("_kafka_partition"),
-            col("_kafka_offset"),
-            col("_kafka_timestamp"),
-            current_timestamp().alias("_processing_time"),
-        )
-        .withColumn("_processing_date", to_date(col("_processing_time")))
-    )
-    # filter valid DataFrame
-    valid_parsed = parsed_raw.filter(~is_corrupt).select(
-        "data.*",
-        "_kafka_partition",
-        "_kafka_offset",
-        "_kafka_timestamp",
-    )
-    valid_df = (
-        valid_parsed.withColumn(
+def add_event_metadata(parsed_df: DataFrame) -> DataFrame:
+    """Derive event_id/event_ts/event_date and project the silver column order.
+
+    Expects a frame of decoded event fields plus the envelope columns
+    (``_kafka_*``); those envelope columns are carried through.
+    """
+    return (
+        parsed_df.withColumn(
             "event_id",
             sha2(
                 concat_ws(
@@ -281,7 +236,101 @@ def parse_raw_events_with_dlq(
             "_processing_time",
         )
     )
-    return valid_df, dlq_df
+
+
+def land_raw_events(
+    df: DataFrame,
+    wire_format: WireFormat | str = WireFormat.JSON,
+) -> DataFrame:
+    """Project a Kafka stream into the lossless raw-landing shape.
+
+    Every record is retained verbatim (``raw_value``) with its resolved schema
+    id, so no schema change can discard data. Typing happens downstream.
+    """
+    wf = WireFormat(wire_format)
+    value = col("value")
+
+    if wf is WireFormat.JSON:
+        schema_id = lit(None).cast(IntegerType())
+    else:
+        schema_id = schema_id_column(value)
+
+    return df.select(
+        value.alias("raw_value"),
+        lit(wf.value).alias("wire_format"),
+        schema_id.alias("schema_id"),
+        col("partition").alias("_kafka_partition"),
+        col("offset").alias("_kafka_offset"),
+        col("timestamp").alias("_kafka_timestamp"),
+        current_timestamp().alias("_ingest_time"),
+    ).withColumn("_ingest_date", to_date(col("_ingest_time")))
+
+
+def decode_raw_events(
+    df: DataFrame,
+    schema: StructType | str,
+    *,
+    wire_format: WireFormat = WireFormat.JSON,
+) -> DataFrame:
+    """Decode landed raw bytes into typed columns (schema-on-read).
+
+    Returns the decoded event fields alongside the input frame's columns, so
+    envelope/lineage columns ride along. ``schema`` is a ``StructType`` for
+    JSON (pass ``RAW_SCHEMAS[topic]`` to capture ``_corrupt_record``) or an
+    Avro schema JSON string for Confluent-framed payloads.
+    """
+    if wire_format is WireFormat.JSON:
+        decoded = from_json(
+            col("raw_value").cast("string"),
+            schema,
+            options={
+                "mode": "PERMISSIVE",
+                "columnNameOfCorruptRecord": "_corrupt_record",
+            },
+        )
+    else:
+        decoded = from_avro(payload_column(col("raw_value")), schema)
+
+    return (
+        df.select("*", decoded.alias("data"))
+        .select("*", "data.*")
+        .drop("data", "raw_value")
+    )
+
+
+def route_corrupt_records(
+    decoded_df: DataFrame,
+    topic: str,
+) -> tuple[DataFrame, DataFrame]:
+    """Split PERMISSIVE-decoded events into (clean, DLQ-shaped corrupt).
+
+    Spark populates ``_corrupt_record`` for payloads it could not parse; those
+    rows are projected into the DLQ schema, the rest are returned untouched.
+    """
+    corrupt_df = decoded_df.filter(col("_corrupt_record").isNotNull())
+    clean_df = decoded_df.filter(col("_corrupt_record").isNull())
+
+    dlq_df = corrupt_df.select(
+        col("_corrupt_record").alias("raw_payload"),
+        lit("ingestion").alias("error_stage"),
+        lit("Unparseable payload (PERMISSIVE _corrupt_record)").alias("error_reason"),
+        lit(topic).alias("topic"),
+        col("_kafka_partition"),
+        col("_kafka_offset"),
+        col("_kafka_timestamp"),
+        current_timestamp().alias("_processing_time"),
+    ).withColumn("_processing_date", to_date(col("_processing_time")))
+
+    return clean_df, dlq_df
+
+
+def parse_typed_events(raw_df: DataFrame, schema: StructType) -> DataFrame:
+    """Decode raw bytes with the contract schema and derive event metadata.
+
+    Shared by the speed path (ClickHouse) and the batch silver transform. It
+    does *not* classify or route — that is the batch layer's job.
+    """
+    return add_event_metadata(decode_raw_events(raw_df, schema))
 
 
 def write_iceberg_stream(
