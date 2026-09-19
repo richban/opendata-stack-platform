@@ -37,6 +37,7 @@ def _():
 @app.cell
 def _(create_iceberg_catalog):
     catalog = create_iceberg_catalog()
+    return
 
 
 @app.cell
@@ -56,11 +57,12 @@ def _(sqlalchemy):
 @app.cell
 def _(mo, postgres_engine):
     _df = mo.sql(
-        """
+        f"""
         SELECT * FROM polaris_schema.principal_authentication_data
         """,
-        engine=postgres_engine,
+        engine=postgres_engine
     )
+    return
 
 
 @app.cell(hide_code=True)
@@ -72,23 +74,25 @@ def _(sqlalchemy):
 @app.cell
 def _(mo, sqlite_engine):
     _df = mo.sql(
-        """
+        f"""
         select * from main.dq_results
         """,
-        engine=sqlite_engine,
+        engine=sqlite_engine
     )
+    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         SELECT *
         FROM lakehouse.streamify.bronze_listen_events
         LIMIT 10
         """,
-        engine=con,
+        engine=con
     )
+    return
 
 
 @app.cell
@@ -107,56 +111,62 @@ def _(con):
     """).df()
 
     top_artists
+    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         SELECT * FROM iceberg_snapshots('lakehouse.streamify.bronze_listen_events');
         """,
-        engine=con,
+        engine=con
     )
+    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         select * from lakehouse.streamify.bronze_auth_events
         """,
-        engine=con,
+        engine=con
     )
+    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         SELECT * FROM lakehouse.streamify.bronze_listen_events
         """,
-        engine=con,
+        engine=con
     )
+    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         SELECT * FROM lakehouse.streamify.bronze_page_view_events
         """,
-        engine=con,
+        engine=con
     )
+    return
 
 
 @app.cell
 def _(con, mo):
     _df = mo.sql(
-        """
+        f"""
         SELECT * FROM lakehouse.streamify.silver_auth_events
         """,
-        engine=con,
+        engine=con
     )
+    return
 
 
 @app.cell
