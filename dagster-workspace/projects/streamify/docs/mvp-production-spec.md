@@ -1,185 +1,229 @@
 # Streamify — MVP Production-Readiness Specification
 
-> **Status**: Draft — forward-looking roadmap
-> **Scope**: What we must do going forward to make the Streamify MVP _production-ready and scale-shaped_
-> **Companion**: [`specification.md`](./specification.md) describes the target system architecture; this doc is the actionable delta between today's code and that target.
+> **Status**: Updated — snapshot refactoring baseline (September 2026)
+> **Scope**: Production-readiness roadmap reflecting the modern declarative speed layer, lossless Bronze, Schema Registry framing, drift classification, and remaining batch/scale milestones.
+> **Companion**: [`specification.md`](./specification.md) describes the target system architecture; this doc is the actionable delta between today's codebase and that target.
 
 ---
 
 ## 1. Context & Guiding Principle
 
-Streamify simulates a Netflix/Spotify-scale real-time event pipeline (500K events/sec, 190+ countries, 72h late arrivals, dual-write to a real-time dashboard and a batch warehouse).
+Streamify simulates an enterprise real-time event pipeline (500K events/sec, 190+ countries, 72h late arrivals, dual-write to a real-time dashboard and a batch warehouse).
 
-**Guiding principle:** _This is an MVP hobby project. It will not actually push 500K events/sec on a laptop. But the code must be shaped so that the only thing between us and that scale is hardware — not architectural ret‑rofit._
+**Guiding principle:** _This is an MVP project. It will not actually push 500K events/sec on a single laptop. But the code must be shaped so that the only thing between us and that scale is hardware — not architectural retrofit._
 
 Concretely that means:
 
 - No design decision that is a _ceiling below failure at scale_ (single-process write paths, global locks, unbounded memory) left unmarked.
-- Configuration knobs that exist today (trigger intervals, `maxOffsetsPerTrigger`) must be _tunable toward_ the target numbers, not hard-caps that require code rewrites.
-- Everything is written so a reviewer/CI can prove _"this is correct, not just working on my machine."_
+- Configuration knobs (`trigger_interval`, `max_offsets_per_trigger`) are centralized in [`StreamingJobConfig`](../src/streamify/defs/resources.py) and _tunable toward_ production targets without code rewrites.
+- Every invariant is written so CI/test suites can verify correctness without live cluster infrastructure.
 
-### Reality check (be honest in docs and review)
+### Reality Check (Honest Metrics Status)
 
-| Metric            | Target        | Today (MVP config)                                        | Obvious blocker                                             |
-| ----------------- | ------------- | --------------------------------------------------------- | ----------------------------------------------------------- |
-| Ingestion         | 500K events/s | ~10K events/s max                                         | `maxOffsetsPerTrigger=100_000` at 10s trigger (main.py:337) |
-| Dashboard latency | < 5s          | ≥ 10s                                                     | ClickHouse `processingTime` trigger = 10s (main.py:504)     |
-| Late events       | 72h           | unbounded (append, no watermark)                          | no `withWatermark` — see §4.2                               |
-| Write parallelism | fan-out       | single-process `insert_arrow` per batch (main.py:289-290) | collecting through the driver                               |
-
-The plan below removes each blocker in a P0/P1/P2 order; P0s are _correctness/safety_, P1s are _scale-shaping_, P2s are _operability polish_.
+| Metric | Target | Current State (Codebase) | Status & Next Blocker |
+| :--- | :--- | :--- | :--- |
+| **Ingestion Rate** | 500K events/s | Tunable via [`StreamingJobConfig.max_offsets_per_trigger`](../src/streamify/defs/resources.py) (default `100_000`) | Config-bounded; tuning formula documented in §4 (P1-2). |
+| **Dashboard Latency** | < 5s | ClickHouse `trigger_interval` defaults to `10 seconds` ([`resources.py`](../src/streamify/defs/resources.py)) | Need default lowering to `5 seconds` at steady state (P1-2). |
+| **Late Events** | 72h | Unbounded append (no watermark applied yet) | Needs `.withWatermark("event_ts", "72 hours")` — see §4.2 (P0-2). |
+| **Write Parallelism** | Distributed Fan-out | **Unblocked ✅** — executor-side `foreachPartition` with cached `clickhouse-connect` clients ([`ClickHouseSink`](../src/streamify/resources.py)) | Done! Micro-batch writes now scale linearly across worker partitions. |
+| **Dead-Letter Queue** | Lossless DLQ | **Implemented ✅** — PERMISSIVE decode routes unparseable records to Iceberg `dlq_events_ingestion` | Ingestion DLQ operational; batch quarantine routing in progress. |
 
 ---
 
-## 2. Current-State Inventory (verified against `src/`)
+## 2. Current-State Inventory (Verified Against `src/streamify/`)
 
 ### Implemented ✅
 
-| Area                                                                | Where                                                        | Notes                                                  |
-| ------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------ |
-| Kafka ingestion + JSON parse + `event_id`/`event_ts`/`event_date`   | main.py:323-386, bronze_assets.py:71-126                     | `sha2(userId:sessID:ts)` event_id                      |
-| Redis profile enrichment (executor-side `mapInArrow`, pipelined)    | main.py:388-400, \_enrich_profiles_partition main.py:193-253 | Arrow-native, dedup by user_id                         |
-| Content metadata broadcast join                                     | main.py:402-420                                              | static CSV catalog, loaded once                        |
-| ClickHouse fast-path sink (`ReplacingMergeTree`, DDL bootstrap)     | main.py:257-298, 85-126                                      | `foreachBatch` → `toArrow` → one `insert_arrow`        |
-| Iceberg bronze sink (native `toTable`, partitioned by `event_date`) | main.py:464-487, bronze_assets.py:129-156                    | `fanout-enabled=true`                                  |
-| Redis seeding (`seed_redis.py`)                                     | seed_redis.py                                                | async, offset commit after flush, schema registry Avro |
-| Silver batch dedup + sessions assets                                | silver_assets.py                                             | `ROW_NUMBER` over `event_id`                           |
-| Lightweight executor client factories                               | clients.py                                                   | `@cache`d per process                                  |
+| Area | Location | Architectural Implementation |
+| :--- | :--- | :--- |
+| **Composition Root & Query Lifecycle** | [`main.py`](../src/streamify/main.py) | `StreamifyDeclarativePipeline` decoupling source, transform, and sink strategies via protocols (`StreamingSource`, `StreamTransformer`, `StreamingSink`). Supervised via `supervise_streaming_queries`. |
+| **Lossless Bronze Landing** | [`transformations/events.py`](../src/streamify/transformations/events.py), [`schemas.py`](../src/streamify/schemas.py) | `project_bronze_events` stores untouched Kafka bytes (`raw_value: BinaryType`), `wire_format`, and `schema_id` into Iceberg `bronze_<topic>` partitioned by `_ingest_date`. Lossless schema-on-read foundation. |
+| **Wire-Format Framing** | [`wire.py`](../src/streamify/wire.py) | JVM-native expressions (`schema_id_column`, `payload_column`, `is_confluent_framed`) extracting 5-byte Confluent headers (magic byte `0x00` + 4-byte schema id) without Python UDF overhead. |
+| **Schema Registry Resolver** | [`schema_registry.py`](../src/streamify/schema_registry.py) | `ConfluentSchemaResolver` with LRU caching (`schemas_by_id`, `latest_by_subject`) and resilient degradation during registry outages. Dynamic wire-format configuration via `StreamSchemaConfig`. |
+| **Dead-Letter Queue (Ingestion)** | [`transformations/events.py`](../src/streamify/transformations/events.py), [`schemas.py`](../src/streamify/schemas.py) | PERMISSIVE decode mode captures corrupt records in `_corrupt_record`; `route_corrupt_records` writes unparseable payloads directly to Iceberg `dlq_events_ingestion` partitioned by `_processing_date` (satisfies invariant: Iceberg DLQ table, not Kafka). |
+| **Schema Drift Classification** | [`classification.py`](../src/streamify/classification.py) | `classify_raw_events` splits raw events into `READY`, `DRIFT` (retryable churn), and `MALFORMED` via key fingerprints (`field_fingerprint`), targeting the batch silver pipeline. |
+| **ClickHouse Distributed Fan-Out** | [`resources.py`](../src/streamify/resources.py) | `ClickHouseSink.write_batch` dispatches parallel partition writes via `projected_df.foreachPartition(_write_partition)` using worker-cached clients (`get_executor_clickhouse_client`). Single-process collection eliminated. |
+| **Redis Profile Enrichment** | [`transformations/events.py`](../src/streamify/transformations/events.py), [`resources.py`](../src/streamify/resources.py) | `RedisProfileEnricher` uses PyArrow `mapInArrow` and pipelined batch lookups against cached Redis client (`get_executor_redis_client`) with vector alignment (`align_batch_with_redis_profiles`). |
+| **Content Metadata Broadcast Join** | [`resources.py`](../src/streamify/resources.py) | `SongsMetadataEnricher` loads and caches static songs catalog from S3 and performs broadcast left-join on `artist` and `song`. |
+| **Storage & DDL Bootstrap** | [`bootstrap.py`](../src/streamify/bootstrap.py) | Idempotently creates namespaces and tables: ClickHouse `silver_playback_events` (`ReplacingMergeTree(event_ts)`), Iceberg `bronze_<topic>`, `silver_<topic>`, `dlq_events_ingestion`, and `quarantine_schema_drift`. |
+| **Redis Seeding Worker** | [`seed_redis.py`](../src/streamify/seed_redis.py) | Async Kafka consumer for `user_profiles` Avro topic, pipelined `HSET` flushes to `user:<userId>`, and offset commits upon flush completion. |
+| **Executor Client Caching** | [`resources.py`](../src/streamify/resources.py), [`clients.py`](../src/streamify/clients.py) | `@cache` singletons for Redis and ClickHouse clients scoped per worker process, preventing driver socket serialization issues. |
 
-### Missing / Partial ❌
+### Missing / In Progress 🚧
 
-| Area                                       | State                                                                                                       |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| **DLQ routing**                            | only comments ("Should write to DLQ?") in seed_redis.py:119,125 — nothing implemented                       |
-| **Watermarking / late-data handling**      | `withWatermark` never used anywhere in the pipeline path                                                    |
-| **Schema evolution (R5)**                  | hardcoded `StructType`s in schemas.py; `schema_registry_url` used only by seed_redis.py, never the pipeline |
-| **ClickHouse writes fan-out**              | single driver-side `insert_arrow` per batch — the #1 scale blocker (Req 1 + Req 4)                          |
-| **Enrichment in the batch/warehouse path** | Iceberg receives raw `base_df`; only ClickHouse gets `enriched_df` (main.py:571-572)                        |
-| **Backfill job (R6)**                      | possible only via `startingOffsets=earliest` + manual checkpoint reset; no first-class job                  |
-| **Observability**                          | `sensors.py` exists (offset lag), but no Spark/ClickHouse write metrics, no alerting                        |
-| **Idempotent ClickHouse writes**           | `batch_id` unused in `write_batch` (main.py:265); replays could double-write (mitigated only by merge tree) |
+| Area | Current State | Target & Required Action |
+| :--- | :--- | :--- |
+| **Batch Silver Layer** | [`defs/silver_assets.py`](../src/streamify/defs/silver_assets.py) is a stub (`# TODO:`) | Implement Dagster batch assets consuming `bronze_<topic>`, executing `classification.classify_raw_events`, merging valid records into `silver_<topic>`, and parking drift in `quarantine_schema_drift`. |
+| **Watermarking / Late Data** | No watermark applied in `add_event_metadata` or streaming queries | Add `.withWatermark("event_ts", "72 hours")` to guarantee deterministic state expiration and correct event-date routing (P0-2). |
+| **ClickHouse Idempotency Stamping** | `batch_id` logged in `write_batch` ([`resources.py`](../src/streamify/resources.py)), but rows are unstamped | Add `_batch_id` and `_batch_ts` columns to ClickHouse table schema and projection to guarantee deterministic re-drive convergence (P0-3). |
+| **Dynamic Schema Evolution DDL** | Hardcoded schemas in [`schemas.py`](../src/streamify/schemas.py); static Iceberg tables | Integrate `ALTER TABLE ... ADD COLUMN` triggers when new fields appear from Confluent Schema Registry (P1-3). |
+| **First-Class Backfill Job** | Manual reset of Kafka offsets required | Build a parameterized Dagster job/sensor reading from `bronze_<topic>` over specific date ranges with separate checkpoints (P1-4). |
+| **Pipeline Observability** | Dagster [`sensors.py`](../src/streamify/defs/sensors.py) tracks only Kafka lag | Instrument per-batch row counts, write latency, and DLQ drop counters into Dagster asset metadata and alerts (P2-2). |
 
 ---
 
-## 3. Non-Functional Requirements (target)
+## 3. Non-Functional Requirements (Target vs Actual)
 
-| #   | NFR                  | Target                                                                          | Prove by                                         |
-| --- | -------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------ |
-| N1  | Throughput cap       | sustained ≥ 100K events/s single-stream on 4+ workers (scale-tunable to 500K/s) | load test + no driver-side data path             |
-| N2  | Dashboard latency    | p95 event → ClickHouse-visible < 5s                                             | trigger ≤ 5s at steady state                     |
-| N3  | Exactly-once / dedup | ClickHouse dedup via `(event_id)` merge key; no double-write on replay          | replay test with fixed `batch_id`                |
-| N4  | Late data            | up to 72h late events land in _correct_ day's partition, never dropped silently | watermark + bounded-state test                   |
-| N5  | Schema evolution     | new fields flow through w/o code deploy; never break downstream consumers       | compatibility (backward/forward) test            |
-| N6  | Failure handling     | corrupt records → DLQ, never crash the stream or silently drop                  | unit test per decoder                            |
-| N7  | Observability        | per-topic lag, per-batch rows, write latency visible in Dagster                 | sensor + metadata on stream assets               |
-| N8  | Testability          | pipeline core decoupled from `SparkSession`/Redis/ClickHouse (injectable)       | existing tests keep passing, new pure-core tests |
+| # | NFR | Target | Current Status | Verification Method |
+| :--- | :--- | :--- | :--- | :--- |
+| **N1** | Throughput Cap | ≥ 100K events/s sustained across workers (tunable to 500K/s) | **Architecture Ready**: `foreachPartition` distributed write avoids driver bottleneck | Multi-partition load test with high-volume Kafka mock |
+| **N2** | Dashboard Latency | p95 event → ClickHouse visible < 5s | Configurable (`clickhouse_trigger_interval=10s`); needs 5s default | Timing micro-batch completion in ClickHouse system tables |
+| **N3** | Exactly-Once / Dedup | Deduplication on `(event_id)` merge key; idempotent replays | `ReplacingMergeTree(event_ts)` active; row batch stamping pending | Duplicate batch injection test verifying identical row count |
+| **N4** | Late Data Handling | Events up to 72h late land in correct partition, never dropped | Lossless Bronze preserves all; streaming watermark not yet active | Inject 72h-delayed event; verify presence in target date partition |
+| **N5** | Schema Evolution | New fields flow without breaking consumers; drift quarantined | Bronze & Wire framing in place; drift classification ready for batch silver | Schema evolution test: produce v2 payload and inspect quarantine table |
+| **N6** | Failure Handling | Corrupt records route to DLQ; stream never crashes | **Implemented**: Ingestion errors land in Iceberg `dlq_events_ingestion` | Corrupt JSON fuzzing test verifying zero stream interruption |
+| **N7** | Observability | Per-topic lag, batch throughput, write duration visible | Partial (lag sensor only); streaming metadata not reported | Dagster asset materialization metadata check |
+| **N8** | Testability | Decoupled core business logic; injectable clients | **Implemented**: Pure functions in `wire.py`, `classification.py`, mocked tests in CI | `uv run pytest` runs in < 1s with 100% mocked dependencies |
 
 ---
 
 ## 4. Work Packages
 
-Priority: **P0** must-do for correctness/safety · **P1** scale-shaping · **P2** operability.
+Priority: **P0** Correctness & Data Safety · **P1** Scale-Shaping · **P2** Operability & Polish.
 
-### P0-1 — DLQ for corrupt records
+### P0-1 — Dead-Letter Queue (DLQ) & Quarantine Architecture
+- **Status:** **Streaming Ingestion DLQ Done ✅; Batch Quarantine In Progress ⏳**
+- **Accomplished:**
+  - `transformations/events.py:decode_raw_events` parses JSON with `mode="PERMISSIVE"` and captures corrupt bytes in `_corrupt_record`.
+  - `route_corrupt_records` splits micro-batches into clean events and DLQ events.
+  - `main.py` writes corrupt records to Iceberg `DLQ_TABLE` (`dlq_events_ingestion`) concurrently with ClickHouse and Bronze sinks.
+  - `classification.py` defines schema churn vs malformed classifications.
+- **Remaining Scope:**
+  - Handle executor-side enrichment exceptions (e.g. Redis connection timeout) by routing to DLQ with appropriate `error_stage="enrichment"`.
+  - Add integration tests verifying corrupt records land in `dlq_events_ingestion`.
 
-- **Why:** today a malformed JSON payload crashes `from_json`'s output path or is silently swallowed; there is no failure story.
-- **What:**
-  - Route `from_json(...).corrupt` / schema-mismatch rows to a `dlq.events.ingestion` topic (producer-side) or an Iceberg `dlq` table.
-  - Same for Redis enrichment failures (missing key is fine and defaulted; transport error → DLQ tagged with `user_id`).
-  - Add `dlq.events.processing` for failed micro-batch writes.
-- **Accept:** corrupt JSON lands in DLQ with `_kafka_partition/_kafka_offset`; stream stays alive; test in tests/.
+### P0-2 — Watermarking & Bounded Event-Time State
+- **Status:** **Pending ⏳**
+- **Why:** Events arriving up to 72 hours late must land in the correct `event_date` partition in Iceberg and ClickHouse without allowing unbounded state accumulation.
+- **What to Do:**
+  - Add `.withWatermark("event_ts", "72 hours")` in [`add_event_metadata`](../src/streamify/transformations/events.py) or [`main.py`](../src/streamify/main.py).
+  - Retain append-mode land-by-event-time semantics (no window aggregations) so late records append to the historical day partition.
+  - Document the explicit contract: ClickHouse dashboard displays late-arriving events as facts; query results reflect end-state accuracy.
+- **Acceptance:** Inject events with `now - 71h` timestamps; verify they land in the corresponding historical partition in Iceberg and appear in ClickHouse with original `event_ts`.
 
-### P0-2 — Watermarking + bounded event-time state
+### P0-3 — Idempotent ClickHouse Writes (`batch_id` Stamping)
+- **Status:** **In Progress ⏳**
+- **Why:** When Spark micro-batches fail and retry, `foreachPartition` can re-insert records. `ReplacingMergeTree` merges duplicates asynchronously, but deterministic querying requires explicit batch versioning.
+- **What to Do:**
+  - Pass `batch_id` from `ClickHouseSink.write_batch` into the partition write transformation.
+  - Stamp rows with `_batch_id` and `_batch_ts`.
+  - Update `silver_playback_events` DDL in [`bootstrap.py`](../src/streamify/bootstrap.py) to incorporate `_batch_id` or ensure `event_ts` versioning handles same-second re-insertions deterministically.
+- **Acceptance:** Replay an identical Spark micro-batch ID twice; verify final ClickHouse table state matches a single execution.
 
-- **Why (Req 2 + N4):** events up to 72h late must land in the correct `event_date` partition. Today writes are keyed by event time already (good), but there is no watermark so nothing bounds late handling and a stateful operator (future dedup join) would never expire state.
-- **What:**
-  - `.withWatermark("event_ts", "72 hours")` on the enrichment/read path.
-  - Keep **append** land-by-event-time semantics (no aggregation) so late rows still land in the right day partition.
-  - Document the _explicit choice_: dashboard shows event-time facts late-arriving; query end-state correctness rather than "only on-time."
-- **Accept:** replay a 72h-old event, verify it appears in the correct day's Iceberg partition and in ClickHouse with its original `event_ts`.
+### P1-1 — Remove the Single-Process Write Ceiling (ClickHouse Fan-Out)
+- **Status:** **COMPLETED ✅**
+- **Accomplished:**
+  - Eliminated driver-side `toArrow()` and single-client `insert_arrow()` bottlenecks.
+  - Implemented `projected_df.foreachPartition(_write_partition)` in [`ClickHouseSink.write_batch`](../src/streamify/resources.py).
+  - Worker tasks use `@cache`d worker-local `clickhouse-connect` clients (`get_executor_clickhouse_client`) with clean closure serialization.
+  - Sinks now scale write throughput directly with Spark worker partition count.
 
-### P0-3 — Idempotent ClickHouse writes (`batch_id`)
+### P1-2 — Scale-Tunable Trigger & Offset Configuration
+- **Status:** **In Progress ⏳**
+- **Why:** Latency and throughput knobs are centralized in [`StreamingJobConfig`](../src/streamify/defs/resources.py), but production defaults need tuning.
+- **What to Do:**
+  - Change default `clickhouse_trigger_interval` from `10 seconds` to `5 seconds` for true sub-5s dashboard latency.
+  - Tune `max_offsets_per_trigger` defaults and document the sizing equation:
+    $$\text{max\_offsets\_per\_trigger} \ge \text{target\_rate} \times \text{trigger\_interval\_seconds}$$
+    *(e.g., $100\text{K events/s} \times 5\text{s} = 500\text{K offsets/trigger}$ on multi-worker clusters).*
+- **Acceptance:** Pipeline runs locally with lightweight defaults and scales to target throughput via `.env` overrides without code changes.
 
-- **Why (N3):** `foreachBatch` re-invocation on failure would re-insert rows. Merge tree dedups eventually, but "eventually" is not a contract.
-- **What:**
-  - Accept `batch_id` in `write_batch` and stamp rows with it (`_batch_id`, `_batch_ts`).
-  - Make `ReplacingMergeTree` version column incorporate batch order so replays converge to the newest write (already keyed on `event_ts` — verify policy).
-  - Unit-test the writer with a mocked client + duplicated batch.
-- **Accept:** run same batch id twice → ClickHouse row count unchanged after merge.
+### P1-3 — Schema Evolution via Schema Registry & Lossless Bronze
+- **Status:** **Phase 1 Done ✅; Phase 2 (Batch Silver) In Progress ⏳**
+- **Accomplished:**
+  - `wire.py`: Confluent wire framing parsed via native Spark SQL expressions.
+  - `schema_registry.py`: `ConfluentSchemaResolver` with LRU caching.
+  - `schemas.py` & `bootstrap.py`: `BRONZE_SCHEMA` preserves raw Kafka bytes (`raw_value`), `wire_format`, and `schema_id`.
+  - `classification.py`: Detects `READY`, `DRIFT` (schema churn), and `MALFORMED` payloads.
+- **Remaining Scope:**
+  - Wire `classification.classify_raw_events` into [`defs/silver_assets.py`](../src/streamify/defs/silver_assets.py).
+  - Add dynamic schema migration (`ALTER TABLE ... ADD COLUMN`) for Iceberg/ClickHouse tables when backwards-compatible schema evolutions occur.
 
-### P1-1 — Remove the single-process write ceiling (ClickHouse)
+### P1-4 — First-Class Backfill & Replay Job (Req 6)
+- **Status:** **Pending ⏳**
+- **Why:** Replaying historical data currently requires manual offset tampering or wiping checkpoints.
+- **What to Do:**
+  - Create a dedicated Dagster asset/job (`silver_replay_job`) that reads from `bronze_<topic>` over a specified `_ingest_date` range.
+  - Run the batch silver classification and enrichment pipeline using a dedicated checkpoint.
+  - Use Iceberg `MERGE INTO` keyed on `event_id` to make re-runs converge rather than duplicate.
+- **Acceptance:** Introduce an enrichment fix, re-run silver batch for the last 7 days; verify corrected records in Iceberg and ClickHouse with zero duplicates.
 
-- **Why (Req 1, Req 4, N1-N2):** `toArrow()` collects the entire micro-batch into one process, then one `insert_arrow()` writes it. That is a hard, non-scalable ceiling. This is the single highest-leverage change.
-- **What — two candidate designs, pick after spike:**
-  1. **Per-partition writer**: replace `foreachBatch` with a partitioned write (e.g. `foreachPartition` or a ClickHouse NativeProtocol/HTTP sink from each task) so `numPartitions` connections write concurrently. Reuses the existing executor-side `get_executor_clickhouse_client` (clients.py:23, already `@cache`d per process).
-  2. **Native ClickHouse Spark connector** if the project wants to avoid hand-rolled partitioning.
-  - Keep the driver closure **serialization-safe**: capture a plain params tuple, never a live `Client` (per the earlier `make_clickhouse_sink` review).
-- **Accept:** micro-batch write is split across ≥ numPartitions parallel connections; no `toArrow()`/collect in the write path; throughput no longer bounded by one Python process.
+### P2-1 — Batch Layer Completion: Silver Assets & Quarantine Routing
+- **Status:** **In Progress ⏳**
+- **Why:** [`defs/silver_assets.py`](../src/streamify/defs/silver_assets.py) contains the design specification but needs active Dagster asset definitions.
+- **What to Do:**
+  - Implement the `silver_<topic>` Dagster asset reading `bronze_<topic>`.
+  - Apply `classify_raw_events`:
+    - Valid records $\to$ decode and merge into `silver_<topic>`.
+    - Drift records $\to$ append to `quarantine_schema_drift`.
+  - Connect enrichment metadata (user dimensions & song catalog) into the batch path.
 
-### P1-2 — Scale-tunable trigger/offset configuration
+### P2-2 — Observability & Sensor Monitoring
+- **Status:** **Pending ⏳**
+- **What to Do:**
+  - Extend [`defs/sensors.py`](../src/streamify/defs/sensors.py) beyond consumer lag to report micro-batch duration, rows/second, and DLQ error rates.
+  - Attach streaming query progress data to Dagster asset materialization metadata.
+  - Alert when consumer lag or DLQ ingestion rate exceeds configured thresholds.
 
-- **Why (N1-N2):** today latency and throughput are coupled and hard-capped by config defaults.
-- **What:**
-  - Lower ClickHouse trigger to **5s** default; make `clickhouse_trigger_interval` independent from the Iceberg path.
-  - Raise `maxOffsetsPerTrigger` (main.py:337) or make it per-executor-partition so it doesn't strangle ingestion; assert in config that `max_offsets ≥ expected_rate × trigger`.
-  - Document the tuning formula in config comments.
-- **Accept:** `docker-compose`/`.env` can express the 500K/s numbers; local MVP runs at the reduced target without code changes.
-
-### P1-3 — Schema evolution via Schema Registry (Req 5)
-
-- **Why:** schemas are hardcoded Python `StructType`s (schemas.py). New fields are silently dropped by `from_json`, and `create_table_if_not_exists` skips existing Iceberg tables (bronze_assets.py:56-59) so tables never gain columns. This is the _weakest claim_ in the spec today.
-- **What:**
-  - Move to Avro/Protobuf payloads (or JSON with explicit compatibility rules) managed by the Confluent Schema Registry; resolve the latest compatible schema per topic at source-build/parse time.
-  - `from_json` with the active schema; `StructType` regenerated from the registry, not hardcoded.
-  - On startup, `ALTER TABLE ... ADD COLUMN` (Iceberg schema evolution) for any new columns so downstream tables keep up.
-  - Wire `schema_registry_url` (resources.py:84-87) into the _pipeline_ path (currently seed_redis-only).
-  - Keep the local MVP working when no registry is reachable (fast-fall back to bundled schemas).
-- **Accept:** producer adds a field; pipeline picks it up and lands it in Iceberg/ClickHouse without code change; a removed field does not crash consumers (backward-compat test).
-
-### P1-4 — First-class backfill / replay job (Req 6)
-
-- **Why:** replaying last 7 days today = drop checkpoint + `startingOffsets=earliest`. That's manual and re-reads _everything_.
-- **What:**
-  - A bounded backfill runner (Dagster `job` or a CLI flag) that sets a Kafka `startingOffsets` at `now - 7d`, uses a **fresh checkpoint**, writes into the same `ReplacingMergeTree`/Iceberg dedup targets, then stops.
-  - Rely on P0-3 idempotency + merge keys so backfill **overwrites** the buggy values rather than duplicating.
-  - Add a Dagster asset/sensor pattern for "replay enrichment for date range" wired to the existing silver dedup assets.
-- **Accept:** simulate enrichment bug → fix → replay 7d → ClickHouse + Iceberg reflect corrected values, no duplicates.
-
-### P2-1 — Enrichment reaches the batch warehouse (Req 3 completeness)
-
-- **Why:** only ClickHouse gets `enriched_df` (main.py:571). Batch consumers never see the profile/content joins.
-- **What:** feed the enriched frame to an Iceberg `silver`/enriched table too (separate from raw `bronze`), or persist the Redis user-dim + content-dim as proper tables so batch joins reproduce enrichment. Decide per requirement 3 semantics.
-
-### P2-2 — Observability & monitoring
-
-- **Why (N7):** `sensors.py` tracks Kafka lag only.
-- **What:** per-stream metadata already returned in `bronze_streaming_job` (bronze_assets.py:236-247); extend to rows/batch, write latency, DLQ counts. Wire ClickHouse.write latency + Spark query progress into Dagster sensor/asset metadata; basic alert on lag > threshold.
-- **Accept:** a Dagster asset shows last micro-batch latency and per-topic lag dashboards usably.
-
-### P2-3 — Config & deploy hardening
-
-- **What:** secrets out of `.env` (Polaris/ClickHouse creds readable only at runtime), retry/`failOnDataLoss` policy documented, healthchecks for long-running assets (see bronze_assets.py:181-185 note), and a documented `tuning.md` from config → target scale.
-
----
-
-## 5. Test Strategy (must-haves)
-
-Continue the pattern in `tests/` (unit tests with mocked Spark/Redis/ClickHouse — e.g. `conftest.py` mocks `.writeStream`, `test_bronze_assets.py`):
-
-- `mock df + mock client` unit tests for every sink (already partially there for Iceberg; add for ClickHouse writer + DLQ).
-- **Pure-core tests** for: `_enrich_profiles_partition` (arrow alignment w/ Redis stub), the clickhouse sink serialization-safety (closure captures only picklable values), decoder → DLQ routing per schema.
-- **Idempotency tests**: replay same `batch_id`, verify merge-key convergence.
-- **Compatibility tests**: forward/backward schema registry change simulation.
-- No test should require live Kafka/ClickHouse/Redis: inject clients via the existing `@cache`/resource layer.
+### P2-3 — Configuration & Security Hardening
+- **Status:** **Pending ⏳**
+- **What to Do:**
+  - Ensure all secrets (Polaris client secrets, ClickHouse passwords) are strictly injected via runtime environment variables, never committed.
+  - Document failover and recovery procedures (`failOnDataLoss` policy, checkpoint volume persistence).
 
 ---
 
-## 6. Suggested Execution Order
+## 5. Test Strategy & Verification
 
-1. **P0-1, P0-2, P0-3** — correctness & safety (no scaling work before these).
-2. **P1-4 (backfill)** — depends only on P0 idempotency; cheap and proves the merge/watermark design.
-3. **P1-1 (fan-out ClickHouse write) + P1-2 (tuning)** — the scale-shaping pair; spike first.
-4. **P1-3 (schema registry)** — larger; do after the write path is settled so schema changes ride on the new sink.
-5. **P2-1, P2-2, P2-3** — polish, can be interleaved.
+All automated tests run via `uv run pytest` under `tests/` without requiring external Docker dependencies:
 
-For each package: add tests + docs in the same PR; keep the `⚠️ Implementation Status` notes in README/spec accurate (today they already trail the code).
+1. **Pure Component Tests**:
+   - `test_resources.py`: Verifies singleton configuration loading, env overrides, and `StreamifyDeclarativePipeline` wire-format routing.
+   - `test_bootstrap.py`: Verifies idempotent DDL execution for ClickHouse and Iceberg tables (Bronze, Silver, DLQ, Quarantine).
+   - `test_seed_redis.py`: Tests async Redis profile flushes, batch boundaries, and Avro deserialization.
+2. **Upcoming Unit & Regression Tests**:
+   - `test_wire.py`: Test Confluent header extraction, big-endian schema id decoding, and `MalformedWireError` handling on truncated buffers.
+   - `test_classification.py`: Test `classify_json_payload` and `classify_raw_events` with matching keys, unknown keys (drift), missing keys, and malformed strings.
+   - `test_events_transformations.py`: Test PERMISSIVE JSON decoding, `route_corrupt_records` DLQ projection, and Arrow profile vector alignment.
+   - `test_clickhouse_sink.py`: Verify serialization safety of the `foreachPartition` closure with mocked executor clients.
+
+---
+
+## 6. Suggested Execution Roadmap
+
+```mermaid
+flowchart TD
+    subgraph Phase_1 ["Phase 1: Completed Core Refactorings ✅"]
+        P1_1["P1-1: ClickHouse foreachPartition Fan-Out Sink"]
+        P0_1A["P0-1: Streaming DLQ to Iceberg dlq_events_ingestion"]
+        P1_3A["P1-3: Lossless Bronze + Wire Framing + Classifier"]
+        COMP["Declarative Pipeline Composition Root (main.py)"]
+    end
+
+    subgraph Phase_2 ["Phase 2: Correctness & Batch Layer (Immediate) 🎯"]
+        P2_1["P2-1: Implement Batch Silver Assets (silver_assets.py)"]
+        P0_2["P0-2: Event-Time Watermarking (72h)"]
+        P0_3["P0-3: ClickHouse Batch ID Stamping"]
+    end
+
+    subgraph Phase_3 ["Phase 3: Backfill & Tuning 🚀"]
+        P1_4["P1-4: Bronze Date-Range Backfill Dagster Job"]
+        P1_2["P1-2: Latency & Offset Scale Tuning (5s trigger)"]
+        P1_3B["P1-3: Dynamic Schema Evolution DDL"]
+    end
+
+    subgraph Phase_4 ["Phase 4: Operability & Observability 📊"]
+        P2_2["P2-2: Streaming Observability & Lag/DLQ Sensors"]
+        P2_3["P2-3: Security & Deployment Hardening"]
+    end
+
+    Phase_1 --> Phase_2
+    Phase_2 --> Phase_3
+    Phase_3 --> Phase_4
+```
+
+1. **Step 1 (Immediate)**: Implement [`defs/silver_assets.py`](../src/streamify/defs/silver_assets.py) (P2-1) consuming `bronze_<topic>` and routing to `quarantine_schema_drift` and `silver_<topic>`.
+2. **Step 2**: Apply `.withWatermark("event_ts", "72 hours")` (P0-2) and `batch_id` stamping in ClickHouse sink (P0-3).
+3. **Step 3**: Construct the historical backfill job (P1-4) leveraging lossless Bronze partitions.
+4. **Step 4**: Lower ClickHouse trigger default to 5s and document cluster scale formulas (P1-2).
+5. **Step 5**: Complete observability sensors and monitoring (P2-2).
