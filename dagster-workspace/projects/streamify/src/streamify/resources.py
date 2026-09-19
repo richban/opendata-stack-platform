@@ -17,7 +17,7 @@ from pyspark.sql.types import StructType
 import streamify.logger  # noqa: F401
 
 from streamify.schemas import ENRICHED_USER_PROFILE_SCHEMA
-from streamify.transformations import (
+from streamify.transformations.events import (
     enrich_profiles_partition,
     project_playback_events_for_clickhouse,
     read_kafka_stream,
@@ -35,7 +35,6 @@ def get_executor_redis_client(host: str, port: int) -> redis.Redis:  # type: ign
     in the same Python worker process without reconnecting.
     """
     return redis.Redis(host=host, port=port, decode_responses=True)
-
 
 
 @cache

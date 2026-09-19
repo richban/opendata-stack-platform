@@ -1,8 +1,7 @@
-from __future__ import annotations
-
 import logging
 
 from collections.abc import Iterable, Iterator
+from typing import cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -238,26 +237,26 @@ def add_event_metadata(parsed_df: DataFrame) -> DataFrame:
     )
 
 
-def land_raw_events(
+def project_bronze_events(
     df: DataFrame,
-    wire_format: WireFormat | str = WireFormat.JSON,
+    wire_format: WireFormat = WireFormat.JSON,
 ) -> DataFrame:
-    """Project a Kafka stream into the lossless raw-landing shape.
+    """Project a Kafka stream into the lossless bronze shape.
 
     Every record is retained verbatim (``raw_value``) with its resolved schema
-    id, so no schema change can discard data. Typing happens downstream.
+    id, so no schema change can discard data. Writing to the bronze table is the
+    sink's job; this only builds the frame.
     """
-    wf = WireFormat(wire_format)
     value = col("value")
 
-    if wf is WireFormat.JSON:
+    if wire_format is WireFormat.JSON:
         schema_id = lit(None).cast(IntegerType())
     else:
         schema_id = schema_id_column(value)
 
     return df.select(
         value.alias("raw_value"),
-        lit(wf.value).alias("wire_format"),
+        lit(wire_format.value).alias("wire_format"),
         schema_id.alias("schema_id"),
         col("partition").alias("_kafka_partition"),
         col("offset").alias("_kafka_offset"),
@@ -289,7 +288,7 @@ def decode_raw_events(
             },
         )
     else:
-        decoded = from_avro(payload_column(col("raw_value")), schema)
+        decoded = from_avro(payload_column(col("raw_value")), cast(str, schema))
 
     return (
         df.select("*", decoded.alias("data"))
