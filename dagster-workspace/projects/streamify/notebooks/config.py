@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-import os
+import socket
+import urllib.parse
 
 from dataclasses import dataclass
 
@@ -14,9 +15,37 @@ from obstore.store import S3Store
 from pyiceberg.catalog.rest import RestCatalog
 from pyspark.sql import SparkSession
 
+from streamify.defs.resources import StreamingJobConfig, get_streaming_config
+
 # Configure module logger
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
+
+
+def _normalize_endpoint(url: str) -> str:
+    """Normalize docker-internal hostnames to localhost if unreachable/unresolvable."""
+    if not url:
+        return url
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.hostname:
+            try:
+                socket.gethostbyname(parsed.hostname)
+            except (socket.gaierror, OSError):
+                if parsed.hostname in (
+                    "polaris",
+                    "minio",
+                    "kafka",
+                    "redis",
+                    "clickhouse",
+                    "spark-master",
+                    "spark-connect",
+                ):
+                    netloc = parsed.netloc.replace(parsed.hostname, "localhost")
+                    return urllib.parse.urlunsplit(parsed._replace(netloc=netloc))
+    except Exception:
+        pass
+    return url
 
 
 @dataclass(frozen=True)
@@ -38,24 +67,27 @@ class MinioConfig:
     secret_key: str
 
 
-def get_polaris_config() -> PolarisConfig:
-    """Load Polaris configuration from environment variables.
+def get_polaris_config(config: StreamingJobConfig | None = None) -> PolarisConfig:
+    """Load Polaris configuration from StreamingJobConfig.
 
     Raises:
-        ValueError: If required environment variables are not set.
+        ValueError: If required credentials are not set.
 
     Returns:
         PolarisConfig with connection parameters.
     """
-    client_id = os.getenv("POLARIS_CLIENT_ID")
-    client_secret = os.getenv("POLARIS_CLIENT_SECRET")
-    catalog = os.getenv("POLARIS_CATALOG", "lakehouse")
-    uri = os.getenv("POLARIS_URI", "http://localhost:8181/api/catalog")
+    if config is None:
+        config = get_streaming_config()
+
+    client_id = config.polaris_client_id
+    client_secret = config.polaris_client_secret
+    catalog = config.catalog
+    uri = _normalize_endpoint(config.polaris_uri)
 
     if not client_id:
-        raise ValueError("POLARIS_CLIENT_ID environment variable is not set")
+        raise ValueError("POLARIS_CLIENT_ID is not set in environment or .env files")
     if not client_secret:
-        raise ValueError("POLARIS_CLIENT_SECRET environment variable is not set")
+        raise ValueError("POLARIS_CLIENT_SECRET is not set in environment or .env files")
 
     logger.info("Polaris config: uri=%s, catalog=%s", uri, catalog)
 
@@ -67,15 +99,18 @@ def get_polaris_config() -> PolarisConfig:
     )
 
 
-def get_minio_config() -> MinioConfig:
-    """Load MinIO configuration from environment variables.
+def get_minio_config(config: StreamingJobConfig | None = None) -> MinioConfig:
+    """Load MinIO configuration from StreamingJobConfig.
 
     Returns:
         MinioConfig with connection parameters.
     """
-    endpoint = os.getenv("AWS_ENDPOINT_URL", "http://localhost:9000")
-    access_key = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
-    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
+    if config is None:
+        config = get_streaming_config()
+
+    endpoint = _normalize_endpoint(config.aws_endpoint_url)
+    access_key = config.aws_access_key_id
+    secret_key = config.aws_secret_access_key
 
     logger.info("MinIO config: endpoint=%s", endpoint)
 
@@ -86,15 +121,15 @@ def get_minio_config() -> MinioConfig:
     )
 
 
-def get_s3_store():
-    access_key = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
-    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
+def get_s3_store(minio: MinioConfig | None = None) -> S3Store:
+    if minio is None:
+        minio = get_minio_config()
 
     store = S3Store(
         "lakehouse",
-        access_key_id=access_key,
-        secret_access_key=secret_key,
-        endpoint_url="http://localhost:9000",
+        access_key_id=minio.access_key,
+        secret_access_key=minio.secret_key,
+        endpoint_url=minio.endpoint,
     )
 
     return store
@@ -193,7 +228,8 @@ def create_iceberg_catalog(
 
     Args:
         polaris: Polaris configuration. Uses environment variables if not provided.
-        minio: MinIO configuration for S3 credentials. Uses environment variables if not provided.
+        minio: MinIO configuration for S3 credentials. Uses environment variables
+            if not provided.
 
     Returns:
         Configured PyIceberg RestCatalog.
@@ -205,9 +241,6 @@ def create_iceberg_catalog(
 
     logger.info("Creating PyIceberg REST catalog '%s'...", polaris.catalog)
 
-    # Configure S3 endpoint (remove protocol prefix)
-    s3_endpoint = minio.endpoint.replace("http://", "").replace("https://", "")
-
     catalog = RestCatalog(
         name=polaris.catalog,
         **{
@@ -215,6 +248,7 @@ def create_iceberg_catalog(
             "warehouse": polaris.catalog,
             "credential": f"{polaris.client_id}:{polaris.client_secret}",
             "scope": "PRINCIPAL_ROLE:ALL",
+            "oauth2-server-uri": f"{polaris.uri.rstrip('/')}/v1/oauth/tokens",
             # S3 configuration for MinIO - use static credentials, disable vending.
             "s3.endpoint": minio.endpoint,
             "s3.access-key-id": minio.access_key,
@@ -240,7 +274,8 @@ def create_iceberg_catalog(
 
 
 def create_spark_session(
-    spark_connect_uri: str = "sc://localhost:15002",
+    spark_connect_uri: str | None = None,
+    config: StreamingJobConfig | None = None,
 ) -> tuple[SparkSession, ibis.BaseBackend]:
     """Create Spark session and Ibis connection to remote Spark Connect server.
 
@@ -249,13 +284,19 @@ def create_spark_session(
     The Polaris catalog 'lakehouse' is already configured server-side.
 
     Args:
-        spark_connect_uri: Spark Connect server URI (default: sc://localhost:15002)
+        spark_connect_uri: Spark Connect server URI (default: from config.spark_remote or sc://localhost:15002)
+        config: StreamingJobConfig instance (default: get_streaming_config())
 
     Returns:
         Tuple of (SparkSession, IbisSparkBackend) connected to the remote server
         with Iceberg catalog ready.
     """
-    from pyspark.sql import SparkSession
+    if config is None:
+        config = get_streaming_config()
+
+    if spark_connect_uri is None:
+        spark_connect_uri = config.spark_remote or "sc://localhost:15002"
+    spark_connect_uri = _normalize_endpoint(spark_connect_uri)
 
     logger.info("Connecting to Spark Connect server at %s...", spark_connect_uri)
 

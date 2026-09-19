@@ -65,19 +65,13 @@ def _(mo, postgres_engine):
     return
 
 
-@app.cell(hide_code=True)
-def _(sqlalchemy):
-    sqlite_engine = sqlalchemy.create_engine("sqlite:///dq_results/dq_checks.db")
-    return (sqlite_engine,)
-
-
 @app.cell
-def _(mo, sqlite_engine):
+def _(con, mo):
     _df = mo.sql(
         f"""
-        select * from main.dq_results
+        SHOW TABLES FROM lakehouse.streamify
         """,
-        engine=sqlite_engine
+        engine=con
     )
     return
 
@@ -129,7 +123,7 @@ def _(con, mo):
 def _(con, mo):
     _df = mo.sql(
         f"""
-        select * from lakehouse.streamify.bronze_auth_events
+        SELECT * FROM lakehouse.streamify.silver_listen_events LIMIT 10
         """,
         engine=con
     )
@@ -140,7 +134,7 @@ def _(con, mo):
 def _(con, mo):
     _df = mo.sql(
         f"""
-        SELECT * FROM lakehouse.streamify.bronze_listen_events
+        SELECT * FROM lakehouse.streamify.dlq_events_ingestion LIMIT 10
         """,
         engine=con
     )
@@ -151,26 +145,10 @@ def _(con, mo):
 def _(con, mo):
     _df = mo.sql(
         f"""
-        SELECT * FROM lakehouse.streamify.bronze_page_view_events
+        SELECT * FROM lakehouse.streamify.quarantine_schema_drift LIMIT 10
         """,
         engine=con
     )
-    return
-
-
-@app.cell
-def _(con, mo):
-    _df = mo.sql(
-        f"""
-        SELECT * FROM lakehouse.streamify.silver_auth_events
-        """,
-        engine=con
-    )
-    return
-
-
-@app.cell
-def _():
     return
 
 
